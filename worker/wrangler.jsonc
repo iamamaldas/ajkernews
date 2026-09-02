@@ -1,9 +1,12 @@
 {
-  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "$schema": "node_modules/wrangler/config-schema.json",
   "name": "ajkernews",
   "main": "src/index.js",
-  "compatibility_date": "2026-08-27",
+  "compatibility_date": "2026-09-02",
   "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
   "d1_databases": [
     {
       "binding": "DB",
@@ -15,9 +18,5 @@
     "crons": [
       "0 */3 * * *"
     ]
-  },
-  "observability": {
-    "enabled": true,
-    "head_sampling_rate": 1
   }
 }

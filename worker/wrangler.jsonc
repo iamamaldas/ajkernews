@@ -1,0 +1,22 @@
+{
+  "name": "ajker-news-worker",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-27",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "amaldas-news-db",
+      "database_id": "76d9b3e7-e32a-42af-a538-39e2d659206b"
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "0 */3 * * *"
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}

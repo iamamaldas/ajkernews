@@ -3,6 +3,8 @@ name: Deploy Cloudflare Worker
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'worker/**'
 
 jobs:
   deploy:

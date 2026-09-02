@@ -1,4 +1,4 @@
-name: Deploy Cloudflare Worker
+name: Deploy Worker
 
 on:
   push:
@@ -11,18 +11,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
-
-      - name: Install Dependencies
-        run: npm install
+      - run: npm install
         working-directory: ./worker
-
-      - name: Deploy Worker
-        run: npm run deploy
+      - run: npx wrangler deploy --config wrangler.jsonc
         working-directory: ./worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

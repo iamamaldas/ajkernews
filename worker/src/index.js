@@ -1,7 +1,6 @@
 /**
- * Ajker News (ajkernews.in) — News Worker
- * GNews → Gemini → D1 → Website
- * Updated: 02-Sep-2026 (Love-only + OG sharing)
+ * Ajker News Worker - Complete Backend
+ * D1 Database: ajkernews-db
  */
 
 import webPush from 'web-push';
@@ -86,7 +85,6 @@ export default {
     await ensureTables(env);
 
     try {
-      // === DYNAMIC OG PAGE ===
       if (url.pathname === "/news" && url.searchParams.has("id")) {
         return await serveNewsPage(url, env);
       }
@@ -112,7 +110,10 @@ export default {
         return await handleSubscribe(request, env);
       }
 
-      return new Response("Ajker News Worker is running.", { status: 200, headers: { "content-type": "text/plain; charset=UTF-8" } });
+      return new Response("Ajker News Worker is running.", { 
+        status: 200, 
+        headers: { "content-type": "text/plain; charset=UTF-8" } 
+      });
 
     } catch (error) {
       console.error("Worker error:", error);
@@ -121,7 +122,9 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(updateNews(env).catch(error => { console.error("Scheduled update failed:", error); }));
+    ctx.waitUntil(updateNews(env).catch(error => { 
+      console.error("Scheduled update failed:", error); 
+    }));
   }
 };
 

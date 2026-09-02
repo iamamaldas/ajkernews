@@ -242,7 +242,8 @@
     </button>
 
     <script>
-        const API_URL = 'https://amaldas-news-worker.office-amaldas.workers.dev/api/news';
+        // ===== IMPORTANT: Use YOUR own Worker URL =====
+        const API_URL = 'https://ajker-news-worker.ajkernews.workers.dev/api/news';
         let currentCategory = 'top';
         let currentSearchQuery = '';
         let currentNews = [];
@@ -475,7 +476,7 @@
         // ==================== LOVE (Toggle) ====================
         function toggleLove(id) {
             const deviceId = getDeviceId();
-            fetch('https://amaldas-news-worker.office-amaldas.workers.dev/api/love', {
+            fetch('https://ajker-news-worker.ajkernews.workers.dev/api/love', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id: id, deviceId: deviceId })
@@ -491,7 +492,6 @@
                     document.querySelectorAll(`[data-love-count="${id}"]`).forEach(el => {
                         el.textContent = data.love_count;
                     });
-                    // Update heart fill color
                     document.querySelectorAll(`button[onclick*="toggleLove('${id}')"] svg`).forEach(svg => {
                         svg.setAttribute('fill', data.love_count > 0 ? '#e74c3c' : 'none');
                     });
@@ -509,7 +509,7 @@
             });
         }
 
-        // ==================== SHARE (uses /news route for OG image) ====================
+        // ==================== SHARE ====================
         function shareNews(id, headline, imageUrl) {
             const shareUrl = window.location.origin + '/news?id=' + encodeURIComponent(id);
             const text = headline + ' - Ajker News';
@@ -594,7 +594,7 @@
             body.dataset.currentNewsId = id;
             try {
                 const response = await fetch(
-                    `https://amaldas-news-worker.office-amaldas.workers.dev/api/comments?id=${id}`, { method: 'GET' }
+                    `https://ajker-news-worker.ajkernews.workers.dev/api/comments?id=${id}`, { method: 'GET' }
                 );
                 const data = await response.json();
                 const comments = data.comments || [];
@@ -633,7 +633,7 @@
             if (!text) return alert('মন্তব্য লিখুন!');
             try {
                 const response = await fetch(
-                    'https://amaldas-news-worker.office-amaldas.workers.dev/api/comments', {
+                    'https://ajker-news-worker.ajkernews.workers.dev/api/comments', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ newsId, author, text })

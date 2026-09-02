@@ -1,0 +1,17 @@
+{
+  "name": "Ajker News",
+  "short_name": "Ajker News",
+  "description": "কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর বাংলায়",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    {
+      "src": "assets/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

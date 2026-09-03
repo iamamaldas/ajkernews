@@ -242,8 +242,13 @@
     </button>
 
     <script>
-        // ===== IMPORTANT: Use YOUR own Worker URL =====
-        const API_URL = 'https://ajker-news-worker.ajkernews.workers.dev/api/news';
+        // ===== WORKER BASE URL (ঠিক করে দিন) =====
+        const WORKER_BASE = 'https://ajkernews.ajkernews-1c0.workers.dev';
+        const API_URL = `${WORKER_BASE}/api/news`;
+
+        // ===== VAPID Public Key =====
+        const VAPID_PUBLIC_KEY = 'BP_YE5p4y9ES6_1cRhqKnLGQtlN3MsrMNtaGTOLm90hEs0d4a1JjKx9xW6ovdlTTPHhYr-4wTfymdWZXKYlosJA';
+
         let currentCategory = 'top';
         let currentSearchQuery = '';
         let currentNews = [];
@@ -251,8 +256,6 @@
         let isLoadingNews = false;
         let refreshTimer = null;
         const NEWS_REFRESH_INTERVAL = 24 * 60 * 60 * 1000;
-
-        const VAPID_PUBLIC_KEY = 'BP_YE5p4y9ES6_1cRhqKnLGQtlN3MsrMNtaGTOLm90hEs0d4a1JjKx9xW6ovdlTTPHhYr-4wTfymdWZXKYlosJA';
 
         function getDeviceId() {
             let id = localStorage.getItem('deviceId');
@@ -476,7 +479,7 @@
         // ==================== LOVE (Toggle) ====================
         function toggleLove(id) {
             const deviceId = getDeviceId();
-            fetch('https://ajker-news-worker.ajkernews.workers.dev/api/love', {
+            fetch(`${WORKER_BASE}/api/love`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id: id, deviceId: deviceId })
@@ -557,7 +560,7 @@
                     applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
                 });
 
-                const res = await fetch('/api/subscribe', {
+                const res = await fetch(`${WORKER_BASE}/api/subscribe`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(sub)
@@ -594,7 +597,7 @@
             body.dataset.currentNewsId = id;
             try {
                 const response = await fetch(
-                    `https://ajker-news-worker.ajkernews.workers.dev/api/comments?id=${id}`, { method: 'GET' }
+                    `${WORKER_BASE}/api/comments?id=${id}`, { method: 'GET' }
                 );
                 const data = await response.json();
                 const comments = data.comments || [];
@@ -633,7 +636,7 @@
             if (!text) return alert('মন্তব্য লিখুন!');
             try {
                 const response = await fetch(
-                    'https://ajker-news-worker.ajkernews.workers.dev/api/comments', {
+                    `${WORKER_BASE}/api/comments`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ newsId, author, text })

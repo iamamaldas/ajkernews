@@ -1,3 +1,4 @@
+cat > src/index.js << 'EOF'
 /**
  * Ajker News Worker - Complete Backend
  * D1 Database: ajkernews-db
@@ -595,3 +596,4 @@ function escapeHtml(text) {
   if (!text) return '';
   return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
+EOF

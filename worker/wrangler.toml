@@ -1,4 +1,3 @@
-cat > wrangler.toml << 'EOF'
 name = "ajkernews"
 main = "src/index.js"
 compatibility_date = "2026-09-03"
@@ -14,4 +13,14 @@ crons = ["0 */3 * * *"]
 
 [observability]
 enabled = true
-EOF
+
+[observability.logs]
+enabled = true
+sampling_rate = 1.0
+invocation_logs = true
+persist = true
+
+[observability.traces]
+enabled = true
+sampling_rate = 1.0
+persist = true

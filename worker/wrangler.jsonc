@@ -1,20 +1,12 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-
   "name": "ajkernews",
-
   "main": "src/index.js",
-
-  "compatibility_date": "2026-09-02",
-
-  "compatibility_flags": [
-    "nodejs_compat"
-  ],
-
+  "compatibility_date": "2026-09-03",
+  "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true
   },
-
   "d1_databases": [
     {
       "binding": "DB",
@@ -22,7 +14,6 @@
       "database_id": "4b2145ad-6cf1-42ca-aad8-0d676c98e770"
     }
   ],
-
   "triggers": {
     "crons": [
       "0 */3 * * *"

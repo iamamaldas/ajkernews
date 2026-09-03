@@ -1,4 +1,3 @@
-cat > src/index.js << 'EOF'
 /**
  * Ajker News Worker - Complete Backend
  * D1 Database: ajkernews-db
@@ -9,7 +8,7 @@ import webPush from 'web-push';
 const MAX_NEWS = 200;
 const MAX_SELECTED_NEWS = 5;
 const GNEWS_MAX_RESULTS = 10;
-const GEMINI_MODEL = "gemini-3.6-flash";
+const GEMINI_MODEL = "gemini-2.0-flash";
 
 // বাংলা → ইংরেজি ট্রান্সলিটারেশন
 const BN_TO_EN_MAP = {
@@ -83,9 +82,9 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders() });
     }
 
-    await ensureTables(env);
-
     try {
+      await ensureTables(env);
+
       if (url.pathname === "/news" && url.searchParams.has("id")) {
         return await serveNewsPage(url, env);
       }
@@ -93,20 +92,24 @@ export default {
       if (url.pathname === "/sitemap.xml") return await generateSitemap(env);
 
       if (url.pathname === "/api/news") return await handleGetNews(url, env);
+      
       if (url.pathname === "/api/update") {
         if (request.method !== "POST") return json({ success: false, error: "POST method required" }, 405);
         const result = await updateNews(env);
         return json({ success: true, ...result });
       }
+      
       if (url.pathname === "/api/love") {
         if (request.method !== "POST") return json({ error: "POST required" }, 405);
         return await toggleLove(request, env);
       }
+      
       if (url.pathname === "/api/comments") {
         if (request.method === "GET") return await getComments(url, env);
         if (request.method === "POST") return await addComment(request, env);
         return json({ error: "Method not allowed" }, 405);
       }
+      
       if (url.pathname === "/api/subscribe" && request.method === "POST") {
         return await handleSubscribe(request, env);
       }
@@ -596,4 +599,3 @@ function escapeHtml(text) {
   if (!text) return '';
   return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
-EOF

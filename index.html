@@ -254,8 +254,6 @@
         let currentNews = [];
         let visibleCount = 25;
         let isLoadingNews = false;
-        let refreshTimer = null;
-        const NEWS_REFRESH_INTERVAL = 3 * 60 * 60 * 1000; // প্রতি ৩ ঘণ্টা
 
         function getDeviceId() {
             let id = localStorage.getItem('deviceId');
@@ -455,7 +453,7 @@
                                 </svg>
                                 <span class="action-count" data-love-count="${escapeHtml(news.id)}">${news.love_count}</span>
                             </button>
-                            <button class="action-btn" onclick="shareNews('${news.id}', '${escapeHtml(headline)}', '${escapeHtml(image)}')" title="শেয়ার">
+                            <button class="action-btn" onclick="shareNews('${news.id}', '${escapeHtml(headline)}', '${escapeHtml(summary)}')" title="শেয়ার">
                                 <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
                             </button>
                         </div>
@@ -512,35 +510,20 @@
             });
         }
 
-        // ==================== SHARE (UPDATED - PERFECT LOGIC) ====================
-        function shareNews(id, headline, imageUrl) {
-            const shareUrl = window.location.origin + '/news?id=' + encodeURIComponent(id);
-            const fullText = headline + ' - Ajker News\n\nপূর্ণ সংবাদ পড়ুন: ' + shareUrl + '\n\n📰 Ajker News - বিশ্বস্ত সংবাদ উৎস';
+        // ==================== SHARE (NEW - Only text, no logo/site name) ====================
+        function shareNews(id, headline, summary) {
+            const shortUrl = window.location.origin + '/go/' + id;
+            const text = headline + '\n\n' + summary + '\n\nবিস্তারিত পড়ুন';
             
-            // শুধুমাত্র রিয়েল ইমেজ থাকলেই URL পাঠাবো (http:// দিয়ে শুরু এবং লোগো নয়)
-            const hasValidImage = imageUrl && imageUrl.startsWith('http') && !imageUrl.includes('assets/logo.png');
-
             if (navigator.share) {
-                if (hasValidImage) {
-                    // ✅ ছবি থাকলে: URL পাঠান, OG ট্যাগ থেকে ছবি আসবে
-                    navigator.share({ 
-                        title: headline, 
-                        text: fullText, 
-                        url: shareUrl 
-                    }).catch(() => {});
-                } else {
-                    // ❌ ছবি না থাকলে: টেক্সট সহ লিংক পাঠান
-                    navigator.share({ 
-                        title: headline, 
-                        text: fullText 
-                    }).catch(() => {});
-                }
+                navigator.share({ 
+                    title: headline, 
+                    text: text 
+                }).catch(() => {});
             } else {
-                // ডেস্কটপ/অন্যান্য ব্রাউজারে ক্লিপবোর্ডে কপি
-                const copyText = headline + '\n\n' + shareUrl + '\n\n📰 Ajker News';
-                navigator.clipboard.writeText(copyText)
+                navigator.clipboard.writeText(text)
                     .then(() => alert('✅ লিঙ্ক কপি হয়েছে!'))
-                    .catch(() => alert('শেয়ার করুন: ' + shareUrl));
+                    .catch(() => alert('শেয়ার করুন: ' + shortUrl));
             }
         }
 
@@ -701,7 +684,7 @@
                         <button class="action-btn" onclick="openCommentModal('${news.id}')" title="মন্তব্য">
                             <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
                         </button>
-                        <button class="action-btn" onclick="shareNews('${news.id}', '${escapeHtml(news.headline)}', '${escapeHtml(news.image_url)}')" title="শেয়ার">
+                        <button class="action-btn" onclick="shareNews('${news.id}', '${escapeHtml(news.headline)}', '${escapeHtml(news.summary)}')" title="শেয়ার">
                             <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
                         </button>
                     </div>
@@ -785,28 +768,11 @@
 
         document.getElementById('currentYear').textContent = new Date().getFullYear();
 
-        function startAutomaticNewsRefresh() {
-            if (refreshTimer) clearInterval(refreshTimer);
-            refreshTimer = setInterval(function() {
-                loadNews(currentCategory, currentSearchQuery, { showLoading: false, keepExisting: true });
-            }, NEWS_REFRESH_INTERVAL);
-        }
-
-        document.addEventListener('visibilitychange', function() {
-            if (document.visibilityState === 'visible') {
-                const lastRefresh = localStorage.getItem('lastRefreshTime');
-                const now = Date.now();
-                if (!lastRefresh || (now - parseInt(lastRefresh)) > NEWS_REFRESH_INTERVAL) {
-                    loadNews(currentCategory, currentSearchQuery, { showLoading: false, keepExisting: true });
-                    localStorage.setItem('lastRefreshTime', String(now));
-                }
-            }
-        });
+        // ===== Automatic refresh removed (polling removed) =====
+        // Only load once on page load / refresh
 
         async function initializeNewsSystem() {
             await loadNews('top', '', { showLoading: true, keepExisting: false });
-            localStorage.setItem('lastRefreshTime', String(Date.now()));
-            startAutomaticNewsRefresh();
         }
         initializeNewsSystem();
 

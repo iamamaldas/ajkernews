@@ -512,18 +512,27 @@
             });
         }
 
-        // ==================== SHARE ====================
+        // ==================== SHARE (UPDATED - PERFECT LOGIC) ====================
         function shareNews(id, headline, imageUrl) {
             const shareUrl = window.location.origin + '/news?id=' + encodeURIComponent(id);
             const text = headline + ' - Ajker News';
+
+            // শুধুমাত্র রিয়েল ইমেজ থাকলেই URL পাঠাবো (http:// দিয়ে শুরু এবং লোগো নয়)
+            const hasValidImage = imageUrl && imageUrl.startsWith('http') && !imageUrl.includes('assets/logo.png');
+
             if (navigator.share) {
-                navigator.share({ title: headline, text: text, url: shareUrl }).catch(function() {});
+                if (hasValidImage) {
+                    // ✅ ছবি থাকলে: URL পাঠান, OG ট্যাগ থেকে ছবি আসবে
+                    navigator.share({ title: headline, text: text, url: shareUrl }).catch(() => {});
+                } else {
+                    // ❌ ছবি না থাকলে: শুধু টেক্সট পাঠান (লিংক ছাড়া) -> লোগো আসবে না
+                    navigator.share({ title: headline, text: text }).catch(() => {});
+                }
             } else {
-                navigator.clipboard.writeText(shareUrl + ' ' + text).then(() => {
-                    alert('লিঙ্ক কপি হয়েছে!');
-                }).catch(() => {
-                    alert('শেয়ার করুন: ' + shareUrl);
-                });
+                // ডেস্কটপ/অন্যান্য ব্রাউজারে ক্লিপবোর্ডে কপি (এখানে URL দিলেই সমস্যা নেই)
+                navigator.clipboard.writeText(shareUrl + ' ' + text)
+                    .then(() => alert('লিঙ্ক কপি হয়েছে!'))
+                    .catch(() => alert('শেয়ার করুন: ' + shareUrl));
             }
         }
 

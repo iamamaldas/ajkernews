@@ -8,6 +8,7 @@ on:
 
 jobs:
   deploy:
+    name: Deploy Cloudflare Worker
     runs-on: ubuntu-latest
 
     defaults:
@@ -15,15 +16,13 @@ jobs:
         working-directory: worker
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Node.js 24
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: worker/package-lock.json
 
       - name: Install dependencies
         run: npm install

@@ -15,8 +15,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22' # Node 24 এর বদলে 22 ব্যবহার করছি
-          # cache: 'npm' ← এই লাইনটি সম্পূর্ণ মুছে দিয়েছি, তাই লক ফাইলের কোনো এরর আসবে না
+          node-version: '22' # (আপনি চাইলে 24 রাখতে পারেন, কিন্তু 22 বেশি স্টেবল)
+          # cache: 'npm'  <-- এখানে ক্যাশ লাইনটি মুছে দেওয়া হয়েছে, এটাই মূল সমাধান!
       
       - name: Install dependencies
         run: npm install --no-package-lock

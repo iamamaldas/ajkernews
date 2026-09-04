@@ -18,14 +18,12 @@ jobs:
           node-version: 24
       
       - name: Install dependencies
-        run: |
-          cd worker
-          npm install --no-package-lock
+        run: npm install --no-package-lock
+        working-directory: worker   # ← এই লাইনটি গুরুত্বপূর্ণ
       
       - name: Deploy Worker
-        run: |
-          cd worker
-          npx wrangler deploy
+        run: npx wrangler deploy
+        working-directory: worker   # ← এই লাইনটিও
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

@@ -4,6 +4,8 @@
  */
 
 import webPush from 'web-push';
+import ANALYTICS_CONFIG from './config-analytics.js';
+import ADS_CONFIG from './config-ads.js';
 
 const MAX_NEWS = 200;
 const MAX_SELECTED_NEWS = 5;
@@ -85,6 +87,31 @@ export default {
     try {
       await ensureTables(env);
 
+      // ===== Search Console Verification =====
+      if (url.pathname === ANALYTICS_CONFIG.searchConsole.filePath) {
+        return new Response(ANALYTICS_CONFIG.searchConsole.content, {
+          status: 200,
+          headers: { "content-type": "text/html; charset=UTF-8" }
+        });
+      }
+
+      // ===== ads.txt =====
+      if (url.pathname === "/ads.txt") {
+        return new Response(ADS_CONFIG.adsTxtContent, {
+          status: 200,
+          headers: { "content-type": "text/plain; charset=UTF-8" }
+        });
+      }
+
+      // ===== Short URL Redirect (YouTube style) =====
+      if (url.pathname.startsWith("/go/")) {
+        const id = url.pathname.split("/")[2];
+        if (id) {
+          return Response.redirect(`/news?id=${id}`, 302);
+        }
+        return new Response("Invalid link", { status: 400 });
+      }
+
       if (url.pathname === "/news" && url.searchParams.has("id")) {
         return await serveNewsPage(url, env);
       }
@@ -132,7 +159,6 @@ export default {
         const result = await updateNews(env);
         console.log(`✅ Update completed:`, result);
         
-        // নোটিফিকেশন পাঠান যদি নতুন খবর থাকে
         if (result.stored > 0) {
             await sendPushNotifications(
                 env, 
@@ -147,7 +173,7 @@ export default {
   }
 };
 
-// ==================== SERVE DYNAMIC OG PAGE (UPDATED) ====================
+// ==================== SERVE DYNAMIC OG PAGE ====================
 async function serveNewsPage(url, env) {
   const id = url.searchParams.get("id");
   const result = await env.DB.prepare(
@@ -160,11 +186,9 @@ async function serveNewsPage(url, env) {
 
   const title = result.headline || "Ajker News";
   const description = (result.summary || "").slice(0, 160);
-  // ইমেজ না থাকলে null (লোগো ফallback নেই)
   const image = result.image_url || null; 
   const siteUrl = "https://ajkernews.in";
 
-  // শুধুমাত্র ইমেজ থাকলেই ওপেন গ্রাফ ট্যাগ যুক্ত হবে
   let metaImageTags = '';
   if (image) {
     metaImageTags = `
@@ -172,7 +196,7 @@ async function serveNewsPage(url, env) {
       <meta name="twitter:image" content="${escapeHtml(image)}">`;
   }
 
-  const html = `<!DOCTYPE html>
+  let html = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
@@ -193,6 +217,26 @@ async function serveNewsPage(url, env) {
   <p>Redirecting to <a href="${siteUrl}/?id=${id}">${escapeHtml(title)}</a>...</p>
 </body>
 </html>`;
+
+  // ===== INJECT ANALYTICS & ADS SCRIPTS =====
+  const analyticsScript = `
+<!-- Google Analytics -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=${ANALYTICS_CONFIG.gaTrackingId}"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', '${ANALYTICS_CONFIG.gaTrackingId}');
+</script>
+${ANALYTICS_CONFIG.extraHeadScripts}
+${ADS_CONFIG.adNetworkScripts}
+`;
+
+  html = html.replace('</head>', analyticsScript + '</head>');
+
+  if (ADS_CONFIG.extraFooterScripts) {
+    html = html.replace('</body>', ADS_CONFIG.extraFooterScripts + '</body>');
+  }
 
   return new Response(html, {
     status: 200,
@@ -361,7 +405,8 @@ async function processWithGemini(candidates, env) {
     source: item.source_name,
     title: item.source_title,
     description: item.source_description,
-    published_at: item.published_at  }));
+    published_at: item.published_at
+  }));
 
   const prompt = `You are the senior editor for Ajker News, a Bengali news website. 
 Your task is to select the 5 most important and engaging news stories from the candidates for Bengali readers. 

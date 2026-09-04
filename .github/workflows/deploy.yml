@@ -20,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: |
           cd worker
-          npm install
+          npm install --no-package-lock
       
       - name: Deploy Worker
         run: |

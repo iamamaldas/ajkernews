@@ -8,7 +8,7 @@ import webPush from 'web-push';
 const MAX_NEWS = 200;
 const MAX_SELECTED_NEWS = 5;
 const GNEWS_MAX_RESULTS = 10;
-const GEMINI_MODEL = "gemini-2.0-flash";
+const GEMINI_MODEL = "gemini-3.6-flash";
 
 // বাংলা → ইংরেজি ট্রান্সলিটারেশন
 const BN_TO_EN_MAP = {

@@ -15,15 +15,15 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: '22' # Node 24 এর ওয়ার্নিং এড়াতে Node 22 (LTS) ব্যবহার করা ভালো
       
       - name: Install dependencies
         run: npm install --no-package-lock
-        working-directory: worker   # ← এই লাইনটি গুরুত্বপূর্ণ
+        working-directory: worker
       
       - name: Deploy Worker
         run: npx wrangler deploy
-        working-directory: worker   # ← এই লাইনটিও
+        working-directory: worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

@@ -15,15 +15,9 @@ export default {
     <script type="text/javascript" src="https://cdn.adstera.com/ads/abc123.js"></script>
     -->
 
-    <!-- উদাহরণ: Google AdSense Auto Ads (যদি চান) -->
+    <!-- উদাহরণ: Google AdSense Auto Ads -->
     <!-- 
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-xxxx"></script>
-    <script>
-      (adsbygoogle = window.adsbygoogle || []).push({
-        google_ad_client: "ca-pub-xxxx",
-        enable_page_level_ads: true
-      });
-    </script>
     -->
   `,
 

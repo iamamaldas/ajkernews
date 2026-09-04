@@ -132,7 +132,7 @@ export default {
   }
 };
 
-// ==================== SERVE DYNAMIC OG PAGE ====================
+// ==================== SERVE DYNAMIC OG PAGE (UPDATED) ====================
 async function serveNewsPage(url, env) {
   const id = url.searchParams.get("id");
   const result = await env.DB.prepare(
@@ -145,8 +145,17 @@ async function serveNewsPage(url, env) {
 
   const title = result.headline || "Ajker News";
   const description = (result.summary || "").slice(0, 160);
-  const image = result.image_url || "https://ajkernews.in/assets/logo.png";
+  // ইমেজ না থাকলে null (লোগো ফallback নেই)
+  const image = result.image_url || null; 
   const siteUrl = "https://ajkernews.in";
+
+  // শুধুমাত্র ইমেজ থাকলেই ওপেন গ্রাফ ট্যাগ যুক্ত হবে
+  let metaImageTags = '';
+  if (image) {
+    metaImageTags = `
+      <meta property="og:image" content="${escapeHtml(image)}">
+      <meta name="twitter:image" content="${escapeHtml(image)}">`;
+  }
 
   const html = `<!DOCTYPE html>
 <html>
@@ -155,14 +164,13 @@ async function serveNewsPage(url, env) {
   <title>${escapeHtml(title)} - Ajker News</title>
   <meta property="og:title" content="${escapeHtml(title)}">
   <meta property="og:description" content="${escapeHtml(description)}">
-  <meta property="og:image" content="${escapeHtml(image)}">
   <meta property="og:url" content="${siteUrl}/?id=${id}">
   <meta property="og:type" content="article">
   <meta property="og:site_name" content="Ajker News">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${escapeHtml(title)}">
   <meta name="twitter:description" content="${escapeHtml(description)}">
-  <meta name="twitter:image" content="${escapeHtml(image)}">
+  ${metaImageTags}
   <meta http-equiv="refresh" content="0;url=${siteUrl}/?id=${id}">
   <style>body{font-family:sans-serif;padding:20px;text-align:center}</style>
 </head>

@@ -6,6 +6,7 @@
 import webPush from 'web-push';
 import ANALYTICS_CONFIG from './config-analytics.js';
 import ADS_CONFIG from './config-ads.js';
+import AFFILIATE_CONFIG from './config-affiliate.js';
 
 const MAX_NEWS = 200;
 const MAX_SELECTED_NEWS = 5;
@@ -70,6 +71,13 @@ async function ensureTables(env) {
       endpoint TEXT UNIQUE,
       keys_json TEXT,
       created_at TEXT
+    )`,
+    `CREATE TABLE IF NOT EXISTS affiliate_clicks (
+      id TEXT PRIMARY KEY,
+      affiliate_name TEXT,
+      click_url TEXT,
+      device_id TEXT,
+      created_at TEXT
     )`
   ];
   for (const sql of queries) {
@@ -110,6 +118,33 @@ export default {
           return Response.redirect(`/news?id=${id}`, 302);
         }
         return new Response("Invalid link", { status: 400 });
+      }
+
+      // ===== Affiliate API =====
+      if (url.pathname === "/api/affiliate" && request.method === "GET") {
+        const ref = url.searchParams.get("ref") || "direct";
+        let targetUrl = url.searchParams.get("url");
+        
+        if (!targetUrl && AFFILIATE_CONFIG.redirectMap[ref]) {
+          targetUrl = AFFILIATE_CONFIG.redirectMap[ref];
+        }
+        if (!targetUrl) {
+          targetUrl = AFFILIATE_CONFIG.defaultRedirect;
+        }
+
+        if (AFFILIATE_CONFIG.trackClicks) {
+          try {
+            const deviceId = request.headers.get("CF-Connecting-IP") || "unknown";
+            await env.DB.prepare(
+              `INSERT INTO affiliate_clicks (id, affiliate_name, click_url, device_id, created_at) 
+               VALUES (?, ?, ?, ?, ?)`
+            ).bind(crypto.randomUUID(), ref, targetUrl, deviceId, new Date().toISOString()).run();
+          } catch (e) {
+            console.error("Affiliate log error:", e);
+          }
+        }
+
+        return Response.redirect(targetUrl, 302);
       }
 
       if (url.pathname === "/news" && url.searchParams.has("id")) {
@@ -220,17 +255,17 @@ async function serveNewsPage(url, env) {
 
   // ===== INJECT ANALYTICS & ADS SCRIPTS =====
   const analyticsScript = `
-<!-- Google Analytics -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=${ANALYTICS_CONFIG.gaTrackingId}"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', '${ANALYTICS_CONFIG.gaTrackingId}');
-</script>
-${ANALYTICS_CONFIG.extraHeadScripts}
-${ADS_CONFIG.adNetworkScripts}
-`;
+  <!-- Google Analytics -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=${ANALYTICS_CONFIG.gaTrackingId}"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', '${ANALYTICS_CONFIG.gaTrackingId}');
+  </script>
+  ${ANALYTICS_CONFIG.extraHeadScripts}
+  ${ADS_CONFIG.adNetworkScripts}
+  `;
 
   html = html.replace('</head>', analyticsScript + '</head>');
 

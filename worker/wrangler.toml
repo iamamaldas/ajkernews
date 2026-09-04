@@ -24,10 +24,3 @@ persist = true
 enabled = true
 sampling_rate = 1.0
 persist = true
-
-[vars]
-# এই vars গুলো Worker-এ ইতিমধ্যে Secret হিসেবে আছে
-# GNEWS_API_KEY = "your-key"
-# GEMINI_API_KEY = "your-key"
-# VAPID_PUBLIC_KEY = "your-key"
-# VAPID_PRIVATE_KEY = "your-key"

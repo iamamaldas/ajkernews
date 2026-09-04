@@ -88,6 +88,10 @@
         #newsContainer { min-height:200px; display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start; gap:12px; }
         .empty-news-msg { text-align:center; padding:50px 20px; color:#999999; font-size:18px; background:#fafafa; border-radius:12px; width:100%; border:1px dashed #ddd; }
         .news-card { display:block; width:100%; padding:0; background:#ffffff; border:1px solid #e5e5e5; border-radius:12px; overflow:hidden; text-decoration:none; color:#111111; }
+        .ad-card { display:block; width:100%; padding:0; background:#f8f9fa; border:2px dashed #ff6b6b; border-radius:12px; overflow:hidden; text-decoration:none; color:#111111; }
+        .ad-card .news-body { background:#fff9f9; }
+        .ad-card .news-category { color:#ff6b6b; font-weight:700; }
+        .ad-badge { display:inline-block; background:#ff6b6b; color:#fff; font-size:10px; padding:2px 10px; border-radius:12px; margin-bottom:6px; font-weight:600; letter-spacing:0.5px; }
         .news-image { display:block; width:100%; aspect-ratio:16/9; object-fit:cover; background:#f3f3f3; }
         .news-body { padding:13px 14px 15px; }
         .news-category { display:inline-block; margin-bottom:6px; font-size:12px; font-weight:700; color:#f44336; }
@@ -255,6 +259,28 @@
         let visibleCount = 25;
         let isLoadingNews = false;
 
+        // Personal Ads data (এখানে আপনার অ্যাড বসান)
+        const PERSONAL_ADS = [
+            {
+                id: "ad1",
+                title: "আপনার বিজ্ঞাপন দিন",
+                description: "বাংলার সবচেয়ে বড় নিউজ প্ল্যাটফর্মে বিজ্ঞাপন দিন। লাখ লাখ দর্শকের কাছে পৌঁছান।",
+                link: "https://your-ad-page.com/contact",
+                image: "https://your-image-url.com/ad-banner.png",
+                category: "sponsored"
+            },
+            {
+                id: "ad2",
+                title: "বিশেষ অফার",
+                description: "আজই অর্ডার করুন এবং ৫০% ছাড় পান। সীমিত সময়ের অফার।",
+                link: "https://your-offer-page.com",
+                image: "https://your-image-url.com/offer.png",
+                category: "sponsored"
+            }
+        ];
+        const AD_INTERVAL = 2; // প্রতি 2টি নিউজের পর 1টি অ্যাড
+        let adIndex = 0;
+
         function getDeviceId() {
             let id = localStorage.getItem('deviceId');
             if (!id) {
@@ -420,8 +446,13 @@
                 container.innerHTML = `<div class="empty-news-msg">📰 এই বিভাগে এখন কোনো খবর নেই।</div>`;
                 return;
             }
+
             const limitedNews = newsList.slice(0, visibleCount);
-            const html = limitedNews.map(function(news) {
+            let html = '';
+            let adCounter = 0;
+
+            for (let i = 0; i < limitedNews.length; i++) {
+                const news = limitedNews[i];
                 const image = news.image_url || 'assets/logo.png';
                 const headline = news.headline || news.main_topic || 'সংবাদ';
                 const summary = news.summary || '';
@@ -433,7 +464,8 @@
                     `<a href="javascript:void(0)" onclick="openNewsModal('${news.id}')">${escapeHtml(source)}</a>` :
                     `<span>${escapeHtml(source)}</span>`;
 
-                return `<article class="news-card" data-news-id="${escapeHtml(news.id)}">
+                // নিউজ কার্ড
+                html += `<article class="news-card" data-news-id="${escapeHtml(news.id)}">
                     <img class="news-image" src="${escapeHtml(image)}" alt="${escapeHtml(headline)}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='assets/logo.png';">
                     <div class="news-body">
                         <div class="news-category">${escapeHtml(category)}</div>
@@ -459,7 +491,27 @@
                         </div>
                     </div>
                 </article>`;
-            }).join('');
+
+                adCounter++;
+
+                // প্রতি Nটি নিউজের পর অ্যাড দেখানো (শেষ নিউজের পর নয়)
+                if (adCounter === AD_INTERVAL && i < limitedNews.length - 1) {
+                    const ad = getNextAd();
+                    if (ad) {
+                        html += `<a href="${escapeHtml(ad.link)}" target="_blank" rel="noopener sponsored" class="ad-card">
+                            <div class="news-body">
+                                <div class="ad-badge">📢 বিজ্ঞাপন</div>
+                                <div class="news-category">${escapeHtml(ad.category || 'sponsored')}</div>
+                                <h2 class="news-title">${escapeHtml(ad.title)}</h2>
+                                <p class="news-summary">${escapeHtml(ad.description)}</p>
+                                <div style="margin-top:10px; font-size:13px; color:#ff6b6b; font-weight:600;">বিস্তারিত জানতে ক্লিক করুন →</div>
+                            </div>
+                        </a>`;
+                    }
+                    adCounter = 0;
+                }
+            }
+
             container.innerHTML = html;
             const loadMoreBtn = document.getElementById('loadMoreBtn');
             if (newsList.length > visibleCount) {
@@ -467,6 +519,14 @@
             } else {
                 loadMoreBtn.style.display = 'none';
             }
+        }
+
+        function getNextAd() {
+            if (!PERSONAL_ADS || PERSONAL_ADS.length === 0) return null;
+            // rotateAds = true হলে প্রতিবার ভিন্ন অ্যাড
+            const ad = PERSONAL_ADS[adIndex % PERSONAL_ADS.length];
+            adIndex++;
+            return ad;
         }
 
         function loadMoreNews() {
@@ -510,7 +570,7 @@
             });
         }
 
-        // ==================== SHARE (NEW - Only text, no logo/site name) ====================
+        // ==================== SHARE (NEW - শুধু টেক্সট + বিস্তারিত পড়ুন) ====================
         function shareNews(id, headline, summary) {
             const shortUrl = window.location.origin + '/go/' + id;
             const text = headline + '\n\n' + summary + '\n\nবিস্তারিত পড়ুন';
@@ -768,9 +828,7 @@
 
         document.getElementById('currentYear').textContent = new Date().getFullYear();
 
-        // ===== Automatic refresh removed (polling removed) =====
-        // Only load once on page load / refresh
-
+        // ===== INIT =====
         async function initializeNewsSystem() {
             await loadNews('top', '', { showLoading: true, keepExisting: false });
         }

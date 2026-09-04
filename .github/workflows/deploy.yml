@@ -12,23 +12,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Setup Node.js 24
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: 'npm'
       
       - name: Install dependencies
-        run: npm install
-        working-directory: ./worker
+        run: |
+          cd worker
+          npm install
       
       - name: Deploy Worker
-        run: npx wrangler deploy
-        working-directory: ./worker
+        run: |
+          cd worker
+          npx wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          GNEWS_API_KEY: ${{ secrets.GNEWS_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
-          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}

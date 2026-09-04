@@ -126,9 +126,24 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(updateNews(env).catch(error => { 
-      console.error("Scheduled update failed:", error); 
-    }));
+    console.log(`⏰ [${new Date().toISOString()}] Scheduled update triggered (3-hour interval)`);
+    
+    try {
+        const result = await updateNews(env);
+        console.log(`✅ Update completed:`, result);
+        
+        // নোটিফিকেশন পাঠান যদি নতুন খবর থাকে
+        if (result.stored > 0) {
+            await sendPushNotifications(
+                env, 
+                '📰 নতুন খবর!', 
+                `${result.stored}টি নতুন খবর প্রকাশিত হয়েছে।`, 
+                'https://ajkernews.in/'
+            );
+        }
+    } catch (error) {
+        console.error(`❌ [${new Date().toISOString()}] Scheduled update failed:`, error);
+    }
   }
 };
 
@@ -346,8 +361,7 @@ async function processWithGemini(candidates, env) {
     source: item.source_name,
     title: item.source_title,
     description: item.source_description,
-    published_at: item.published_at
-  }));
+    published_at: item.published_at  }));
 
   const prompt = `You are the senior editor for Ajker News, a Bengali news website. 
 Your task is to select the 5 most important and engaging news stories from the candidates for Bengali readers. 

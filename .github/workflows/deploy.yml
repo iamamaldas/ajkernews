@@ -15,7 +15,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22' # Node 24 এর ওয়ার্নিং এড়াতে Node 22 (LTS) ব্যবহার করা ভালো
+          node-version: '22' # Node 24 এর বদলে 22 ব্যবহার করছি
+          # cache: 'npm' ← এই লাইনটি সম্পূর্ণ মুছে দিয়েছি, তাই লক ফাইলের কোনো এরর আসবে না
       
       - name: Install dependencies
         run: npm install --no-package-lock

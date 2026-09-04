@@ -16,11 +16,9 @@ enabled = true
 
 [observability.logs]
 enabled = true
-# sampling_rate = 1.0   ← এই লাইনটি সরিয়ে ফেলুন
 invocation_logs = true
 persist = true
 
 [observability.traces]
 enabled = true
-# sampling_rate = 1.0   ← এই লাইনটিও সরিয়ে ফেলুন
 persist = true

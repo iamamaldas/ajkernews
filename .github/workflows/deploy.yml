@@ -2,29 +2,34 @@ name: Deploy Worker
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+
+    defaults:
+      run:
+        working-directory: worker
+
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup Node.js
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: '22' # (আপনি চাইলে 24 রাখতে পারেন, কিন্তু 22 বেশি স্টেবল)
-          # cache: 'npm'  <-- এখানে ক্যাশ লাইনটি মুছে দেওয়া হয়েছে, এটাই মূল সমাধান!
-      
+          node-version: 24
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
       - name: Install dependencies
-        run: npm install --no-package-lock
-        working-directory: worker
-      
+        run: npm install
+
       - name: Deploy Worker
-        run: npx wrangler deploy
-        working-directory: worker
+        run: npm run deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

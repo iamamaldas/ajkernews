@@ -28,7 +28,7 @@
     <meta name="twitter:description" content="ajkernews.in-এ পড়ুন কলকাতা, পশ্চিমবঙ্গের সমস্ত জেলা ও ব্লকের খবর, ভারতের রাজনীতি, অর্থনীতি, খেলা, বিনোদন, এবং দেশ-বিদেশের গুরুত্বপূর্ণ সংবাদ।">
     <meta name="twitter:image" content="https://ajkernews.in/assets/logo.png">
     <script type="application/ld+json">
-        { "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in/assets/logo.png", "description": "কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর বাংলায়।" }
+        { "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in/assets/logo.png", "description": "কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর বাংলায়۔" }
     </script>
     <style>
         * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
@@ -258,6 +258,8 @@
         let currentNews = [];
         let visibleCount = 25;
         let isLoadingNews = false;
+        let currentOffset = 0;
+        const PAGE_SIZE = 25;
 
         // Personal Ads data (এখানে আপনার অ্যাড বসান)
         const PERSONAL_ADS = [
@@ -392,6 +394,7 @@
         }
 
         async function loadNews(category = 'top', search = '', options = {}) {
+            currentOffset = 0;
             const { showLoading = true, keepExisting = false } = options;
             const container = document.getElementById('newsContainer');
             if (isLoadingNews) return;
@@ -523,15 +526,57 @@
 
         function getNextAd() {
             if (!PERSONAL_ADS || PERSONAL_ADS.length === 0) return null;
-            // rotateAds = true হলে প্রতিবার ভিন্ন অ্যাড
             const ad = PERSONAL_ADS[adIndex % PERSONAL_ADS.length];
             adIndex++;
             return ad;
         }
 
-        function loadMoreNews() {
-            visibleCount += 25;
-            renderNews(currentNews);
+        // ==================== LOAD MORE (OFFSET BASED) ====================
+        async function loadMoreNews() {
+            const loadMoreBtn = document.getElementById('loadMoreBtn');
+            loadMoreBtn.textContent = '⏳ লোড হচ্ছে...';
+            loadMoreBtn.disabled = true;
+            
+            try {
+                currentOffset += PAGE_SIZE;
+                const params = new URLSearchParams();
+                params.set('category', currentCategory || 'top');
+                params.set('offset', String(currentOffset));
+                if (currentSearchQuery) params.set('q', currentSearchQuery);
+                params.set('_t', Date.now().toString());
+                
+                const url = API_URL + '?' + params.toString();
+                const response = await fetch(url, { 
+                    method: 'GET', 
+                    headers: { 'Accept': 'application/json' },
+                    cache: 'no-store'
+                });
+                
+                if (!response.ok) throw new Error('API error');
+                const data = await response.json();
+                
+                if (!data.news || data.news.length === 0) {
+                    loadMoreBtn.textContent = '📭 আর কোনো খবর নেই';
+                    loadMoreBtn.disabled = true;
+                    return;
+                }
+                
+                const newNews = data.news.map(normalizeNews).filter(Boolean);
+                currentNews = [...currentNews, ...newNews];
+                renderNews(currentNews);
+                
+                if (newNews.length < PAGE_SIZE) {
+                    loadMoreBtn.textContent = '📭 সব খবর দেখানো হয়েছে';
+                    loadMoreBtn.disabled = true;
+                } else {
+                    loadMoreBtn.textContent = 'আরও খবর দেখুন';
+                    loadMoreBtn.disabled = false;
+                }
+            } catch (error) {
+                console.error('Load more error:', error);
+                loadMoreBtn.textContent = '⚠️ আবার চেষ্টা করুন';
+                loadMoreBtn.disabled = false;
+            }
         }
 
         // ==================== LOVE (Toggle) ====================
@@ -570,20 +615,32 @@
             });
         }
 
-        // ==================== SHARE (NEW - শুধু টেক্সট + বিস্তারিত পড়ুন) ====================
+        // ==================== SHARE (১.৫ লাইন + CTA + /go/ লিংক) ====================
         function shareNews(id, headline, summary) {
-            const shortUrl = window.location.origin + '/go/' + id;
-            const text = headline + '\n\n' + summary + '\n\nবিস্তারিত পড়ুন';
+            const MAX_CHARS = 135;
+            let cleanSummary = summary.replace(/\s+/g, ' ').trim();
+            let shareSummary = '';
+
+            if (cleanSummary.length <= MAX_CHARS) {
+                shareSummary = cleanSummary;
+            } else {
+                let cutIndex = cleanSummary.lastIndexOf(' ', MAX_CHARS);
+                if (cutIndex === -1) cutIndex = MAX_CHARS;
+                shareSummary = cleanSummary.substring(0, cutIndex);
+            }
+
+            const shareUrl = window.location.origin + '/go/' + id;
+            const text = `📰 ${headline}\n\n${shareSummary}...\n\n🔗 পুরো খবরটি পড়তে এখনই ক্লিক করুন:\n${shareUrl}`;
             
             if (navigator.share) {
                 navigator.share({ 
-                    title: headline, 
-                    text: text 
+                    title: headline,
+                    text: text
                 }).catch(() => {});
             } else {
                 navigator.clipboard.writeText(text)
-                    .then(() => alert('✅ লিঙ্ক কপি হয়েছে!'))
-                    .catch(() => alert('শেয়ার করুন: ' + shortUrl));
+                    .then(() => alert('✅ লিংক কপি হয়েছে! শেয়ার করে বন্ধুদের জানান।'))
+                    .catch(() => alert('কপি করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।'));
             }
         }
 

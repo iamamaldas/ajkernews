@@ -13,23 +13,23 @@
     <meta name="theme-color" content="#ffffff">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="apple-touch-icon" href="assets/logo.png">
-    <link rel="icon" type="image/png" href="assets/logo.png">
+    <link rel="apple-touch-icon" href="/assets/logo.png">
+    <link rel="icon" type="image/png" href="/assets/logo.png">
     <!-- OG ট্যাগ হোমপেজের জন্য – শেয়ার পেজের জন্য আলাদা (Worker) -->
     <meta property="og:title" content="Ajker News | আজকের নিউজ - কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর">
     <meta property="og:description" content="ajkernews.in-এ পড়ুন কলকাতা, পশ্চিমবঙ্গের সমস্ত জেলা ও ব্লকের খবর, ভারতের রাজনীতি, অর্থনীতি, খেলা, বিনোদন, এবং দেশ-বিদেশের গুরুত্বপূর্ণ সংবাদ।">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://ajkernews.in/">
-    <meta property="og:image" content="https://ajkernews.in/assets/logo.png">
+    <meta property="og:image" content="https://ajkernews.in//assets/logo.png">
     <meta property="og:image:width" content="512">
     <meta property="og:image:height" content="512">
     <meta property="og:site_name" content="Ajker News">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Ajker News | আজকের নিউজ - কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর">
     <meta name="twitter:description" content="ajkernews.in-এ পড়ুন কলকাতা, পশ্চিমবঙ্গের সমস্ত জেলা ও ব্লকের খবর, ভারতের রাজনীতি, অর্থনীতি, খেলা, বিনোদন, এবং দেশ-বিদেশের গুরুত্বপূর্ণ সংবাদ।">
-    <meta name="twitter:image" content="https://ajkernews.in/assets/logo.png">
+    <meta name="twitter:image" content="https://ajkernews.in//assets/logo.png">
     <script type="application/ld+json">
-        { "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in/assets/logo.png", "description": "কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর বাংলায়।" }
+        { "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in//assets/logo.png", "description": "কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর বাংলায়।" }
     </script>
     <style>
         /* আপনার পুরানো CSS – ঠিক রাখুন */
@@ -156,7 +156,7 @@
     <div class="header">
         <div class="header-left">
             <a href="/" class="header-home-link" aria-label="Ajker News Home">
-                <img src="assets/logo.png" class="header-logo" alt="Ajker News Logo">
+                <img src="/assets/logo.png" class="header-logo" alt="Ajker News Logo">
                 <h1>আজকের নিউজ</h1>
             </a>
         </div>
@@ -341,7 +341,7 @@
                 summary: news.summary || news.description || '',
                 main_topic: news.main_topic || news.headline || '',
                 category: news.category || 'general',
-                image_url: news.image_url || news.image || news.thumbnail || 'assets/logo.png',
+                image_url: news.image_url || news.image || news.thumbnail || '/assets/logo.png',
                 published_at: news.published_at || news.created_at || '',
                 source_name: news.source_name || news.source || 'Ajker News',
                 source_url: news.source_url || news.url || '',
@@ -450,15 +450,23 @@
             try {
                 const params = new URLSearchParams();
                 params.set('category', category || 'all');
-                params.set('_t', Date.now().toString());
-                if (search) params.set('q', search);
+                                if (search) params.set('q', search);
                 const url = API_URL + '?' + params.toString();
-                const response = await fetch(url, {
-                    method: 'GET',
-                    headers: { 'Accept': 'application/json' },
-                    cache: 'no-store',
-                    credentials: 'omit'
-                });
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+                let response;
+                try {
+                    response = await fetch(url, {
+                        method: 'GET',
+                        headers: { 'Accept': 'application/json' },
+                        cache: 'default',
+                        credentials: 'omit',
+                        signal: controller.signal
+                    });
+                } finally {
+                    clearTimeout(timeoutId);
+                }
                 if (!response.ok) throw new Error('News API HTTP ' + response.status);
                 const data = await response.json();
                 if (!data || !Array.isArray(data.news)) throw new Error('Invalid news response');
@@ -490,7 +498,7 @@
 
             for (let i = 0; i < limitedNews.length; i++) {
                 const news = limitedNews[i];
-                const image = news.image_url || 'assets/logo.png';
+                const image = news.image_url || '/assets/logo.png';
                 const headline = news.headline || news.main_topic || 'সংবাদ';
                 const summary = news.summary || '';
                 const category = getCategoryLabel(news.category);
@@ -506,7 +514,7 @@
                 const safeSummary = summary.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
 
                 html += `<article class="news-card" data-news-id="${escapeHtml(news.id)}">
-                    <img class="news-image" src="${escapeHtml(image)}" alt="${escapeHtml(headline)}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='assets/logo.png';">
+                    <img class="news-image" src="${escapeHtml(image)}" alt="${escapeHtml(headline)}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='/assets/logo.png';">
                     <div class="news-body">
                         <div class="news-category">${escapeHtml(category)}</div>
                         <h2 class="news-title">${escapeHtml(headline)}</h2>
@@ -578,8 +586,7 @@
                 params.set('category', currentCategory || 'top');
                 params.set('offset', String(currentOffset));
                 if (currentSearchQuery) params.set('q', currentSearchQuery);
-                params.set('_t', Date.now().toString());
-                const url = API_URL + '?' + params.toString();
+                                const url = API_URL + '?' + params.toString();
                 const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' }, cache: 'no-store' });
                 if (!response.ok) throw new Error('API error');
                 const data = await response.json();
@@ -642,32 +649,46 @@
         }
 
         // ==================== SHARE ====================
-        function shareNews(id, headline, summary) {
+        async function shareNews(id, headline, summary) {
             const MAX_CHARS = 135;
-            let cleanSummary = summary.replace(/\s+/g, ' ').trim();
-            let shareSummary = '';
-            if (cleanSummary.length <= MAX_CHARS) {
-                shareSummary = cleanSummary;
-            } else {
-                let cutIndex = cleanSummary.lastIndexOf(' ', MAX_CHARS);
+            const cleanSummary = String(summary || '').replace(/\s+/g, ' ').trim();
+            let shareSummary = cleanSummary;
+
+            if (shareSummary.length > MAX_CHARS) {
+                let cutIndex = shareSummary.lastIndexOf(' ', MAX_CHARS);
                 if (cutIndex === -1) cutIndex = MAX_CHARS;
-                shareSummary = cleanSummary.substring(0, cutIndex);
+                shareSummary = shareSummary.substring(0, cutIndex);
             }
-            const shareUrl = window.location.origin + '/go/' + id;
-            const text = `📰 ${headline}\n\n${shareSummary}...\n\n🔗 পুরো খবরটি পড়তে এখনই ক্লিক করুন:\n${shareUrl}`;
-            
-            if (navigator.share) {
-                navigator.share({ title: headline, text: text })
-                    .catch(() => {
-                        // যদি শেয়ার ফেল হয়, কপি করার অপশন দিন
-                        navigator.clipboard.writeText(text)
-                            .then(() => alert('✅ লিংক কপি হয়েছে! শেয়ার করে বন্ধুদের জানান।'))
-                            .catch(() => alert('শেয়ার বা কপি করতে সমস্যা হয়েছে। ম্যানুয়ালি কপি করুন।'));
-                    });
-            } else {
-                navigator.clipboard.writeText(text)
-                    .then(() => alert('✅ লিংক কপি হয়েছে! শেয়ার করে বন্ধুদের জানান।'))
-                    .catch(() => alert('কপি করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।'));
+
+            // Canonical share URL: it always opens the normal Ajker News homepage.
+            const shareUrl = 'https://ajkernews.in/go/' + encodeURIComponent(id);
+            const text = `📰 ${headline}\n\n${shareSummary}${cleanSummary.length > MAX_CHARS ? '...' : ''}\n\n🔗 পুরো খবরটি পড়তে এখনই ক্লিক করুন:\n${shareUrl}`;
+
+            try {
+                if (navigator.share) {
+                    await navigator.share({ title: headline, text, url: shareUrl });
+                    return;
+                }
+
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(text);
+                    alert('✅ লিংক কপি হয়েছে! শেয়ার করে বন্ধুদের জানান।');
+                    return;
+                }
+
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                textarea.remove();
+                alert('✅ লিংক কপি হয়েছে! শেয়ার করে বন্ধুদের জানান।');
+            } catch (error) {
+                if (error && error.name === 'AbortError') return;
+                console.error('Share error:', error);
+                alert('শেয়ার বা কপি করতে সমস্যা হয়েছে।');
             }
         }
 
@@ -802,7 +823,7 @@
             const formattedTime = formatDate(displayDate);
             const html = `
                 <div style="padding:4px 0 8px 0;">
-                    <img src="${escapeHtml(news.image_url || 'assets/logo.png')}" style="width:100%; border-radius:8px; margin-bottom:14px;" alt="${escapeHtml(news.headline)}">
+                    <img src="${escapeHtml(news.image_url || '/assets/logo.png')}" style="width:100%; border-radius:8px; margin-bottom:14px;" alt="${escapeHtml(news.headline)}" loading="eager" decoding="async" onerror="this.onerror=null;this.src='/assets/logo.png';">
                     <h2 style="font-size:22px; line-height:1.4; margin-bottom:10px;">${escapeHtml(news.headline)}</h2>
                     <p style="font-size:15px; line-height:1.7; color:#444; margin-bottom:12px;">${escapeHtml(news.summary)}</p>
                     <div style="font-size:12px; color:#888; margin-bottom:14px;">${escapeHtml(formattedTime)}</div>
@@ -902,21 +923,33 @@
         document.getElementById('currentYear').textContent = new Date().getFullYear();
 
         // ===== INIT =====
-        (function initApp() {
+        // Shared links keep the exact homepage design and open the article only
+        // after the normal homepage has rendered.
+        (async function initApp() {
             const urlParams = new URLSearchParams(window.location.search);
             const newsId = urlParams.get('id');
-            if (newsId) {
-                window.history.replaceState({}, '', '/');
-                openNewsById(newsId);
+            const goPath = window.location.pathname;
+            const goId = goPath.startsWith('/go/') ? goPath.split('/')[2] : null;
+            const sharedId = newsId || goId;
+
+            if (sharedId) {
+                if (window.location.pathname !== '/' || window.location.search) {
+                    window.history.replaceState({}, '', '/');
+                }
+                await loadNews('top', '', { showLoading: true, keepExisting: false });
+                await openNewsById(sharedId);
             } else {
-                handleGoLink();
+                await loadNews('top', '', { showLoading: true, keepExisting: false });
             }
-            loadNews('top', '', { showLoading: true, keepExisting: false });
         })();
 
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js')
-                .then(() => console.log('Service Worker registered'))
+            navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
+                .then(reg => {
+                    if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                    reg.update().catch(() => {});
+                    console.log('Service Worker registered');
+                })
                 .catch(err => console.error('SW registration failed:', err));
         }
     </script>

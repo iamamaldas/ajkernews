@@ -649,106 +649,93 @@
         }
 
         // ==================== SHARE ====================
-        async function shareNews(id, headline, summary) {
-            const MAX_CHARS = 135;
-            const cleanSummary = String(summary || '').replace(/\s+/g, ' ').trim();
-            let shareSummary = cleanSummary;
+async function shareNews(id, headline, summary) {
+    const MAX_CHARS = 135;
 
-            if (shareSummary.length > MAX_CHARS) {
-                let cutIndex = shareSummary.lastIndexOf(' ', MAX_CHARS);
-                if (cutIndex === -1) cutIndex = MAX_CHARS;
-                shareSummary = shareSummary.substring(0, cutIndex);
-            }
+    const cleanSummary = String(summary || '')
+        .replace(/\s+/g, ' ')
+        .trim();
 
-            // Canonical share URL: it always opens the normal Ajker News homepage.
-            const shareUrl = 'https://ajkernews.in/go/' + encodeURIComponent(id);
-            const text = `📰 ${headline}\n\n${shareSummary}${cleanSummary.length > MAX_CHARS ? '...' : ''}\n\n🔗 পুরো খবরটি পড়তে এখনই ক্লিক করুন:\n${shareUrl}`;
+    let shareSummary = cleanSummary;
 
-            try {
-                if (navigator.share) {
-                    await navigator.share({ title: headline, text, url: shareUrl });
-                    return;
-                }
+    if (shareSummary.length > MAX_CHARS) {
+        let cutIndex = shareSummary.lastIndexOf(' ', MAX_CHARS);
+        if (cutIndex === -1) cutIndex = MAX_CHARS;
+        shareSummary = shareSummary.substring(0, cutIndex);
+    }
 
-                if (navigator.clipboard && window.isSecureContext) {
-                    await navigator.clipboard.writeText(text);
-                    alert('✅ লিংক কপি হয়েছে! শেয়ার করে বন্ধুদের জানান।');
-                    return;
-                }
+    // WhatsApp/Facebook preview-এর জন্য article-specific share URL
+    const shareUrl =
+        'https://ajkernews.in/go/' +
+        encodeURIComponent(id);
 
-                const textarea = document.createElement('textarea');
-                textarea.value = text;
-                textarea.style.position = 'fixed';
-                textarea.style.opacity = '0';
-                document.body.appendChild(textarea);
-                textarea.select();
-                document.execCommand('copy');
-                textarea.remove();
-                alert('✅ লিংক কপি হয়েছে! শেয়ার করে বন্ধুদের জানান।');
-            } catch (error) {
-                if (error && error.name === 'AbortError') return;
-                console.error('Share error:', error);
-                alert('শেয়ার বা কপি করতে সমস্যা হয়েছে।');
-            }
+    // ❌ এখানে আর 📰 icon নেই
+    // ❌ এখানে headline আবার লেখা হচ্ছে না
+    const text =
+        `${shareSummary}${cleanSummary.length > MAX_CHARS ? '...' : ''}\n\n` +
+        `🔗 পুরো খবরটি পড়তে এখনই ক্লিক করুন:\n` +
+        shareUrl;
+
+    try {
+        if (navigator.share) {
+            await navigator.share({
+                title: headline,
+                text: text,
+                url: shareUrl
+            });
+            return;
         }
 
-        // ==================== NOTIFICATION ====================
-        async function toggleNotification() {
-            const btn = document.getElementById('notifyBtn');
-            if (!('Notification' in window) || !('PushManager' in window)) {
-                alert('এই ব্রাউজারে নোটিফিকেশন সাপোর্টেড নয়।');
-                return;
-            }
-            const registration = await navigator.serviceWorker.ready;
-            const existingSub = await registration.pushManager.getSubscription();
-            if (existingSub) {
-                if (confirm('নোটিফিকেশন বন্ধ করতে চান?')) {
-                    await existingSub.unsubscribe();
-                    btn.textContent = '🔔';
-                    btn.classList.remove('subscribed');
-                    alert('নোটিফিকেশন বন্ধ করা হয়েছে।');
-                }
-                return;
-            }
-            const permission = await Notification.requestPermission();
-            if (permission !== 'granted') {
-                alert('নোটিফিকেশন চালু করতে অনুমতি দিন।');
-                return;
-            }
-            try {
-                const sub = await registration.pushManager.subscribe({
-                    userVisibleOnly: true,
-                    applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-                });
-                const res = await fetch(`${WORKER_BASE}/api/subscribe`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(sub)
-                });
-                if (res.ok) {
-                    btn.textContent = '🔔✅';
-                    btn.classList.add('subscribed');
-                    alert('নোটিফিকেশন চালু হয়েছে! নতুন খবর এলে আমরা জানাব।');
-                } else {
-                    alert('সাবস্ক্রাইব করতে সমস্যা হয়েছে।');
-                }
-            } catch (err) {
-                console.error('Subscribe error:', err);
-                alert('কিছু ভুল হয়েছে। আবার চেষ্টা করুন।');
-            }
+        if (
+            navigator.clipboard &&
+            window.isSecureContext
+        ) {
+            await navigator.clipboard.writeText(text);
+
+            alert(
+                '✅ লিংক কপি হয়েছে! শেয়ার করে বন্ধুদের জানান।'
+            );
+
+            return;
         }
 
-        function urlBase64ToUint8Array(base64String) {
-            const padding = '='.repeat((4 - base64String.length % 4) % 4);
-            const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
-            const rawData = window.atob(base64);
-            const outputArray = new Uint8Array(rawData.length);
-            for (let i = 0; i < rawData.length; ++i) {
-                outputArray[i] = rawData.charCodeAt(i);
-            }
-            return outputArray;
+        const textarea =
+            document.createElement('textarea');
+
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+
+        document.body.appendChild(textarea);
+
+        textarea.select();
+
+        document.execCommand('copy');
+
+        textarea.remove();
+
+        alert(
+            '✅ লিংক কপি হয়েছে! শেয়ার করে বন্ধুদের জানান।'
+        );
+
+    } catch (error) {
+        if (
+            error &&
+            error.name === 'AbortError'
+        ) {
+            return;
         }
 
+        console.error(
+            'Share error:',
+            error
+        );
+
+        alert(
+            'শেয়ার বা কপি করতে সমস্যা হয়েছে।'
+        );
+    }
+}
         // ==================== COMMENTS ====================
         async function openCommentModal(id) {
             const modal = document.getElementById('modal');

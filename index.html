@@ -660,10 +660,9 @@
                 shareSummary = shareSummary.substring(0, cutIndex);
             }
 
-            // Share URL: WhatsApp/Facebook gets the article-specific preview from the Worker.
-            // The headline is supplied through the share title/OG preview, so do not repeat it here.
+            // Canonical share URL: it always opens the normal Ajker News homepage.
             const shareUrl = 'https://ajkernews.in/go/' + encodeURIComponent(id);
-            const text = `${shareSummary}${cleanSummary.length > MAX_CHARS ? '...' : ''}\n\n🔗 পুরো খবরটি পড়তে এখনই ক্লিক করুন:\n${shareUrl}`;
+            const text = `📰 ${headline}\n\n${shareSummary}${cleanSummary.length > MAX_CHARS ? '...' : ''}\n\n🔗 পুরো খবরটি পড়তে এখনই ক্লিক করুন:\n${shareUrl}`;
 
             try {
                 if (navigator.share) {

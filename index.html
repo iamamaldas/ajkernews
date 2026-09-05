@@ -501,6 +501,10 @@
                     `<a href="javascript:void(0)" onclick="openNewsModal('${news.id}')">${escapeHtml(source)}</a>` :
                     `<span>${escapeHtml(source)}</span>`;
 
+                // JavaScript-এ স্ট্রিং এস্কেপ করা (শেয়ার বাটনের জন্য)
+                const safeHeadline = headline.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+                const safeSummary = summary.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+
                 html += `<article class="news-card" data-news-id="${escapeHtml(news.id)}">
                     <img class="news-image" src="${escapeHtml(image)}" alt="${escapeHtml(headline)}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='assets/logo.png';">
                     <div class="news-body">
@@ -521,7 +525,7 @@
                                 </svg>
                                 <span class="action-count" data-love-count="${escapeHtml(news.id)}">${news.love_count}</span>
                             </button>
-                            <button class="action-btn" onclick="shareNews('${news.id}', '${escapeHtml(headline)}', '${escapeHtml(summary)}')" title="শেয়ার">
+                            <button class="action-btn" onclick="shareNews('${news.id}', '${safeHeadline}', '${safeSummary}')" title="শেয়ার">
                                 <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
                             </button>
                         </div>
@@ -564,6 +568,7 @@
 
         // ==================== LOAD MORE ====================
         async function loadMoreNews() {
+            if (isLoadingNews) return; // 🔥 ডুপ্লিকেট কল বন্ধ
             const loadMoreBtn = document.getElementById('loadMoreBtn');
             loadMoreBtn.textContent = '⏳ লোড হচ্ছে...';
             loadMoreBtn.disabled = true;
@@ -650,8 +655,15 @@
             }
             const shareUrl = window.location.origin + '/go/' + id;
             const text = `📰 ${headline}\n\n${shareSummary}...\n\n🔗 পুরো খবরটি পড়তে এখনই ক্লিক করুন:\n${shareUrl}`;
+            
             if (navigator.share) {
-                navigator.share({ title: headline, text: text }).catch(() => {});
+                navigator.share({ title: headline, text: text })
+                    .catch(() => {
+                        // যদি শেয়ার ফেল হয়, কপি করার অপশন দিন
+                        navigator.clipboard.writeText(text)
+                            .then(() => alert('✅ লিংক কপি হয়েছে! শেয়ার করে বন্ধুদের জানান।'))
+                            .catch(() => alert('শেয়ার বা কপি করতে সমস্যা হয়েছে। ম্যানুয়ালি কপি করুন।'));
+                    });
             } else {
                 navigator.clipboard.writeText(text)
                     .then(() => alert('✅ লিংক কপি হয়েছে! শেয়ার করে বন্ধুদের জানান।'))

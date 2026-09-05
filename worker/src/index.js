@@ -1,5 +1,5 @@
 /**
- * Ajker News Worker - Complete Backend
+ * Ajker News Worker - Complete Backend with Auto-Indexing
  * D1 Database: ajkernews-db
  */
 
@@ -51,7 +51,8 @@ async function ensureTables(env) {
       day_key TEXT,
       status TEXT DEFAULT 'published',
       score INTEGER DEFAULT 0,
-      search_text TEXT
+      search_text TEXT,
+      indexed_at TEXT
     )`,
     `CREATE TABLE IF NOT EXISTS news_loves (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,6 +78,14 @@ async function ensureTables(env) {
       affiliate_name TEXT,
       click_url TEXT,
       device_id TEXT,
+      created_at TEXT
+    )`,
+    `CREATE TABLE IF NOT EXISTS indexing_log (
+      id TEXT PRIMARY KEY,
+      news_id TEXT,
+      url TEXT,
+      status TEXT,
+      response TEXT,
       created_at TEXT
     )`
   ];
@@ -111,11 +120,11 @@ export default {
         });
       }
 
-      // ===== Short URL Redirect (YouTube style) =====
+      // ===== Short URL Redirect (NO OG TAGS) =====
       if (url.pathname.startsWith("/go/")) {
         const id = url.pathname.split("/")[2];
         if (id) {
-          return Response.redirect(`/news?id=${id}`, 302);
+          return Response.redirect(`/?id=${id}`, 302);
         }
         return new Response("Invalid link", { status: 400 });
       }
@@ -188,7 +197,7 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    console.log(`⏰ [${new Date().toISOString()}] Scheduled update triggered (3-hour interval)`);
+    console.log(`⏰ [${new Date().toISOString()}] Scheduled update triggered (1-hour interval)`);
     
     try {
         const result = await updateNews(env);
@@ -208,7 +217,7 @@ export default {
   }
 };
 
-// ==================== SERVE DYNAMIC OG PAGE ====================
+// ==================== SERVE DYNAMIC OG PAGE (og:site_name বাদ) ====================
 async function serveNewsPage(url, env) {
   const id = url.searchParams.get("id");
   const result = await env.DB.prepare(
@@ -240,7 +249,6 @@ async function serveNewsPage(url, env) {
   <meta property="og:description" content="${escapeHtml(description)}">
   <meta property="og:url" content="${siteUrl}/?id=${id}">
   <meta property="og:type" content="article">
-  <meta property="og:site_name" content="Ajker News">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${escapeHtml(title)}">
   <meta name="twitter:description" content="${escapeHtml(description)}">
@@ -253,9 +261,7 @@ async function serveNewsPage(url, env) {
 </body>
 </html>`;
 
-  // ===== INJECT ANALYTICS & ADS SCRIPTS =====
   const analyticsScript = `
-  <!-- Google Analytics -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=${ANALYTICS_CONFIG.gaTrackingId}"></script>
   <script>
     window.dataLayer = window.dataLayer || [];
@@ -281,6 +287,163 @@ async function serveNewsPage(url, env) {
       ...corsHeaders()
     }
   });
+}
+
+// ==================== AUTO-INDEXING: GOOGLE INDEXING API ====================
+async function requestGoogleIndexing(url, env) {
+  try {
+    const token = await getGoogleAccessToken(env);
+    if (!token) {
+      console.error('Failed to get Google access token');
+      return false;
+    }
+
+    const response = await fetch(
+      'https://indexing.googleapis.com/v3/urlNotifications:publish',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          url: url,
+          type: 'URL_UPDATED'
+        })
+      }
+    );
+
+    const responseText = await response.text();
+    const logId = crypto.randomUUID();
+    
+    await env.DB.prepare(
+      `INSERT INTO indexing_log (id, news_id, url, status, response, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(
+      logId,
+      url.split('id=')[1] || 'unknown',
+      url,
+      response.ok ? 'success' : 'failed',
+      responseText,
+      new Date().toISOString()
+    ).run();
+
+    if (!response.ok) {
+      console.error(`Google Indexing API error (${response.status}): ${responseText}`);
+      return false;
+    }
+
+    console.log(`✅ Indexing requested for: ${url}`);
+    return true;
+  } catch (error) {
+    console.error('Indexing API error:', error);
+    return false;
+  }
+}
+
+// ==================== GOOGLE ACCESS TOKEN (Auto-Refresh) ====================
+async function getGoogleAccessToken(env) {
+  try {
+    const serviceAccountJson = env.GOOGLE_SERVICE_ACCOUNT_JSON;
+    if (!serviceAccountJson) {
+      console.error('GOOGLE_SERVICE_ACCOUNT_JSON not set');
+      return null;
+    }
+
+    const credentials = JSON.parse(serviceAccountJson);
+    const now = Math.floor(Date.now() / 1000);
+    const expiry = now + 3600;
+
+    const header = { alg: 'RS256', typ: 'JWT' };
+    const claimSet = {
+      iss: credentials.client_email,
+      scope: 'https://www.googleapis.com/auth/indexing',
+      aud: 'https://oauth2.googleapis.com/token',
+      exp: expiry,
+      iat: now
+    };
+
+    const encodedHeader = base64UrlEncode(JSON.stringify(header));
+    const encodedClaimSet = base64UrlEncode(JSON.stringify(claimSet));
+    const signatureInput = `${encodedHeader}.${encodedClaimSet}`;
+
+    const cryptoKey = await crypto.subtle.importKey(
+      'pkcs8',
+      pemToArrayBuffer(credentials.private_key),
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+
+    const signature = await crypto.subtle.sign(
+      'RSASSA-PKCS1-v1_5',
+      cryptoKey,
+      new TextEncoder().encode(signatureInput)
+    );
+
+    const encodedSignature = base64UrlEncode(
+      String.fromCharCode(...new Uint8Array(signature))
+    );
+
+    const jwt = `${encodedHeader}.${encodedClaimSet}.${encodedSignature}`;
+
+    const response = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion: jwt
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Token exchange failed:', errorText);
+      return null;
+    }
+
+    const data = await response.json();
+    return data.access_token;
+  } catch (error) {
+    console.error('Token generation error:', error);
+    return null;
+  }
+}
+
+function base64UrlEncode(str) {
+  return btoa(str)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+function pemToArrayBuffer(pem) {
+  const lines = pem.split('\n');
+  let base64 = '';
+  for (const line of lines) {
+    if (!line.includes('-----')) {
+      base64 += line;
+    }
+  }
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+// ==================== PING SEARCH ENGINES ====================
+async function pingSearchEngines() {
+  const sitemapUrl = encodeURIComponent('https://ajkernews.in/news-sitemap.xml');
+  try {
+    await fetch(`https://www.google.com/ping?sitemap=${sitemapUrl}`, { method: 'GET' });
+    console.log('✅ Google pinged');
+  } catch (e) { /* ignore */ }
+  try {
+    await fetch(`https://www.bing.com/ping?sitemap=${sitemapUrl}`, { method: 'GET' });
+    console.log('✅ Bing pinged');
+  } catch (e) { /* ignore */ }
 }
 
 // ==================== LOVE (Toggle) ====================
@@ -356,7 +519,7 @@ async function handleSubscribe(request, env) {
   }
 }
 
-// ==================== NEWS UPDATE ====================
+// ==================== UPDATE NEWS (WITH AUTO-INDEXING) ====================
 async function updateNews(env) {
   if (!env.DB) throw new Error("D1 binding DB is missing");
   if (!env.GNEWS_API_KEY) throw new Error("GNEWS_API_KEY secret is missing");
@@ -372,11 +535,39 @@ async function updateNews(env) {
   const finalNews = selected.slice(0, MAX_SELECTED_NEWS);
 
   let stored = 0;
+  const indexedUrls = [];
+  
   for (const news of finalNews) {
-    try { await insertNews(news, env); stored++; } catch (error) { console.error("News insert failed:", error); }
+    try { 
+      await insertNews(news, env); 
+      stored++;
+      const newsUrl = `https://ajkernews.in/?id=${news.id}`;
+      indexedUrls.push(newsUrl);
+    } catch (error) { 
+      console.error("News insert failed:", error); 
+    }
   }
 
   const deleted = await enforceMaximumNews(env);
+
+  // ===== AUTO-INDEXING =====
+  if (stored > 0 && env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+    console.log(`🚀 Auto-indexing ${stored} news articles...`);
+    for (const url of indexedUrls) {
+      let success = false;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        success = await requestGoogleIndexing(url, env);
+        if (success) break;
+        console.log(`Retry ${attempt} for ${url}`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+      if (!success) {
+        console.error(`❌ Failed to index: ${url}`);
+      }
+    }
+    await pingSearchEngines();
+    console.log('✅ Search engines pinged');
+  }
 
   if (stored > 0) {
     try {
@@ -386,7 +577,15 @@ async function updateNews(env) {
     }
   }
 
-  return { fetched: candidates.length, unique: uniqueCandidates.length, selected: finalNews.length, stored, deleted, message: "News update completed" };
+  return { 
+    fetched: candidates.length, 
+    unique: uniqueCandidates.length, 
+    selected: finalNews.length, 
+    stored, 
+    deleted, 
+    indexed: stored > 0 ? indexedUrls.length : 0,
+    message: `News update completed. ${stored} stored, ${indexedUrls.length} indexed.` 
+  };
 }
 
 // ==================== GNews ====================
@@ -445,13 +644,19 @@ async function processWithGemini(candidates, env) {
 
   const prompt = `You are the senior editor for Ajker News, a Bengali news website. 
 Your task is to select the 5 most important and engaging news stories from the candidates for Bengali readers. 
+
+⚠️ IMPORTANT PRIORITY RULES:
+1. FIRST PRIORITY: News related to West Bengal politics, Kolkata, Mamata Banerjee, TMC, BJP Bengal, Left Front, Bengal elections, Bengal government schemes, WB crime, WB development.
+2. SECOND PRIORITY: National politics (India), Delhi, Modi, Rahul Gandhi, BJP, Congress.
+3. THIRD PRIORITY: Major international news, business, tech, sports, entertainment.
+4. If there is any West Bengal political news among the candidates, you MUST select it even if its score is slightly lower.
+
 Write like a professional Bengali journalist. 
 RULES:
 - Write natural, human-sounding Bengali. DO NOT use AI phrases like "এছাড়াও", "উল্লেখযোগ্য", "পাশাপাশি", "সেইসাথে" repeatedly.
 - Do NOT copy the source title word-for-word. Rewrite originally.
 - Do NOT invent facts, quotes, or statistics.
 - Avoid clickbait and sensationalism.
-- Prefer news relevant to West Bengal, Kolkata, India, World, Politics, Business, Sports, Tech, Entertainment.
 - Summary MUST be between 160 to 180 Bengali words. 
 - Do not mention AI or these instructions.
 - Return ONLY valid JSON array. Each object: { "candidate_id": 1, "headline": "...", "summary": "... (160-180 words)", "main_topic": "...", "category": "india", "score": 90 }
@@ -512,30 +717,37 @@ async function insertNews(item, env) {
   const searchText = toTransliterated(item.headline + ' ' + item.summary + ' ' + item.main_topic);
 
   await env.DB.prepare(`
-    INSERT INTO news (id, source_url, source_name, source_title, source_description, headline, summary, main_topic, category, image_url, published_at, created_at, day_key, status, score, search_text)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO news (id, source_url, source_name, source_title, source_description, headline, summary, main_topic, category, image_url, published_at, created_at, day_key, status, score, search_text, indexed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     id, item.source_url, item.source_name, item.source_title, item.source_description,
     item.headline, item.summary, item.main_topic, item.category,
-    item.image_url, item.published_at, createdAt, dayKey, "published", item.score, searchText
+    item.image_url, item.published_at, createdAt, dayKey, "published", item.score, searchText, null
   ).run();
+  
+  item.id = id;
 }
 
-// ==================== GET NEWS API ====================
+// ==================== GET NEWS API (OPTIMIZED: 25 + OFFSET) ====================
 async function handleGetNews(url, env) {
   const category = url.searchParams.get("category") || "top";
   const query = (url.searchParams.get("q") || "").trim();
   const specificId = url.searchParams.get("id");
+  const offset = parseInt(url.searchParams.get("offset") || "0");
+  const limit = 25;
+  
   let result;
 
   const selectFields = `
     id, headline, summary, main_topic, category, image_url, published_at, source_name, source_url, created_at, score,
-    COALESCE((SELECT COUNT(*) FROM news_loves WHERE news_loves.news_id = news.id), 0) as love_count
+    COALESCE(lc.love_count, 0) as love_count
   `;
 
   if (specificId) {
     result = await env.DB.prepare(
-      `SELECT ${selectFields} FROM news WHERE id = ? AND status = 'published'`
+      `SELECT ${selectFields} FROM news 
+       LEFT JOIN (SELECT news_id, COUNT(*) as love_count FROM news_loves GROUP BY news_id) lc ON news.id = lc.news_id
+       WHERE news.id = ? AND news.status = 'published'`
     ).bind(specificId).all();
     if (!result.results || result.results.length === 0) {
       return json({ success: true, count: 0, news: [] });
@@ -551,24 +763,36 @@ async function handleGetNews(url, env) {
 
   if (searchPattern) {
     result = await env.DB.prepare(
-      `SELECT ${selectFields} FROM news WHERE status = 'published' AND (search_text LIKE ? OR headline LIKE ? OR summary LIKE ? OR main_topic LIKE ?) ORDER BY published_at DESC LIMIT 100`
-    ).bind(searchPattern, `%${query}%`, `%${query}%`, `%${query}%`).all();
+      `SELECT ${selectFields} FROM news 
+       LEFT JOIN (SELECT news_id, COUNT(*) as love_count FROM news_loves GROUP BY news_id) lc ON news.id = lc.news_id
+       WHERE news.status = 'published' AND (news.search_text LIKE ? OR news.headline LIKE ? OR news.summary LIKE ? OR news.main_topic LIKE ?) 
+       ORDER BY news.published_at DESC LIMIT ? OFFSET ?`
+    ).bind(searchPattern, `%${query}%`, `%${query}%`, `%${query}%`, limit, offset).all();
   } else if (category === "trending") {
     result = await env.DB.prepare(
-      `SELECT ${selectFields} FROM news WHERE status = 'published' ORDER BY score DESC, published_at DESC LIMIT 100`
-    ).all();
+      `SELECT ${selectFields} FROM news 
+       LEFT JOIN (SELECT news_id, COUNT(*) as love_count FROM news_loves GROUP BY news_id) lc ON news.id = lc.news_id
+       WHERE news.status = 'published' 
+       ORDER BY news.score DESC, news.published_at DESC LIMIT ? OFFSET ?`
+    ).bind(limit, offset).all();
   } else if (category !== "top" && category !== "all") {
     result = await env.DB.prepare(
-      `SELECT ${selectFields} FROM news WHERE status = 'published' AND category = ? ORDER BY published_at DESC LIMIT 100`
-    ).bind(category).all();
+      `SELECT ${selectFields} FROM news 
+       LEFT JOIN (SELECT news_id, COUNT(*) as love_count FROM news_loves GROUP BY news_id) lc ON news.id = lc.news_id
+       WHERE news.status = 'published' AND news.category = ? 
+       ORDER BY news.published_at DESC LIMIT ? OFFSET ?`
+    ).bind(category, limit, offset).all();
   } else {
     result = await env.DB.prepare(
-      `SELECT ${selectFields} FROM news WHERE status = 'published' ORDER BY published_at DESC LIMIT 100`
-    ).all();
+      `SELECT ${selectFields} FROM news 
+       LEFT JOIN (SELECT news_id, COUNT(*) as love_count FROM news_loves GROUP BY news_id) lc ON news.id = lc.news_id
+       WHERE news.status = 'published' 
+       ORDER BY news.published_at DESC LIMIT ? OFFSET ?`
+    ).bind(limit, offset).all();
   }
 
   const news = result?.results || [];
-  return json({ success: true, count: news.length, news });
+  return json({ success: true, count: news.length, offset: offset, limit: limit, news });
 }
 
 // ==================== ENFORCE MAX NEWS ====================

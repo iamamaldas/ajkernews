@@ -25,13 +25,14 @@ const GNEWS_BASE_URL =
  *
  * Over 24 hours:
  *
- * 8 requests × 10 articles
- * = maximum 80 candidate articles/day
+ * 24 requests × 10 articles
+ * = maximum 240 candidate articles/day
  *
- * The selector will later choose the best 25.
+ * The selector will later choose the best 5 from each batch.
  */
 
 const NEWS_CATEGORIES = [
+  "politics",    // 🔥 NEW: West Bengal politics priority
   "general",
   "world",
   "nation",
@@ -386,7 +387,8 @@ function calculateInitialScore(
     technology: 8,
     entertainment: 5,
     sports: 6,
-    science: 8
+    science: 8,
+    politics: 10   // 🔥 NEW: politics category gets high priority
   };
 
   const base =

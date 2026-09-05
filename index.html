@@ -15,6 +15,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="apple-touch-icon" href="assets/logo.png">
     <link rel="icon" type="image/png" href="assets/logo.png">
+    <!-- OG ট্যাগ হোমপেজের জন্য – শেয়ার পেজের জন্য আলাদা (Worker) -->
     <meta property="og:title" content="Ajker News | আজকের নিউজ - কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর">
     <meta property="og:description" content="ajkernews.in-এ পড়ুন কলকাতা, পশ্চিমবঙ্গের সমস্ত জেলা ও ব্লকের খবর, ভারতের রাজনীতি, অর্থনীতি, খেলা, বিনোদন, এবং দেশ-বিদেশের গুরুত্বপূর্ণ সংবাদ।">
     <meta property="og:type" content="website">
@@ -28,9 +29,10 @@
     <meta name="twitter:description" content="ajkernews.in-এ পড়ুন কলকাতা, পশ্চিমবঙ্গের সমস্ত জেলা ও ব্লকের খবর, ভারতের রাজনীতি, অর্থনীতি, খেলা, বিনোদন, এবং দেশ-বিদেশের গুরুত্বপূর্ণ সংবাদ।">
     <meta name="twitter:image" content="https://ajkernews.in/assets/logo.png">
     <script type="application/ld+json">
-        { "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in/assets/logo.png", "description": "কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর বাংলায়۔" }
+        { "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in/assets/logo.png", "description": "কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর বাংলায়।" }
     </script>
     <style>
+        /* আপনার পুরানো CSS – ঠিক রাখুন */
         * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
         html { scroll-behavior: smooth; }
         body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoothing:antialiased; }
@@ -261,7 +263,7 @@
         let currentOffset = 0;
         const PAGE_SIZE = 25;
 
-        // Personal Ads data (এখানে আপনার অ্যাড বসান)
+        // Personal Ads data
         const PERSONAL_ADS = [
             {
                 id: "ad1",
@@ -280,7 +282,7 @@
                 category: "sponsored"
             }
         ];
-        const AD_INTERVAL = 2; // প্রতি 2টি নিউজের পর 1টি অ্যাড
+        const AD_INTERVAL = 2;
         let adIndex = 0;
 
         function getDeviceId() {
@@ -393,6 +395,48 @@
                 .map(item => item.news);
         }
 
+        // ==================== NEW: Open news by ID (no reload) ====================
+        async function openNewsById(id) {
+            if (!id) return;
+            const existing = currentNews.find(n => n.id === id);
+            if (existing) {
+                openNewsModal(id);
+                return;
+            }
+            try {
+                const params = new URLSearchParams();
+                params.set('id', id);
+                const url = API_URL + '?' + params.toString();
+                const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } });
+                if (!response.ok) throw new Error('API error');
+                const data = await response.json();
+                if (data.news && data.news.length > 0) {
+                    const news = normalizeNews(data.news[0]);
+                    if (news) {
+                        currentNews = [news, ...currentNews];
+                        openNewsModal(id);
+                        return;
+                    }
+                }
+                window.location.href = '/';
+            } catch (e) {
+                console.error('openNewsById error:', e);
+                window.location.href = '/';
+            }
+        }
+
+        function handleGoLink() {
+            const path = window.location.pathname;
+            if (path.startsWith('/go/')) {
+                const id = path.split('/')[2];
+                if (id) {
+                    window.history.replaceState({}, '', '/');
+                    openNewsById(id);
+                }
+            }
+        }
+
+        // ==================== loadNews ====================
         async function loadNews(category = 'top', search = '', options = {}) {
             currentOffset = 0;
             const { showLoading = true, keepExisting = false } = options;
@@ -419,21 +463,10 @@
                 const data = await response.json();
                 if (!data || !Array.isArray(data.news)) throw new Error('Invalid news response');
 
-                const urlParams = new URLSearchParams(window.location.search);
-                const newsId = urlParams.get('id');
-                if (newsId && data.news.length === 0) {
-                    window.location.href = '/';
-                    return;
-                }
-
                 const normalizedNews = data.news.map(normalizeNews).filter(Boolean);
                 currentNews = search ? rankSearchResults(normalizedNews, search) : normalizedNews;
                 visibleCount = 25;
                 renderNews(currentNews);
-
-                if (newsId) {
-                    setTimeout(() => openNewsModal(newsId), 200);
-                }
             } catch (error) {
                 console.error('News loading error:', error);
                 if (keepExisting && currentNews.length) return;
@@ -443,6 +476,7 @@
             }
         }
 
+        // ==================== renderNews ====================
         function renderNews(newsList) {
             const container = document.getElementById('newsContainer');
             if (!Array.isArray(newsList) || !newsList.length) {
@@ -467,7 +501,6 @@
                     `<a href="javascript:void(0)" onclick="openNewsModal('${news.id}')">${escapeHtml(source)}</a>` :
                     `<span>${escapeHtml(source)}</span>`;
 
-                // নিউজ কার্ড
                 html += `<article class="news-card" data-news-id="${escapeHtml(news.id)}">
                     <img class="news-image" src="${escapeHtml(image)}" alt="${escapeHtml(headline)}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='assets/logo.png';">
                     <div class="news-body">
@@ -496,8 +529,6 @@
                 </article>`;
 
                 adCounter++;
-
-                // প্রতি Nটি নিউজের পর অ্যাড দেখানো (শেষ নিউজের পর নয়)
                 if (adCounter === AD_INTERVAL && i < limitedNews.length - 1) {
                     const ad = getNextAd();
                     if (ad) {
@@ -531,12 +562,11 @@
             return ad;
         }
 
-        // ==================== LOAD MORE (OFFSET BASED) ====================
+        // ==================== LOAD MORE ====================
         async function loadMoreNews() {
             const loadMoreBtn = document.getElementById('loadMoreBtn');
             loadMoreBtn.textContent = '⏳ লোড হচ্ছে...';
             loadMoreBtn.disabled = true;
-            
             try {
                 currentOffset += PAGE_SIZE;
                 const params = new URLSearchParams();
@@ -544,27 +574,18 @@
                 params.set('offset', String(currentOffset));
                 if (currentSearchQuery) params.set('q', currentSearchQuery);
                 params.set('_t', Date.now().toString());
-                
                 const url = API_URL + '?' + params.toString();
-                const response = await fetch(url, { 
-                    method: 'GET', 
-                    headers: { 'Accept': 'application/json' },
-                    cache: 'no-store'
-                });
-                
+                const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' }, cache: 'no-store' });
                 if (!response.ok) throw new Error('API error');
                 const data = await response.json();
-                
                 if (!data.news || data.news.length === 0) {
                     loadMoreBtn.textContent = '📭 আর কোনো খবর নেই';
                     loadMoreBtn.disabled = true;
                     return;
                 }
-                
                 const newNews = data.news.map(normalizeNews).filter(Boolean);
                 currentNews = [...currentNews, ...newNews];
                 renderNews(currentNews);
-                
                 if (newNews.length < PAGE_SIZE) {
                     loadMoreBtn.textContent = '📭 সব খবর দেখানো হয়েছে';
                     loadMoreBtn.disabled = true;
@@ -579,7 +600,7 @@
             }
         }
 
-        // ==================== LOVE (Toggle) ====================
+        // ==================== LOVE ====================
         function toggleLove(id) {
             const deviceId = getDeviceId();
             fetch(`${WORKER_BASE}/api/love`, {
@@ -615,12 +636,11 @@
             });
         }
 
-        // ==================== SHARE (১.৫ লাইন + CTA + /go/ লিংক) ====================
+        // ==================== SHARE ====================
         function shareNews(id, headline, summary) {
             const MAX_CHARS = 135;
             let cleanSummary = summary.replace(/\s+/g, ' ').trim();
             let shareSummary = '';
-
             if (cleanSummary.length <= MAX_CHARS) {
                 shareSummary = cleanSummary;
             } else {
@@ -628,15 +648,10 @@
                 if (cutIndex === -1) cutIndex = MAX_CHARS;
                 shareSummary = cleanSummary.substring(0, cutIndex);
             }
-
             const shareUrl = window.location.origin + '/go/' + id;
             const text = `📰 ${headline}\n\n${shareSummary}...\n\n🔗 পুরো খবরটি পড়তে এখনই ক্লিক করুন:\n${shareUrl}`;
-            
             if (navigator.share) {
-                navigator.share({ 
-                    title: headline,
-                    text: text
-                }).catch(() => {});
+                navigator.share({ title: headline, text: text }).catch(() => {});
             } else {
                 navigator.clipboard.writeText(text)
                     .then(() => alert('✅ লিংক কপি হয়েছে! শেয়ার করে বন্ধুদের জানান।'))
@@ -651,10 +666,8 @@
                 alert('এই ব্রাউজারে নোটিফিকেশন সাপোর্টেড নয়।');
                 return;
             }
-
             const registration = await navigator.serviceWorker.ready;
             const existingSub = await registration.pushManager.getSubscription();
-
             if (existingSub) {
                 if (confirm('নোটিফিকেশন বন্ধ করতে চান?')) {
                     await existingSub.unsubscribe();
@@ -664,25 +677,21 @@
                 }
                 return;
             }
-
             const permission = await Notification.requestPermission();
             if (permission !== 'granted') {
                 alert('নোটিফিকেশন চালু করতে অনুমতি দিন।');
                 return;
             }
-
             try {
                 const sub = await registration.pushManager.subscribe({
                     userVisibleOnly: true,
                     applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
                 });
-
                 const res = await fetch(`${WORKER_BASE}/api/subscribe`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(sub)
                 });
-
                 if (res.ok) {
                     btn.textContent = '🔔✅';
                     btn.classList.add('subscribed');
@@ -718,14 +727,12 @@
                 );
                 const data = await response.json();
                 const comments = data.comments || [];
-
                 let html = `<div class="comment-form-container">
                     <div style="padding:0 0 8px 0;"><strong>মন্তব্য (${comments.length})</strong></div>
                     <input type="text" id="commentAuthor" placeholder="আপনার নাম (ঐচ্ছিক)" style="width:100%; padding:8px; margin-bottom:8px; border:1px solid #ddd; border-radius:4px;">
                     <textarea id="commentText" placeholder="আপনার মন্তব্য লিখুন..." style="width:100%; padding:8px; margin-bottom:8px; border:1px solid #ddd; border-radius:4px; height:70px;"></textarea>
                     <button onclick="submitComment('${id}')" style="background:#000; color:#fff; border:none; padding:8px 15px; border-radius:4px; cursor:pointer;">মন্তব্য পাঠান</button>
                 </div>`;
-
                 html += `<div class="comments-list">`;
                 if (comments.length === 0) {
                     html += `<div style="color:#888; padding:10px;">এখনো কোনো মন্তব্য নেই। প্রথম মন্তব্য করুন!</div>`;
@@ -739,7 +746,6 @@
                     });
                 }
                 html += `</div>`;
-
                 body.innerHTML = html;
                 modal.style.display = 'block';
             } catch (error) {
@@ -777,12 +783,11 @@
             body.dataset.currentNewsId = id;
             const news = currentNews.find(n => n.id === id);
             if (!news) {
-                window.location.href = '/';
+                openNewsById(id);
                 return;
             }
             const displayDate = news.created_at || news.published_at || '';
             const formattedTime = formatDate(displayDate);
-
             const html = `
                 <div style="padding:4px 0 8px 0;">
                     <img src="${escapeHtml(news.image_url || 'assets/logo.png')}" style="width:100%; border-radius:8px; margin-bottom:14px;" alt="${escapeHtml(news.headline)}">
@@ -790,7 +795,6 @@
                     <p style="font-size:15px; line-height:1.7; color:#444; margin-bottom:12px;">${escapeHtml(news.summary)}</p>
                     <div style="font-size:12px; color:#888; margin-bottom:14px;">${escapeHtml(formattedTime)}</div>
                     <a href="${escapeHtml(news.source_url)}" target="_blank" rel="noopener noreferrer" style="display:inline-block; background:#000; color:#fff; text-decoration:none; padding:10px 15px; border-radius:5px; font-size:14px; margin-bottom:6px;">মূল উৎস দেখুন</a>
-
                     <div class="modal-like-actions">
                         <button class="action-btn" onclick="toggleLove('${news.id}')" title="ভালোবাসা">
                             <svg viewBox="0 0 24 24" fill="${news.love_count > 0 ? '#e74c3c' : 'none'}" stroke="#e74c3c" stroke-width="2">
@@ -886,10 +890,17 @@
         document.getElementById('currentYear').textContent = new Date().getFullYear();
 
         // ===== INIT =====
-        async function initializeNewsSystem() {
-            await loadNews('top', '', { showLoading: true, keepExisting: false });
-        }
-        initializeNewsSystem();
+        (function initApp() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const newsId = urlParams.get('id');
+            if (newsId) {
+                window.history.replaceState({}, '', '/');
+                openNewsById(newsId);
+            } else {
+                handleGoLink();
+            }
+            loadNews('top', '', { showLoading: true, keepExisting: false });
+        })();
 
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/sw.js')

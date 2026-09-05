@@ -648,25 +648,33 @@
             });
         }
 
-        // ==================== SHARE ====================
+        // ==================== SHARE (UPDATED - No icons, no site name) ====================
         async function shareNews(id, headline, summary) {
-            const MAX_CHARS = 135;
-            const cleanSummary = String(summary || '').replace(/\s+/g, ' ').trim();
-            let shareSummary = cleanSummary;
+            // শিরোনাম ও সারাংশ পরিষ্কার করুন
+            const cleanHeadline = String(headline || '').replace(/\s+/g, ' ').trim();
+            let cleanSummary = String(summary || '').replace(/\s+/g, ' ').trim();
 
-            if (shareSummary.length > MAX_CHARS) {
-                let cutIndex = shareSummary.lastIndexOf(' ', MAX_CHARS);
-                if (cutIndex === -1) cutIndex = MAX_CHARS;
-                shareSummary = shareSummary.substring(0, cutIndex);
+            // সারাংশ ১৫০ অক্ষরের মধ্যে রাখুন (স্ক্রিনশটের মতো)
+            const MAX_SUMMARY = 150;
+            if (cleanSummary.length > MAX_SUMMARY) {
+                let cutIndex = cleanSummary.lastIndexOf(' ', MAX_SUMMARY);
+                if (cutIndex === -1) cutIndex = MAX_SUMMARY;
+                cleanSummary = cleanSummary.substring(0, cutIndex) + '...';
             }
 
-            // Canonical share URL: it always opens the normal Ajker News homepage.
+            // শেয়ার লিংক
             const shareUrl = 'https://ajkernews.in/go/' + encodeURIComponent(id);
-            const text = `📰 ${headline}\n\n${shareSummary}${cleanSummary.length > MAX_CHARS ? '...' : ''}\n\n🔗 পুরো খবরটি পড়তে এখনই ক্লিক করুন:\n${shareUrl}`;
+
+            // শুধু টেক্সট – কোনো ইমোজি বা সাইটের নাম/বিবরণ নেই
+            const text = `${cleanHeadline}\n${cleanSummary}\n\nপুরো খবরটি পড়তে এখনই ক্লিক করুন:\n${shareUrl}`;
 
             try {
                 if (navigator.share) {
-                    await navigator.share({ title: headline, text, url: shareUrl });
+                    await navigator.share({
+                        title: cleanHeadline,
+                        text: text,
+                        url: shareUrl
+                    });
                     return;
                 }
 
@@ -676,6 +684,7 @@
                     return;
                 }
 
+                // ফallback (textarea দিয়ে কপি)
                 const textarea = document.createElement('textarea');
                 textarea.value = text;
                 textarea.style.position = 'fixed';

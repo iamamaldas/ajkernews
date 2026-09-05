@@ -1,51 +1,126 @@
-// sw.js – Ajker News (ajkernews.in) Service Worker with Push Notifications
-const CACHE = 'ajkernews-cache-v2';
-const ASSETS = ['/', '/index.html', '/assets/logo.png', '/manifest.json'];
+/* Ajker News Service Worker
+ * Automatic old-cache cleanup + fast static assets + fresh HTML/API.
+ */
 
-self.addEventListener('install', event => {
-    event.waitUntil(
-        caches.open(CACHE).then(cache => cache.addAll(ASSETS))
-    );
+const CACHE_VERSION = "ajker-news-v2026-09-05-3";
+const STATIC_CACHE = `${CACHE_VERSION}-static`;
+const OFFLINE_CACHE = `${CACHE_VERSION}-offline`;
+
+const APP_SHELL = [
+  "/",
+  "/index.html",
+  "/manifest.json",
+  "/assets/logo.png"
+];
+
+self.addEventListener("install", event => {
+  event.waitUntil(
+    caches.open(STATIC_CACHE)
+      .then(cache => cache.addAll(APP_SHELL).catch(() => {}))
+      .then(() => self.skipWaiting())
+  );
+});
+
+self.addEventListener("activate", event => {
+  event.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(
+        keys
+          .filter(key =>
+            key.startsWith("ajker-news-") &&
+            key !== STATIC_CACHE &&
+            key !== OFFLINE_CACHE
+          )
+          .map(key => caches.delete(key))
+      ))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener("message", event => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
     self.skipWaiting();
+  }
 });
 
-self.addEventListener('activate', event => {
-    event.waitUntil(
-        caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
-    );
-    self.clients.claim();
-});
+async function networkFirst(request, fallbackToCache = true) {
+  try {
+    const response = await fetch(request);
 
-self.addEventListener('fetch', event => {
+    if (response && response.ok) {
+      const cache = await caches.open(STATIC_CACHE);
+      cache.put(request, response.clone()).catch(() => {});
+    }
+
+    return response;
+  } catch (error) {
+    if (fallbackToCache) {
+      const cached = await caches.match(request);
+      if (cached) return cached;
+    }
+
+    throw error;
+  }
+}
+
+async function cacheFirst(request) {
+  const cached = await caches.match(request);
+
+  if (cached) return cached;
+
+  const response = await fetch(request);
+
+  if (response && response.ok) {
+    const cache = await caches.open(STATIC_CACHE);
+    cache.put(request, response.clone()).catch(() => {});
+  }
+
+  return response;
+}
+
+self.addEventListener("fetch", event => {
+  const request = event.request;
+
+  if (request.method !== "GET") return;
+
+  const url = new URL(request.url);
+
+  // API/news data: never serve stale service-worker cache.
+  if (url.pathname.startsWith("/api/")) {
+    event.respondWith(fetch(request));
+    return;
+  }
+
+  // Share/OG pages must always reach Cloudflare Worker.
+  if (
+    url.pathname.startsWith("/go/") ||
+    url.pathname === "/news"
+  ) {
+    event.respondWith(fetch(request));
+    return;
+  }
+
+  // HTML: network first, cache only as offline fallback.
+  if (
+    request.mode === "navigate" ||
+    request.destination === "document"
+  ) {
+    event.respondWith(networkFirst(request, true));
+    return;
+  }
+
+  // Static files: cache first for faster loading.
+  if (
+    ["script", "style", "image", "font"].includes(request.destination) ||
+    url.pathname.startsWith("/assets/")
+  ) {
     event.respondWith(
-        caches.match(event.request).then(response => response || fetch(event.request).catch(() => {
-            if (event.request.mode === 'navigate') return caches.match('/');
-            return new Response('Offline', { status: 503 });
-        }))
+      cacheFirst(request).catch(() => caches.match("/"))
     );
-});
+    return;
+  }
 
-// ====== PUSH NOTIFICATION ======
-self.addEventListener('push', event => {
-    const data = event.data ? event.data.json() : {};
-    const title = data.title || 'Ajker News - নতুন খবর';
-    const options = {
-        body: data.body || 'আমাদের ওয়েবসাইটে নতুন খবর প্রকাশিত হয়েছে।',
-        icon: '/assets/logo.png',
-        badge: '/assets/logo.png',
-        data: {
-            url: data.url || '/'
-        },
-        requireInteraction: true
-    };
-    event.waitUntil(
-        self.registration.showNotification(title, options)
-    );
-});
-
-self.addEventListener('notificationclick', event => {
-    event.notification.close();
-    event.waitUntil(
-        clients.openWindow(event.notification.data.url || '/')
-    );
+  event.respondWith(
+    fetch(request).catch(() => caches.match(request))
+  );
 });

@@ -9,7 +9,7 @@ database_name = "ajkernews-db"
 database_id = "f10f96b7-8bed-4c7c-a580-483d2a77e5ae"
 
 [triggers]
-crons = ["0 */3 * * *"]
+crons = ["0 */1 * * *"]
 
 [observability]
 enabled = true

@@ -70,10 +70,7 @@ const GNEWS_MAX_RESULTS = 6;
  */
 const GNEWS_LANGUAGES = [
   "bn",
-  "hi",
-  "en",
-  "ta",
-  "te"
+  "en"
 ];
 
 /*

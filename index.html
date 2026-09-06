@@ -15,7 +15,6 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="apple-touch-icon" href="/assets/logo.png">
     <link rel="icon" type="image/png" href="/assets/logo.png">
-    <!-- OG ট্যাগ হোমপেজের জন্য – শেয়ার পেজের জন্য আলাদা (Worker) -->
     <meta property="og:title" content="Ajker News | আজকের নিউজ - কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর">
     <meta property="og:description" content="ajkernews.in-এ পড়ুন কলকাতা, পশ্চিমবঙ্গের সমস্ত জেলা ও ব্লকের খবর, ভারতের রাজনীতি, অর্থনীতি, খেলা, বিনোদন, এবং দেশ-বিদেশের গুরুত্বপূর্ণ সংবাদ।">
     <meta property="og:type" content="website">
@@ -32,7 +31,6 @@
         { "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in//assets/logo.png", "description": "কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর বাংলায়।" }
     </script>
     <style>
-        /* আপনার পুরানো CSS – ঠিক রাখুন */
         * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
         html { scroll-behavior: smooth; }
         body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoothing:antialiased; }
@@ -152,7 +150,6 @@
 </head>
 <body>
 
-    <!-- HEADER -->
     <div class="header">
         <div class="header-left">
             <a href="/" class="header-home-link" aria-label="Ajker News Home">
@@ -174,13 +171,11 @@
         </div>
     </div>
 
-    <!-- CATEGORY BANNER -->
     <div class="trending-banner">
         <span id="categoryTitle">সেরা খবর</span>
         <button class="banner-right-btn" id="installAppBanner" onclick="installApp()">📲 Install App</button>
     </div>
 
-    <!-- SEARCH MODAL -->
     <div class="search-modal" id="searchModal">
         <div class="search-modal-box">
             <span class="close-search" onclick="closeSearchModal()">&times;</span>
@@ -191,7 +186,6 @@
         </div>
     </div>
 
-    <!-- SIDEBAR -->
     <div class="overlay" id="overlay" onclick="toggleSidebar(false)"></div>
     <div class="sidebar" id="sidebar">
         <div class="sidebar-header">
@@ -205,7 +199,6 @@
         </div>
     </div>
 
-    <!-- NEWS & COMMENT MODAL -->
     <div id="modal" class="modal">
         <div class="modal-content">
             <span class="close-modal" onclick="closeModal()">&times;</span>
@@ -213,7 +206,6 @@
         </div>
     </div>
 
-    <!-- MAIN CONTENT -->
     <div class="main-content">
         <div id="newsContainer">
             <div class="empty-news-msg">⏳ খবর লোড হচ্ছে...</div>
@@ -221,7 +213,6 @@
         <button id="loadMoreBtn" onclick="loadMoreNews()">আরও খবর দেখুন</button>
     </div>
 
-    <!-- FOOTER -->
     <footer class="footer">
         <div class="footer-links">
             <a href="javascript:void(0)" onclick="openModal('pages/about.html')">About</a>
@@ -237,7 +228,6 @@
         <div class="footer-copy">&copy; <span id="currentYear">2026</span> Ajker News. All rights reserved.</div>
     </footer>
 
-    <!-- FLOATING APP BUTTON -->
     <button id="floatingAppBtn" class="floating-app-btn" onclick="installApp()" aria-label="Install App">
         <svg viewBox="0 0 24 24" fill="none" stroke="#222222" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -252,7 +242,7 @@
         const WORKER_BASE = 'https://ajkernews.ajkernews-1c0.workers.dev';
         const API_URL = `${WORKER_BASE}/api/news`;
 
-        // ===== VAPID Public Key (UPDATED) =====
+        // ===== VAPID Public Key =====
         const VAPID_PUBLIC_KEY = 'BNTHm7e-hEeZs-PbEtE4d16zHDswrMLPFhZXtcpSS3Dh0ooav-oQMw29CTNu7CyP0xbDkb0bf8aayUVedVCX3tw';
 
         let currentCategory = 'top';
@@ -262,6 +252,7 @@
         let isLoadingNews = false;
         let currentOffset = 0;
         const PAGE_SIZE = 10;
+        let hasMoreNews = false; // ✅ নতুন ভেরিয়েবল
 
         // Personal Ads data
         const PERSONAL_ADS = [
@@ -395,7 +386,6 @@
                 .map(item => item.news);
         }
 
-        // ==================== NEW: Open news by ID (no reload) ====================
         async function openNewsById(id) {
             if (!id) return;
             const existing = currentNews.find(n => n.id === id);
@@ -436,7 +426,7 @@
             }
         }
 
-        // ==================== loadNews ====================
+        // ==================== loadNews (ফিক্স) ====================
         async function loadNews(category = 'top', search = '', options = {}) {
             currentOffset = 0;
             const { showLoading = true, keepExisting = false } = options;
@@ -450,7 +440,7 @@
             try {
                 const params = new URLSearchParams();
                 params.set('category', category || 'all');
-                                if (search) params.set('q', search);
+                if (search) params.set('q', search);
                 const url = API_URL + '?' + params.toString();
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 12000);
@@ -474,7 +464,8 @@
                 const normalizedNews = data.news.map(normalizeNews).filter(Boolean);
                 currentNews = search ? rankSearchResults(normalizedNews, search) : normalizedNews;
                 visibleCount = 10;
-                renderNews(currentNews);
+                hasMoreNews = data.has_more || false; // ✅ API থেকে has_more নেওয়া
+                renderNews(currentNews, hasMoreNews);
             } catch (error) {
                 console.error('News loading error:', error);
                 if (keepExisting && currentNews.length) return;
@@ -484,8 +475,8 @@
             }
         }
 
-        // ==================== renderNews ====================
-        function renderNews(newsList) {
+        // ==================== renderNews (ফিক্স) ====================
+        function renderNews(newsList, hasMore = false) {
             const container = document.getElementById('newsContainer');
             if (!Array.isArray(newsList) || !newsList.length) {
                 container.innerHTML = `<div class="empty-news-msg">📰 এই বিভাগে এখন কোনো খবর নেই।</div>`;
@@ -509,7 +500,6 @@
                     `<a href="javascript:void(0)" onclick="openNewsModal('${news.id}')">${escapeHtml(source)}</a>` :
                     `<span>${escapeHtml(source)}</span>`;
 
-                // JavaScript-এ স্ট্রিং এস্কেপ করা (শেয়ার বাটনের জন্য)
                 const safeHeadline = headline.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
                 const safeSummary = summary.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
 
@@ -560,7 +550,8 @@
 
             container.innerHTML = html;
             const loadMoreBtn = document.getElementById('loadMoreBtn');
-            if (newsList.length > visibleCount) {
+            // ✅ hasMore অনুযায়ী বাটন দেখানো/লুকানো
+            if (hasMore) {
                 loadMoreBtn.style.display = 'block';
                 loadMoreBtn.disabled = false;
                 loadMoreBtn.textContent = 'আরও খবর দেখুন';
@@ -576,7 +567,7 @@
             return ad;
         }
 
-        // ==================== LOAD MORE ====================
+        // ==================== loadMoreNews (ফিক্স) ====================
         async function loadMoreNews() {
             if (isLoadingNews) return;
             const loadMoreBtn = document.getElementById('loadMoreBtn');
@@ -588,20 +579,22 @@
                 params.set('category', currentCategory || 'top');
                 params.set('offset', String(currentOffset));
                 if (currentSearchQuery) params.set('q', currentSearchQuery);
-                                const url = API_URL + '?' + params.toString();
+                const url = API_URL + '?' + params.toString();
                 const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' }, cache: 'no-store' });
                 if (!response.ok) throw new Error('API error');
                 const data = await response.json();
                 if (!data.news || data.news.length === 0) {
                     loadMoreBtn.textContent = '📭 আর কোনো খবর নেই';
                     loadMoreBtn.disabled = true;
+                    hasMoreNews = false;
                     return;
                 }
                 const newNews = data.news.map(normalizeNews).filter(Boolean);
                 currentNews = [...currentNews, ...newNews];
-                visibleCount += newNews.length;
-                renderNews(currentNews);
-                if (newNews.length < PAGE_SIZE) {
+                visibleCount = currentNews.length; // সব দেখানোর জন্য আপডেট
+                hasMoreNews = data.has_more || false;
+                renderNews(currentNews, hasMoreNews);
+                if (!hasMoreNews) {
                     loadMoreBtn.textContent = '📭 সব খবর দেখানো হয়েছে';
                     loadMoreBtn.disabled = true;
                 } else {
@@ -651,42 +644,28 @@
             });
         }
 
-        // ==================== SHARE (UPDATED - No icons, no site name) ====================
+        // ==================== SHARE ====================
         async function shareNews(id, headline, summary) {
-            // শিরোনাম ও সারাংশ পরিষ্কার করুন
             const cleanHeadline = String(headline || '').replace(/\s+/g, ' ').trim();
             let cleanSummary = String(summary || '').replace(/\s+/g, ' ').trim();
-
-            // সারাংশ ১৫০ অক্ষরের মধ্যে রাখুন (স্ক্রিনশটের মতো)
             const MAX_SUMMARY = 150;
             if (cleanSummary.length > MAX_SUMMARY) {
                 let cutIndex = cleanSummary.lastIndexOf(' ', MAX_SUMMARY);
                 if (cutIndex === -1) cutIndex = MAX_SUMMARY;
                 cleanSummary = cleanSummary.substring(0, cutIndex) + '...';
             }
-
-            // শেয়ার লিংক
             const shareUrl = 'https://ajkernews.in/go/' + encodeURIComponent(id);
-
-            // শুধু টেক্সট – কোনো ইমোজি বা সাইটের নাম/বিবরণ নেই
             const text = `${cleanHeadline}\n${cleanSummary}\n\nপুরো খবরটি পড়তে এখনই ক্লিক করুন:\n${shareUrl}`;
-
             try {
                 if (navigator.share) {
-                    await navigator.share({
-                        title: cleanHeadline,
-                        text: text
-                    });
+                    await navigator.share({ title: cleanHeadline, text: text });
                     return;
                 }
-
                 if (navigator.clipboard && window.isSecureContext) {
                     await navigator.clipboard.writeText(text);
                     alert('✅ লিংক কপি হয়েছে! শেয়ার করে বন্ধুদের জানান।');
                     return;
                 }
-
-                // ফallback (textarea দিয়ে কপি)
                 const textarea = document.createElement('textarea');
                 textarea.value = text;
                 textarea.style.position = 'fixed';
@@ -934,8 +913,6 @@
         document.getElementById('currentYear').textContent = new Date().getFullYear();
 
         // ===== INIT =====
-        // Shared links keep the exact homepage design and open the article only
-        // after the normal homepage has rendered.
         (async function initApp() {
             const urlParams = new URLSearchParams(window.location.search);
             const newsId = urlParams.get('id');

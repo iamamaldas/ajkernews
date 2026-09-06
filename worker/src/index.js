@@ -1,21 +1,31 @@
 /**
- * Ajker News Worker
- * Complete backend
+ * =========================================================
+ * AJKER NEWS - CLOUDFLARE WORKER
+ * FINAL VERSION
+ * =========================================================
  *
- * Features:
- * - Hourly scheduled news update
- * - GNews Bengali + English sources
- * - Gemini selection / Bengali rewriting
- * - Gemini fallback model + safe fallback without Gemini
- * - D1 storage
- * - 25-news API pagination
- * - "আরও পড়ুন" support via has_more
+ * FINAL SETTINGS
+ * - Hourly update
+ * - Maximum 3 new news per hour
+ * - Maximum 1000 stored news
+ * - API page size 10
+ * - Indian Bengali + Hindi + English + Tamil + Telugu
+ * - Gemini selection + Bengali rewriting
+ * - Safe fallback without Gemini
+ * - D1
+ * - Love / Comments
  * - Push notifications
  * - Share preview
- * - Google indexing
  * - Sitemap
- * - Loves / comments
+ * - Google indexing support
  * - Affiliate redirect
+ * - Ads / Analytics config
+ *
+ * IMPORTANT:
+ * Cron schedule should remain:
+ * 0 * * * *
+ *
+ * =========================================================
  */
 
 import webPush from "web-push";
@@ -25,19 +35,49 @@ import AFFILIATE_CONFIG from "./config-affiliate.js";
 
 
 /* =========================================================
-   CONFIG
+   FINAL CONFIG
    ========================================================= */
 
-const MAX_NEWS = 200;
-const MAX_SELECTED_NEWS = 5;
-
-const API_PAGE_SIZE = 25;
-
-const GNEWS_MAX_RESULTS = 10;
+const MAX_NEWS = 1000;
 
 /*
- * Primary Gemini model.
- * If it fails, secondary model is tried.
+ * Maximum number of articles published
+ * during one hourly update.
+ */
+const MAX_SELECTED_NEWS = 3;
+
+/*
+ * Mobile-friendly API response.
+ *
+ * Frontend receives only 10 at a time.
+ */
+const API_PAGE_SIZE = 10;
+
+/*
+ * GNews articles per language.
+ *
+ * 5 feeds x 6 = maximum 30 candidates.
+ * Only 3 are finally published.
+ */
+const GNEWS_MAX_RESULTS = 6;
+
+/*
+ * Indian languages / sources.
+ *
+ * Bengali is primary.
+ * Hindi + English provide broad India coverage.
+ * Tamil + Telugu add regional Indian coverage.
+ */
+const GNEWS_LANGUAGES = [
+  "bn",
+  "hi",
+  "en",
+  "ta",
+  "te"
+];
+
+/*
+ * Gemini models.
  */
 const GEMINI_MODELS = [
   "gemini-3.6-flash",
@@ -52,75 +92,24 @@ let tablesReadyPromise = null;
    ========================================================= */
 
 const BN_TO_EN_MAP = {
-  "অ": "o",
-  "আ": "a",
-  "ই": "i",
-  "ঈ": "i",
-  "উ": "u",
-  "ঊ": "u",
-  "ঋ": "ri",
-  "এ": "e",
-  "ঐ": "oi",
-  "ও": "o",
-  "ঔ": "ou",
+  "অ":"o","আ":"a","ই":"i","ঈ":"i","উ":"u","ঊ":"u",
+  "ঋ":"ri","এ":"e","ঐ":"oi","ও":"o","ঔ":"ou",
 
-  "ক": "k",
-  "খ": "kh",
-  "গ": "g",
-  "ঘ": "gh",
-  "ঙ": "ng",
+  "ক":"k","খ":"kh","গ":"g","ঘ":"gh","ঙ":"ng",
+  "চ":"ch","ছ":"chh","জ":"j","ঝ":"jh","ঞ":"n",
 
-  "চ": "ch",
-  "ছ": "chh",
-  "জ": "j",
-  "ঝ": "jh",
-  "ঞ": "n",
+  "ট":"t","ঠ":"th","ড":"d","ঢ":"dh","ণ":"n",
+  "ত":"t","থ":"th","দ":"d","ধ":"dh","ন":"n",
 
-  "ট": "t",
-  "ঠ": "th",
-  "ড": "d",
-  "ঢ": "dh",
-  "ণ": "n",
+  "প":"p","ফ":"ph","ব":"b","ভ":"bh","ম":"m",
+  "য":"j","র":"r","ল":"l",
+  "শ":"sh","ষ":"sh","স":"s","হ":"h",
 
-  "ত": "t",
-  "থ": "th",
-  "দ": "d",
-  "ধ": "dh",
-  "ন": "n",
+  "ড়":"r","ঢ়":"rh","য়":"y",
+  "ং":"ng","ঃ":"h","ঁ":"n",
 
-  "প": "p",
-  "ফ": "ph",
-  "ব": "b",
-  "ভ": "bh",
-  "ম": "m",
-
-  "য": "j",
-  "র": "r",
-  "ল": "l",
-
-  "শ": "sh",
-  "ষ": "sh",
-  "স": "s",
-  "হ": "h",
-
-  "ড়": "r",
-  "ঢ়": "rh",
-  "য়": "y",
-
-  "ং": "ng",
-  "ঃ": "h",
-  "ঁ": "n",
-
-  "া": "a",
-  "ি": "i",
-  "ী": "i",
-  "ু": "u",
-  "ূ": "u",
-  "ৃ": "ri",
-  "ে": "e",
-  "ৈ": "oi",
-  "ো": "o",
-  "ৌ": "ou"
+  "া":"a","ি":"i","ী":"i","ু":"u","ূ":"u",
+  "ৃ":"ri","ে":"e","ৈ":"oi","ো":"o","ৌ":"ou"
 };
 
 function toTransliterated(text) {
@@ -129,76 +118,51 @@ function toTransliterated(text) {
   let result = "";
 
   for (const char of String(text)) {
-    result +=
-      BN_TO_EN_MAP[char] ||
-      char;
+    result += BN_TO_EN_MAP[char] || char;
   }
 
   return result
     .toLowerCase()
-    .replace(
-      /[^a-z0-9 ]/g,
-      " "
-    )
-    .replace(
-      /\s+/g,
-      " "
-    )
+    .replace(/[^a-z0-9 ]/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
 
 /* =========================================================
-   FETCH HANDLER
+   FETCH
    ========================================================= */
 
 export default {
 
-  async fetch(
-    request,
-    env,
-    ctx
-  ) {
+  async fetch(request, env, ctx) {
 
-    const url =
-      new URL(request.url);
+    const url = new URL(request.url);
 
-    if (
-      request.method === "OPTIONS"
-    ) {
-      return new Response(
-        null,
-        {
-          status: 204,
-          headers:
-            corsHeaders()
-        }
-      );
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: corsHeaders()
+      });
     }
 
     try {
 
-      await ensureTablesOnce(
-        env
-      );
+      await ensureTablesOnce(env);
 
 
       /* -----------------------------------------
-         SEARCH CONSOLE FILE
+         SEARCH CONSOLE
          ----------------------------------------- */
 
       if (
         ANALYTICS_CONFIG.searchConsole &&
         url.pathname ===
-          ANALYTICS_CONFIG
-            .searchConsole
-            .filePath
+          ANALYTICS_CONFIG.searchConsole.filePath
       ) {
 
         return new Response(
-          ANALYTICS_CONFIG
-            .searchConsole
-            .content,
+          ANALYTICS_CONFIG.searchConsole.content,
           {
             status: 200,
             headers: {
@@ -214,14 +178,10 @@ export default {
          ADS.TXT
          ----------------------------------------- */
 
-      if (
-        url.pathname ===
-        "/ads.txt"
-      ) {
+      if (url.pathname === "/ads.txt") {
 
         return new Response(
-          ADS_CONFIG
-            .adsTxtContent,
+          ADS_CONFIG.adsTxtContent,
           {
             status: 200,
             headers: {
@@ -237,29 +197,19 @@ export default {
          SHARE PAGE
          ----------------------------------------- */
 
-      if (
-        url.pathname.startsWith(
-          "/go/"
-        )
-      ) {
+      if (url.pathname.startsWith("/go/")) {
 
         const id =
-          url.pathname
-            .split("/")[2];
+          url.pathname.split("/")[2];
 
         if (!id) {
           return new Response(
             "Invalid link",
-            {
-              status: 400
-            }
+            { status: 400 }
           );
         }
 
-        return await serveSharePage(
-          id,
-          env
-        );
+        return await serveSharePage(id, env);
       }
 
 
@@ -268,10 +218,8 @@ export default {
          ----------------------------------------- */
 
       if (
-        url.pathname ===
-          "/api/affiliate" &&
-        request.method ===
-          "GET"
+        url.pathname === "/api/affiliate" &&
+        request.method === "GET"
       ) {
 
         return await handleAffiliate(
@@ -282,12 +230,11 @@ export default {
 
 
       /* -----------------------------------------
-         NORMAL NEWS META PAGE
+         NEWS META PAGE
          ----------------------------------------- */
 
       if (
-        url.pathname ===
-          "/news" &&
+        url.pathname === "/news" &&
         url.searchParams.has("id")
       ) {
 
@@ -302,14 +249,9 @@ export default {
          SITEMAP
          ----------------------------------------- */
 
-      if (
-        url.pathname ===
-        "/sitemap.xml"
-      ) {
+      if (url.pathname === "/sitemap.xml") {
 
-        return await generateSitemap(
-          env
-        );
+        return await generateSitemap(env);
       }
 
 
@@ -317,10 +259,7 @@ export default {
          NEWS API
          ----------------------------------------- */
 
-      if (
-        url.pathname ===
-        "/api/news"
-      ) {
+      if (url.pathname === "/api/news") {
 
         return await handleGetNews(
           url,
@@ -333,21 +272,14 @@ export default {
          MANUAL UPDATE
          ----------------------------------------- */
 
-      if (
-        url.pathname ===
-        "/api/update"
-      ) {
+      if (url.pathname === "/api/update") {
 
-        if (
-          request.method !==
-          "POST"
-        ) {
+        if (request.method !== "POST") {
 
           return json(
             {
               success: false,
-              error:
-                "POST method required"
+              error: "POST method required"
             },
             405,
             0
@@ -355,9 +287,7 @@ export default {
         }
 
         const result =
-          await updateNews(
-            env
-          );
+          await updateNews(env);
 
         return json(
           {
@@ -374,20 +304,13 @@ export default {
          LOVE
          ----------------------------------------- */
 
-      if (
-        url.pathname ===
-        "/api/love"
-      ) {
+      if (url.pathname === "/api/love") {
 
-        if (
-          request.method !==
-          "POST"
-        ) {
+        if (request.method !== "POST") {
 
           return json(
             {
-              error:
-                "POST required"
+              error: "POST required"
             },
             405,
             0
@@ -405,15 +328,9 @@ export default {
          COMMENTS
          ----------------------------------------- */
 
-      if (
-        url.pathname ===
-        "/api/comments"
-      ) {
+      if (url.pathname === "/api/comments") {
 
-        if (
-          request.method ===
-          "GET"
-        ) {
+        if (request.method === "GET") {
 
           return await getComments(
             url,
@@ -421,10 +338,7 @@ export default {
           );
         }
 
-        if (
-          request.method ===
-          "POST"
-        ) {
+        if (request.method === "POST") {
 
           return await addComment(
             request,
@@ -434,8 +348,7 @@ export default {
 
         return json(
           {
-            error:
-              "Method not allowed"
+            error: "Method not allowed"
           },
           405,
           0
@@ -448,10 +361,8 @@ export default {
          ----------------------------------------- */
 
       if (
-        url.pathname ===
-          "/api/subscribe" &&
-        request.method ===
-          "POST"
+        url.pathname === "/api/subscribe" &&
+        request.method === "POST"
       ) {
 
         return await handleSubscribe(
@@ -465,10 +376,7 @@ export default {
          HEALTH
          ----------------------------------------- */
 
-      if (
-        url.pathname ===
-        "/"
-      ) {
+      if (url.pathname === "/") {
 
         return new Response(
           "Ajker News Worker is running.",
@@ -516,17 +424,13 @@ export default {
 
 
   /* =====================================================
-     CRON
+     HOURLY CRON
      ===================================================== */
 
-  async scheduled(
-    event,
-    env,
-    ctx
-  ) {
+  async scheduled(event, env, ctx) {
 
     console.log(
-      "Scheduled update started:",
+      "Hourly news update started:",
       new Date(
         event.scheduledTime
       ).toISOString()
@@ -535,22 +439,14 @@ export default {
     try {
 
       const result =
-        await updateNews(
-          env
-        );
+        await updateNews(env);
 
       console.log(
-        "Scheduled update completed:",
+        "Hourly update completed:",
         JSON.stringify(result)
       );
 
-
-      /*
-       * Push notification is background work.
-       */
-      if (
-        result.stored > 0
-      ) {
+      if (result.stored > 0) {
 
         ctx.waitUntil(
           sendPushNotifications(
@@ -558,26 +454,16 @@ export default {
             "📰 নতুন খবর!",
             `${result.stored}টি নতুন খবর প্রকাশিত হয়েছে।`,
             "https://ajkernews.in/"
-          ).catch(
-            error => {
-              console.error(
-                "Scheduled push error:",
-                error
-              );
-            }
-          )
+          ).catch(error => {
+            console.error(
+              "Push error:",
+              error
+            );
+          })
         );
       }
 
     } catch (error) {
-
-      /*
-       * IMPORTANT:
-       * Do not throw again.
-       *
-       * This prevents the scheduled execution
-       * from becoming an unhandled failure.
-       */
 
       console.error(
         "Scheduled update failed:",
@@ -592,9 +478,7 @@ export default {
    DATABASE
    ========================================================= */
 
-async function ensureTables(
-  env
-) {
+async function ensureTables(env) {
 
   const queries = [
 
@@ -700,10 +584,7 @@ async function ensureTables(
     `
   ];
 
-  for (
-    const sql of queries
-  ) {
-
+  for (const sql of queries) {
     await env.DB
       .prepare(sql)
       .run();
@@ -711,14 +592,9 @@ async function ensureTables(
 }
 
 
-async function ensureTablesOnce(
-  env
-) {
+async function ensureTablesOnce(env) {
 
-  if (
-    !tablesReadyPromise
-  ) {
-
+  if (!tablesReadyPromise) {
     tablesReadyPromise =
       ensureTables(env);
   }
@@ -729,8 +605,7 @@ async function ensureTablesOnce(
 
   } catch (error) {
 
-    tablesReadyPromise =
-      null;
+    tablesReadyPromise = null;
 
     throw error;
   }
@@ -741,14 +616,10 @@ async function ensureTablesOnce(
    SHARE PAGE
    ========================================================= */
 
-async function serveSharePage(
-  id,
-  env
-) {
+async function serveSharePage(id, env) {
 
   const safeId =
-    String(id || "")
-      .trim();
+    String(id || "").trim();
 
   if (!safeId) {
 
@@ -760,8 +631,7 @@ async function serveSharePage(
 
   const result =
     await env.DB
-      .prepare(
-        `
+      .prepare(`
         SELECT
           headline,
           summary,
@@ -772,8 +642,7 @@ async function serveSharePage(
         WHERE id = ?
           AND status = 'published'
         LIMIT 1
-        `
-      )
+      `)
       .bind(safeId)
       .first();
 
@@ -797,8 +666,7 @@ async function serveSharePage(
     ).slice(0, 200);
 
   const image =
-    result.image_url ||
-    "";
+    result.image_url || "";
 
   const shareUrl =
     `https://ajkernews.in/go/${encodeURIComponent(safeId)}`;
@@ -813,133 +681,116 @@ async function serveSharePage(
           property="og:image"
           content="${escapeHtml(image)}"
         >
-
         <meta
           property="og:image:alt"
           content="${escapeHtml(title)}"
         >
-
         <meta
           name="twitter:image"
           content="${escapeHtml(image)}"
         >
-        `
+      `
       : "";
 
   const html =
-    `<!DOCTYPE html>
+`<!DOCTYPE html>
 <html lang="bn">
-
 <head>
 
-  <meta charset="UTF-8">
+<meta charset="UTF-8">
 
-  <meta
-    name="viewport"
-    content="width=device-width,initial-scale=1"
-  >
+<meta
+  name="viewport"
+  content="width=device-width,initial-scale=1"
+>
 
-  <title>
-    ${escapeHtml(title)}
-  </title>
+<title>${escapeHtml(title)}</title>
 
-  <meta
-    name="description"
-    content="${escapeHtml(description)}"
-  >
+<meta
+  name="description"
+  content="${escapeHtml(description)}"
+>
 
-  <meta
-    property="og:title"
-    content="${escapeHtml(title)}"
-  >
+<meta
+  property="og:title"
+  content="${escapeHtml(title)}"
+>
 
-  <meta
-    property="og:description"
-    content="${escapeHtml(description)}"
-  >
+<meta
+  property="og:description"
+  content="${escapeHtml(description)}"
+>
 
-  <meta
-    property="og:type"
-    content="article"
-  >
+<meta
+  property="og:type"
+  content="article"
+>
 
-  <meta
-    property="og:url"
-    content="${escapeHtml(shareUrl)}"
-  >
+<meta
+  property="og:url"
+  content="${escapeHtml(shareUrl)}"
+>
 
-  <meta
-    property="og:locale"
-    content="bn_IN"
-  >
+<meta
+  property="og:locale"
+  content="bn_IN"
+>
 
-  ${imageTags}
+${imageTags}
 
-  <meta
-    name="twitter:card"
-    content="${
-      image
-        ? "summary_large_image"
-        : "summary"
-    }"
-  >
+<meta
+  name="twitter:card"
+  content="${
+    image
+      ? "summary_large_image"
+      : "summary"
+  }"
+>
 
-  <meta
-    name="twitter:title"
-    content="${escapeHtml(title)}"
-  >
+<meta
+  name="twitter:title"
+  content="${escapeHtml(title)}"
+>
 
-  <meta
-    name="twitter:description"
-    content="${escapeHtml(description)}"
-  >
+<meta
+  name="twitter:description"
+  content="${escapeHtml(description)}"
+>
 
-  <meta
-    name="twitter:url"
-    content="${escapeHtml(shareUrl)}"
-  >
+<meta
+  http-equiv="refresh"
+  content="0;url=${escapeHtml(homeUrl)}"
+>
 
-  <meta
-    http-equiv="refresh"
-    content="0;url=${escapeHtml(homeUrl)}"
-  >
-
-  <script>
-    window.location.replace(
-      ${JSON.stringify(homeUrl)}
-    );
-  </script>
+<script>
+window.location.replace(
+  ${JSON.stringify(homeUrl)}
+);
+</script>
 
 </head>
 
 <body>
 
-  <main
-    style="
-      font-family:sans-serif;
-      padding:20px;
-      line-height:1.7;
-    "
-  >
+<main
+  style="
+    font-family:sans-serif;
+    padding:20px;
+    line-height:1.7;
+  "
+>
 
-    <h1>
-      ${escapeHtml(title)}
-    </h1>
+<h1>${escapeHtml(title)}</h1>
 
-    <p>
-      ${escapeHtml(description)}
-    </p>
+<p>${escapeHtml(description)}</p>
 
-    <a
-      href="${escapeHtml(homeUrl)}"
-    >
-      পুরো খবরটি পড়তে এখানে ক্লিক করুন
-    </a>
+<a href="${escapeHtml(homeUrl)}">
+  পুরো খবরটি পড়তে এখানে ক্লিক করুন
+</a>
 
-  </main>
+</main>
 
 </body>
-
 </html>`;
 
   return new Response(
@@ -964,18 +815,13 @@ async function serveSharePage(
 
 
 /* =========================================================
-   NORMAL NEWS META PAGE
+   NEWS META PAGE
    ========================================================= */
 
-async function serveNewsPage(
-  url,
-  env
-) {
+async function serveNewsPage(url, env) {
 
   const id =
-    url.searchParams.get(
-      "id"
-    );
+    url.searchParams.get("id");
 
   if (!id) {
 
@@ -987,8 +833,7 @@ async function serveNewsPage(
 
   const result =
     await env.DB
-      .prepare(
-        `
+      .prepare(`
         SELECT
           headline,
           summary,
@@ -999,8 +844,7 @@ async function serveNewsPage(
         WHERE id = ?
           AND status = 'published'
         LIMIT 1
-        `
-      )
+      `)
       .bind(id)
       .first();
 
@@ -1013,9 +857,7 @@ async function serveNewsPage(
   }
 
   const title =
-    cleanText(
-      result.headline
-    ) ||
+    cleanText(result.headline) ||
     "Ajker News";
 
   const description =
@@ -1024,8 +866,7 @@ async function serveNewsPage(
     ).slice(0, 160);
 
   const image =
-    result.image_url ||
-    "";
+    result.image_url || "";
 
   const homeUrl =
     `https://ajkernews.in/?id=${encodeURIComponent(id)}`;
@@ -1037,142 +878,134 @@ async function serveNewsPage(
           property="og:image"
           content="${escapeHtml(image)}"
         >
-
         <meta
           property="og:image:alt"
           content="${escapeHtml(title)}"
         >
-
         <meta
           name="twitter:image"
           content="${escapeHtml(image)}"
         >
-        `
+      `
       : "";
 
   let html =
-    `<!DOCTYPE html>
-
+`<!DOCTYPE html>
 <html lang="bn">
-
 <head>
 
-  <meta charset="UTF-8">
+<meta charset="UTF-8">
 
-  <meta
-    name="viewport"
-    content="width=device-width,initial-scale=1"
-  >
+<meta
+  name="viewport"
+  content="width=device-width,initial-scale=1"
+>
 
-  <title>
-    ${escapeHtml(title)}
-    - Ajker News
-  </title>
+<title>
+${escapeHtml(title)} - Ajker News
+</title>
 
-  <meta
-    name="description"
-    content="${escapeHtml(description)}"
-  >
+<meta
+  name="description"
+  content="${escapeHtml(description)}"
+>
 
-  <meta
-    property="og:title"
-    content="${escapeHtml(title)}"
-  >
+<meta
+  property="og:title"
+  content="${escapeHtml(title)}"
+>
 
-  <meta
-    property="og:description"
-    content="${escapeHtml(description)}"
-  >
+<meta
+  property="og:description"
+  content="${escapeHtml(description)}"
+>
 
-  <meta
-    property="og:url"
-    content="${escapeHtml(homeUrl)}"
-  >
+<meta
+  property="og:url"
+  content="${escapeHtml(homeUrl)}"
+>
 
-  <meta
-    property="og:type"
-    content="article"
-  >
+<meta
+  property="og:type"
+  content="article"
+>
 
-  ${imageTags}
+${imageTags}
 
-  <meta
-    name="twitter:card"
-    content="${
-      image
-        ? "summary_large_image"
-        : "summary"
-    }"
-  >
+<meta
+  name="twitter:card"
+  content="${
+    image
+      ? "summary_large_image"
+      : "summary"
+  }"
+>
 
-  <meta
-    name="twitter:title"
-    content="${escapeHtml(title)}"
-  >
+<meta
+  name="twitter:title"
+  content="${escapeHtml(title)}"
+>
 
-  <meta
-    name="twitter:description"
-    content="${escapeHtml(description)}"
-  >
+<meta
+  name="twitter:description"
+  content="${escapeHtml(description)}"
+>
 
-  <meta
-    http-equiv="refresh"
-    content="0;url=${escapeHtml(homeUrl)}"
-  >
+<meta
+  http-equiv="refresh"
+  content="0;url=${escapeHtml(homeUrl)}"
+>
 
-  <script>
-    window.location.replace(
-      ${JSON.stringify(homeUrl)}
-    );
-  </script>
+<script>
+window.location.replace(
+  ${JSON.stringify(homeUrl)}
+);
+</script>
 
 </head>
 
 <body>
 
-  <p>
-    ${escapeHtml(title)}
-  </p>
+<p>${escapeHtml(title)}</p>
 
 </body>
-
 </html>`;
 
-  const analyticsScript =
-    `
-    <script async
-      src="https://www.googletagmanager.com/gtag/js?id=${ANALYTICS_CONFIG.gaTrackingId}">
-    </script>
+  const analyticsScript = `
+<script async
+src="https://www.googletagmanager.com/gtag/js?id=${escapeHtml(
+  ANALYTICS_CONFIG.gaTrackingId
+)}">
+</script>
 
-    <script>
-      window.dataLayer =
-        window.dataLayer || [];
+<script>
+window.dataLayer =
+  window.dataLayer || [];
 
-      function gtag(){
-        dataLayer.push(arguments);
-      }
+function gtag(){
+  dataLayer.push(arguments);
+}
 
-      gtag(
-        "js",
-        new Date()
-      );
+gtag("js", new Date());
 
-      gtag(
-        "config",
-        "${ANALYTICS_CONFIG.gaTrackingId}"
-      );
-    </script>
+gtag(
+  "config",
+  ${JSON.stringify(
+    ANALYTICS_CONFIG.gaTrackingId
+  )}
+);
+</script>
 
-    ${
-      ANALYTICS_CONFIG.extraHeadScripts ||
-      ""
-    }
+${
+  ANALYTICS_CONFIG.extraHeadScripts ||
+  ""
+}
 
-    ${
-      ADS_CONFIG.adNetworkScripts ||
-      ""
-    }
-    `;
+${
+  ADS_CONFIG.adNetworkScripts ||
+  ""
+}
+`;
 
   html =
     html.replace(
@@ -1181,15 +1014,12 @@ async function serveNewsPage(
       "</head>"
     );
 
-  if (
-    ADS_CONFIG.extraFooterScripts
-  ) {
+  if (ADS_CONFIG.extraFooterScripts) {
 
     html =
       html.replace(
         "</body>",
-        ADS_CONFIG
-          .extraFooterScripts +
+        ADS_CONFIG.extraFooterScripts +
         "</body>"
       );
   }
@@ -1198,7 +1028,6 @@ async function serveNewsPage(
     html,
     {
       status: 200,
-
       headers: {
         "Content-Type":
           "text/html; charset=UTF-8",
@@ -1217,56 +1046,37 @@ async function serveNewsPage(
    AFFILIATE
    ========================================================= */
 
-async function handleAffiliate(
-  url,
-  env
-) {
+async function handleAffiliate(url, env) {
 
   const ref =
-    url.searchParams.get(
-      "ref"
-    ) ||
+    url.searchParams.get("ref") ||
     "direct";
 
   let targetUrl =
-    url.searchParams.get(
-      "url"
-    );
+    url.searchParams.get("url");
 
   if (
     !targetUrl &&
-    AFFILIATE_CONFIG
-      .redirectMap &&
-    AFFILIATE_CONFIG
-      .redirectMap[ref]
+    AFFILIATE_CONFIG.redirectMap &&
+    AFFILIATE_CONFIG.redirectMap[ref]
   ) {
 
     targetUrl =
-      AFFILIATE_CONFIG
-        .redirectMap[ref];
+      AFFILIATE_CONFIG.redirectMap[ref];
   }
 
   if (!targetUrl) {
 
     targetUrl =
-      AFFILIATE_CONFIG
-        .defaultRedirect;
+      AFFILIATE_CONFIG.defaultRedirect;
   }
 
-  if (
-    AFFILIATE_CONFIG.trackClicks
-  ) {
+  if (AFFILIATE_CONFIG.trackClicks) {
 
     try {
 
-      const deviceId =
-        requestSafeIp(
-          url
-        );
-
       await env.DB
-        .prepare(
-          `
+        .prepare(`
           INSERT INTO affiliate_clicks
           (
             id,
@@ -1276,15 +1086,13 @@ async function handleAffiliate(
             created_at
           )
           VALUES (?, ?, ?, ?, ?)
-          `
-        )
+        `)
         .bind(
           crypto.randomUUID(),
           ref,
           targetUrl,
-          deviceId,
-          new Date()
-            .toISOString()
+          requestSafeIp(),
+          new Date().toISOString()
         )
         .run();
 
@@ -1303,6 +1111,7 @@ async function handleAffiliate(
   );
 }
 
+
 function requestSafeIp() {
   return "unknown";
 }
@@ -1312,41 +1121,26 @@ function requestSafeIp() {
    NEWS UPDATE
    ========================================================= */
 
-async function updateNews(
-  env
-) {
+async function updateNews(env) {
 
   if (!env.DB) {
-
     throw new Error(
       "D1 binding DB is missing"
     );
   }
 
-  if (
-    !env.GNEWS_API_KEY
-  ) {
-
+  if (!env.GNEWS_API_KEY) {
     throw new Error(
       "GNEWS_API_KEY secret is missing"
     );
   }
-
-  /*
-   * Gemini is optional for reliability.
-   *
-   * If the key is missing or Gemini fails,
-   * GNews fallback will still publish news.
-   */
 
   let candidates = [];
 
   try {
 
     candidates =
-      await fetchGNews(
-        env
-      );
+      await fetchGNews(env);
 
   } catch (error) {
 
@@ -1364,14 +1158,11 @@ async function updateNews(
       indexed: 0,
       gemini: false,
       fallback: false,
-      message:
-        "GNews fetch failed"
+      message: "GNews fetch failed"
     };
   }
 
-  if (
-    !candidates.length
-  ) {
+  if (!candidates.length) {
 
     return {
       fetched: 0,
@@ -1382,14 +1173,13 @@ async function updateNews(
       indexed: 0,
       gemini: false,
       fallback: false,
-      message:
-        "No news found"
+      message: "No news found"
     };
   }
 
 
   /* -----------------------------------------
-     Remove duplicates
+     Remove existing articles
      ----------------------------------------- */
 
   const uniqueCandidates =
@@ -1398,28 +1188,17 @@ async function updateNews(
       env
     );
 
-  if (
-    !uniqueCandidates.length
-  ) {
+  if (!uniqueCandidates.length) {
 
     return {
-      fetched:
-        candidates.length,
-
+      fetched: candidates.length,
       unique: 0,
-
       selected: 0,
-
       stored: 0,
-
       deleted: 0,
-
       indexed: 0,
-
       gemini: false,
-
       fallback: false,
-
       message:
         "No new news available"
     };
@@ -1427,20 +1206,16 @@ async function updateNews(
 
 
   /* -----------------------------------------
-     Gemini processing
+     Gemini
      ----------------------------------------- */
 
   let selected = [];
 
-  let usedGemini =
-    false;
+  let usedGemini = false;
 
-  let usedFallback =
-    false;
+  let usedFallback = false;
 
-  if (
-    env.GEMINI_API_KEY
-  ) {
+  if (env.GEMINI_API_KEY) {
 
     try {
 
@@ -1456,7 +1231,7 @@ async function updateNews(
     } catch (error) {
 
       console.error(
-        "Gemini processing failed:",
+        "Gemini failed:",
         error
       );
     }
@@ -1464,33 +1239,29 @@ async function updateNews(
 
 
   /* -----------------------------------------
-     Safe fallback
+     Fallback
      ----------------------------------------- */
 
-  if (
-    !selected.length
-  ) {
-
-    console.log(
-      "Using GNews fallback."
-    );
+  if (!selected.length) {
 
     selected =
       buildFallbackNews(
         uniqueCandidates
       );
 
-    usedFallback =
-      true;
+    usedFallback = true;
   }
 
 
+  /*
+   * FINAL:
+   * Maximum 3 articles per hourly run.
+   */
   const finalNews =
-    selected
-      .slice(
-        0,
-        MAX_SELECTED_NEWS
-      );
+    selected.slice(
+      0,
+      MAX_SELECTED_NEWS
+    );
 
 
   let stored = 0;
@@ -1502,9 +1273,7 @@ async function updateNews(
      Insert
      ----------------------------------------- */
 
-  for (
-    const news of finalNews
-  ) {
+  for (const news of finalNews) {
 
     try {
 
@@ -1516,7 +1285,9 @@ async function updateNews(
       stored++;
 
       indexedUrls.push(
-        `https://ajkernews.in/?id=${news.id}`
+        `https://ajkernews.in/?id=${encodeURIComponent(
+          news.id
+        )}`
       );
 
     } catch (error) {
@@ -1530,7 +1301,7 @@ async function updateNews(
 
 
   /* -----------------------------------------
-     Keep database small
+     Keep maximum 1000 news
      ----------------------------------------- */
 
   const deleted =
@@ -1551,8 +1322,7 @@ async function updateNews(
   ) {
 
     for (
-      const newsUrl of
-      indexedUrls
+      const newsUrl of indexedUrls
     ) {
 
       let success = false;
@@ -1570,7 +1340,9 @@ async function updateNews(
           );
 
         if (success) {
+
           indexed++;
+
           break;
         }
 
@@ -1608,7 +1380,7 @@ async function updateNews(
       usedFallback,
 
     message:
-      `News update completed. ${stored} stored. Gemini: ${usedGemini ? "yes" : "no"}. Fallback: ${usedFallback ? "yes" : "no"}.`
+      `Hourly update completed. ${stored} stored. Maximum storage: ${MAX_NEWS}.`
   };
 }
 
@@ -1617,80 +1389,53 @@ async function updateNews(
    GNEWS
    ========================================================= */
 
-async function fetchGNews(
-  env
-) {
+async function fetchGNews(env) {
 
   const results = [];
 
   /*
-   * Bengali feed
-   */
-  try {
-
-    const bn =
-      await fetchGNewsFeed(
-        env,
-        "bn"
-      );
-
-    results.push(
-      ...bn
-    );
-
-  } catch (error) {
-
-    console.error(
-      "Bengali GNews failed:",
-      error
-    );
-  }
-
-
-  /*
-   * English feed
+   * Fetch Indian-language feeds.
    *
-   * This improves coverage for
-   * international / technology /
-   * business stories.
+   * If one language fails, the other feeds
+   * continue normally.
    */
-  try {
 
-    const en =
-      await fetchGNewsFeed(
-        env,
-        "en"
+  for (
+    const language of GNEWS_LANGUAGES
+  ) {
+
+    try {
+
+      const feed =
+        await fetchGNewsFeed(
+          env,
+          language
+        );
+
+      results.push(...feed);
+
+    } catch (error) {
+
+      console.error(
+        `GNews ${language} failed:`,
+        error
       );
-
-    results.push(
-      ...en
-    );
-
-  } catch (error) {
-
-    console.error(
-      "English GNews failed:",
-      error
-    );
+    }
   }
 
 
-  /*
-   * Deduplicate by URL.
-   */
+  /* -----------------------------------------
+     Deduplicate
+     ----------------------------------------- */
 
   const seen =
     new Set();
 
   const unique = [];
 
-  for (
-    const item of results
-  ) {
+  for (const item of results) {
 
-    if (
-      !item.source_url
-    ) {
+    if (!item.source_url) {
       continue;
     }
 
@@ -1706,16 +1451,15 @@ async function fetchGNews(
       item.source_url
     );
 
-    unique.push(
-      item
-    );
+    unique.push(item);
   }
 
-  return unique
-    .slice(
-      0,
-      20
-    );
+
+  /*
+   * Keep candidate list reasonably small
+   * for Gemini and Cloudflare.
+   */
+  return unique.slice(0, 30);
 }
 
 
@@ -1741,9 +1485,7 @@ async function fetchGNewsFeed(
 
   apiUrl.searchParams.set(
     "max",
-    String(
-      GNEWS_MAX_RESULTS
-    )
+    String(GNEWS_MAX_RESULTS)
   );
 
   apiUrl.searchParams.set(
@@ -1756,7 +1498,6 @@ async function fetchGNewsFeed(
       apiUrl.toString(),
       {
         method: "GET",
-
         headers: {
           accept:
             "application/json"
@@ -1776,9 +1517,7 @@ async function fetchGNewsFeed(
 
   if (
     !data ||
-    !Array.isArray(
-      data.articles
-    )
+    !Array.isArray(data.articles)
   ) {
 
     return [];
@@ -1789,42 +1528,37 @@ async function fetchGNewsFeed(
       0,
       GNEWS_MAX_RESULTS
     )
-    .map(
-      article => ({
+    .map(article => ({
 
-        source_name:
-          cleanText(
-            article.source?.name ||
-            ""
-          ),
+      source_name:
+        cleanText(
+          article.source?.name || ""
+        ),
 
-        source_url:
-          normalizeUrl(
-            article.url ||
-            ""
-          ),
+      source_url:
+        normalizeUrl(
+          article.url || ""
+        ),
 
-        source_title:
-          cleanText(
-            article.title ||
-            ""
-          ),
+      source_title:
+        cleanText(
+          article.title || ""
+        ),
 
-        source_description:
-          cleanText(
-            article.description ||
-            ""
-          ),
+      source_description:
+        cleanText(
+          article.description || ""
+        ),
 
-        image_url:
-          article.image ||
-          "",
+      image_url:
+        article.image || "",
 
-        published_at:
-          article.publishedAt ||
-          ""
-      })
-    )
+      published_at:
+        article.publishedAt || "",
+
+      language
+
+    }))
     .filter(
       article =>
         article.source_url &&
@@ -1847,9 +1581,7 @@ async function removeExistingNews(
   const checked =
     new Set();
 
-  for (
-    const item of candidates
-  ) {
+  for (const item of candidates) {
 
     const sourceUrl =
       normalizeUrl(
@@ -1861,38 +1593,29 @@ async function removeExistingNews(
     }
 
     if (
-      checked.has(
-        sourceUrl
-      )
+      checked.has(sourceUrl)
     ) {
       continue;
     }
 
-    checked.add(
-      sourceUrl
-    );
+    checked.add(sourceUrl);
 
     const existing =
       await env.DB
-        .prepare(
-          `
+        .prepare(`
           SELECT id
           FROM news
           WHERE source_url = ?
           LIMIT 1
-          `
-        )
-        .bind(
-          sourceUrl
-        )
+        `)
+        .bind(sourceUrl)
         .first();
 
     if (!existing) {
 
       unique.push({
         ...item,
-        source_url:
-          sourceUrl
+        source_url: sourceUrl
       });
     }
   }
@@ -1912,13 +1635,13 @@ async function processWithGemini(
 
   const input =
     candidates.map(
-      (
-        item,
-        index
-      ) => ({
+      (item, index) => ({
 
         candidate_id:
           index + 1,
+
+        language:
+          item.language || "en",
 
         source:
           item.source_name,
@@ -1937,34 +1660,89 @@ async function processWithGemini(
 
   const prompt = `
 You are the senior editor of Ajker News,
-a Bengali news website for Bengali readers in India.
+an Indian Bengali news website.
 
-Select the 5 most important NEW stories.
+Your job is to select the 3 most important
+and useful NEW Indian news stories from the
+provided candidates.
 
-PRIORITY:
+PRIMARY AUDIENCE:
+Bengali readers in India.
+
+LANGUAGE:
+Write the final headline and summary in
+natural professional Bengali.
+
+COVERAGE PRIORITY:
+
 1. West Bengal:
-   Kolkata, Mamata Banerjee, TMC, BJP Bengal,
-   West Bengal government, Bengal politics,
-   Bengal crime, Bengal development and elections.
-2. India national politics.
-3. Major international news.
-4. Business.
-5. Technology.
-6. Sports.
-7. Entertainment.
+   Kolkata,
+   West Bengal government,
+   Mamata Banerjee,
+   TMC,
+   BJP Bengal,
+   Bengal politics,
+   Bengal crime,
+   Bengal development,
+   Bengal education,
+   Bengal jobs,
+   Bengal weather,
+   Bengal public-interest news.
 
-Important:
-- Select only from the supplied candidates.
+2. India:
+   Indian government,
+   Delhi,
+   Parliament,
+   Prime Minister,
+   Supreme Court,
+   national politics,
+   economy,
+   jobs,
+   education,
+   public-interest events.
+
+3. Other Indian states:
+   Important events from Maharashtra,
+   Tamil Nadu,
+   Karnataka,
+   Telangana,
+   Kerala,
+   Gujarat,
+   Rajasthan,
+   Uttar Pradesh,
+   Bihar,
+   Assam,
+   Odisha,
+   and other Indian states.
+
+4. Major world news affecting India.
+
+5. Business.
+
+6. Technology.
+
+7. Sports.
+
+8. Entertainment.
+
+IMPORTANT RULES:
+
+- Select ONLY from supplied candidates.
 - Never invent facts.
-- Never invent quotes.
 - Never invent statistics.
-- Do not copy source titles word-for-word.
-- Write natural professional Bengali.
-- Do not use clickbait.
-- Summary should be around 90-130 Bengali words.
-- Keep the headline concise.
-- If the source is already Bengali, rewrite it naturally.
-- Return ONLY a JSON array.
+- Never invent quotes.
+- Never claim information that is not present.
+- Do not copy the source title word-for-word.
+- Rewrite naturally in Bengali.
+- Do not create clickbait.
+- Headline should be concise.
+- Summary should normally be around 70-120 Bengali words.
+- Keep facts faithful to the supplied source.
+- Prefer important Indian news over minor international news.
+- Prefer West Bengal when the story is genuinely important.
+- Do not select duplicate stories.
+- Return ONLY valid JSON.
+- Return maximum 3 objects.
 
 Each object MUST be:
 
@@ -1974,36 +1752,32 @@ Each object MUST be:
   "summary": "...",
   "main_topic": "...",
   "category": "west_bengal",
-  "score": 90
+  "score": 95
 }
 
 Allowed categories:
-west_bengal,
-india,
-world,
-politics,
-business,
-sports,
-technology,
-entertainment,
+
+west_bengal
+india
+world
+politics
+business
+sports
+technology
+entertainment
 general
 
 Candidates:
+
 ${JSON.stringify(input)}
 `;
 
 
-  let lastError =
-    null;
+  let lastError = null;
 
-
-  /*
-   * Try models one by one.
-   */
 
   for (
-    const model of
-    GEMINI_MODELS
+    const model of GEMINI_MODELS
   ) {
 
     try {
@@ -2016,9 +1790,7 @@ ${JSON.stringify(input)}
         );
 
       if (
-        Array.isArray(
-          result
-        ) &&
+        Array.isArray(result) &&
         result.length
       ) {
 
@@ -2030,21 +1802,16 @@ ${JSON.stringify(input)}
 
     } catch (error) {
 
-      lastError =
-        error;
+      lastError = error;
 
       console.error(
         `Gemini model ${model} failed:`,
         error
       );
 
-      /*
-       * Small delay before fallback model.
-       */
-      await sleep(1200);
+      await sleep(1000);
     }
   }
-
 
   throw (
     lastError ||
@@ -2055,6 +1822,10 @@ ${JSON.stringify(input)}
 }
 
 
+/* =========================================================
+   GEMINI API
+   ========================================================= */
+
 async function callGeminiModel(
   model,
   prompt,
@@ -2062,17 +1833,11 @@ async function callGeminiModel(
 ) {
 
   const endpoint =
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`;
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(
+      env.GEMINI_API_KEY
+    )}`;
 
-
-  /*
-   * Only one retry for transient errors.
-   *
-   * This keeps Free Tier usage low.
-   */
-
-  let lastResponseText =
-    "";
+  let lastResponseText = "";
 
   for (
     let attempt = 1;
@@ -2098,8 +1863,7 @@ async function callGeminiModel(
                 {
                   parts: [
                     {
-                      text:
-                        prompt
+                      text: prompt
                     }
                   ]
                 }
@@ -2107,14 +1871,13 @@ async function callGeminiModel(
 
               generationConfig: {
 
-                temperature:
-                  0.2,
+                temperature: 0.2,
 
                 responseMimeType:
                   "application/json",
 
                 maxOutputTokens:
-                  5000
+                  3500
               }
             })
         }
@@ -2125,9 +1888,7 @@ async function callGeminiModel(
       await response.text();
 
 
-    if (
-      response.ok
-    ) {
+    if (response.ok) {
 
       let data;
 
@@ -2141,7 +1902,7 @@ async function callGeminiModel(
       } catch {
 
         throw new Error(
-          "Gemini returned invalid JSON response body"
+          "Gemini returned invalid JSON body"
         );
       }
 
@@ -2177,11 +1938,7 @@ async function callGeminiModel(
       }
 
 
-      if (
-        !Array.isArray(
-          parsed
-        )
-      ) {
+      if (!Array.isArray(parsed)) {
 
         throw new Error(
           "Gemini response is not an array"
@@ -2192,10 +1949,6 @@ async function callGeminiModel(
     }
 
 
-    /*
-     * Retry only transient errors.
-     */
-
     if (
       response.status === 429 ||
       response.status === 500 ||
@@ -2204,13 +1957,9 @@ async function callGeminiModel(
       response.status === 504
     ) {
 
-      if (
-        attempt < 2
-      ) {
+      if (attempt < 2) {
 
-        await sleep(
-          2000
-        );
+        await sleep(1500);
 
         continue;
       }
@@ -2221,7 +1970,6 @@ async function callGeminiModel(
       `Gemini API ${response.status}: ${lastResponseText}`
     );
   }
-
 
   throw new Error(
     `Gemini request failed: ${lastResponseText}`
@@ -2243,9 +1991,7 @@ function validateGeminiResults(
   const usedIds =
     new Set();
 
-  for (
-    const item of parsed
-  ) {
+  for (const item of parsed) {
 
     const candidateId =
       Number(
@@ -2253,67 +1999,45 @@ function validateGeminiResults(
       );
 
     if (
-      !Number.isInteger(
-        candidateId
-      )
+      !Number.isInteger(candidateId)
     ) {
       continue;
     }
 
     if (
       candidateId < 1 ||
-      candidateId >
-        candidates.length
+      candidateId > candidates.length
     ) {
       continue;
     }
 
     if (
-      usedIds.has(
-        candidateId
-      )
+      usedIds.has(candidateId)
     ) {
       continue;
     }
 
-    usedIds.add(
-      candidateId
-    );
-
+    usedIds.add(candidateId);
 
     const original =
-      candidates[
-        candidateId - 1
-      ];
+      candidates[candidateId - 1];
 
     if (!original) {
       continue;
     }
 
-
     const headline =
-      cleanText(
-        item.headline
-      );
+      cleanText(item.headline);
 
     const summary =
-      cleanText(
-        item.summary
-      );
+      cleanText(item.summary);
 
     const topic =
-      cleanText(
-        item.main_topic
-      );
+      cleanText(item.main_topic);
 
-
-    if (
-      !headline ||
-      !summary
-    ) {
+    if (!headline || !summary) {
       continue;
     }
-
 
     results.push({
 
@@ -2333,21 +2057,21 @@ function validateGeminiResults(
         ),
 
       score:
-        clampScore(
-          item.score
-        )
+        clampScore(item.score)
     });
   }
 
 
   results.sort(
     (a, b) =>
-      b.score -
-      a.score
+      b.score - a.score
   );
 
 
-  return results;
+  return results.slice(
+    0,
+    MAX_SELECTED_NEWS
+  );
 }
 
 
@@ -2360,66 +2084,60 @@ function buildFallbackNews(
 ) {
 
   return candidates
-    .map(
-      item => {
+    .map(item => {
 
-        const title =
-          cleanText(
-            item.source_title
-          );
+      const title =
+        cleanText(
+          item.source_title
+        );
 
-        const description =
-          cleanText(
-            item.source_description
-          );
+      const description =
+        cleanText(
+          item.source_description
+        );
 
+      const category =
+        detectFallbackCategory(
+          `${title} ${description}`
+        );
 
-        const category =
-          detectFallbackCategory(
-            `${title} ${description}`
-          );
+      const score =
+        fallbackScore(
+          `${title} ${description}`,
+          category
+        );
 
+      return {
 
-        const score =
-          fallbackScore(
-            `${title} ${description}`,
-            category
-          );
+        ...item,
 
+        headline:
+          title,
 
-        return {
+        summary:
+          description ||
+          `${title} সম্পর্কে সর্বশেষ তথ্য জানতে Ajker News-এর আপডেট দেখুন।`,
 
-          ...item,
+        main_topic:
+          fallbackTopic(category),
 
-          headline:
-            title,
+        category,
 
-          summary:
-            description ||
-            `${title} সম্পর্কে সর্বশেষ তথ্য জানতে Ajker News-এর আপডেট দেখুন।`,
-
-          main_topic:
-            fallbackTopic(
-              category
-            ),
-
-          category,
-
-          score
-        };
-      }
-    )
+        score
+      };
+    })
     .sort(
       (a, b) =>
-        b.score -
-        a.score
+        b.score - a.score
+    )
+    .slice(
+      0,
+      MAX_SELECTED_NEWS
     );
 }
 
 
-function detectFallbackCategory(
-  text
-) {
+function detectFallbackCategory(text) {
 
   const value =
     String(text || "")
@@ -2434,17 +2152,16 @@ function detectFallbackCategory(
     "banerjee",
     "tmc",
     "trinamool",
-    "bjp bengal",
-    "calcutta"
+    "calcutta",
+    "howrah",
+    "siliguri"
   ];
 
 
   if (
     westBengalWords.some(
       word =>
-        value.includes(
-          word
-        )
+        value.includes(word)
     )
   ) {
 
@@ -2453,7 +2170,7 @@ function detectFallbackCategory(
 
 
   if (
-    /india|indian|delhi|modi|parliament|election/.test(
+    /india|indian|delhi|modi|parliament|election|supreme court/.test(
       value
     )
   ) {
@@ -2463,7 +2180,7 @@ function detectFallbackCategory(
 
 
   if (
-    /business|market|stock|economy|bank|company|finance/.test(
+    /business|market|stock|economy|bank|company|finance|rupee/.test(
       value
     )
   ) {
@@ -2473,7 +2190,7 @@ function detectFallbackCategory(
 
 
   if (
-    /technology|tech|ai|iphone|google|microsoft|software/.test(
+    /technology|tech|ai|iphone|google|microsoft|software|internet/.test(
       value
     )
   ) {
@@ -2493,7 +2210,7 @@ function detectFallbackCategory(
 
 
   if (
-    /movie|film|actor|actress|music|entertainment/.test(
+    /movie|film|actor|actress|music|entertainment|bollywood/.test(
       value
     )
   ) {
@@ -2516,9 +2233,7 @@ function detectFallbackCategory(
 }
 
 
-function fallbackTopic(
-  category
-) {
+function fallbackTopic(category) {
 
   const topics = {
 
@@ -2564,21 +2279,17 @@ function fallbackScore(
 
   let score = 50;
 
-
   if (
-    category ===
-    "west_bengal"
+    category === "west_bengal"
   ) {
     score += 40;
   }
 
   if (
-    category ===
-    "india"
+    category === "india"
   ) {
     score += 25;
   }
-
 
   if (
     /breaking|major|latest|election|government|minister/.test(
@@ -2590,10 +2301,7 @@ function fallbackScore(
     score += 10;
   }
 
-
-  return clampScore(
-    score
-  );
+  return clampScore(score);
 }
 
 
@@ -2610,15 +2318,10 @@ async function insertNews(
     crypto.randomUUID();
 
   const createdAt =
-    new Date()
-      .toISOString();
+    new Date().toISOString();
 
   const dayKey =
-    createdAt.slice(
-      0,
-      10
-    );
-
+    createdAt.slice(0, 10);
 
   const searchText =
     toTransliterated(
@@ -2634,8 +2337,7 @@ async function insertNews(
 
 
   await env.DB
-    .prepare(
-      `
+    .prepare(`
       INSERT INTO news
       (
         id,
@@ -2658,8 +2360,7 @@ async function insertNews(
       )
       VALUES
       (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `
-    )
+    `)
     .bind(
 
       id,
@@ -2695,17 +2396,17 @@ async function insertNews(
       searchText,
 
       null
+
     )
     .run();
 
 
-  item.id =
-    id;
+  item.id = id;
 }
 
 
 /* =========================================================
-   GET NEWS
+   GET NEWS API
    ========================================================= */
 
 async function handleGetNews(
@@ -2714,34 +2415,23 @@ async function handleGetNews(
 ) {
 
   const category =
-    url.searchParams.get(
-      "category"
-    ) ||
+    url.searchParams.get("category") ||
     "top";
-
 
   const query =
     (
-      url.searchParams.get(
-        "q"
-      ) ||
+      url.searchParams.get("q") ||
       ""
     ).trim();
 
-
   const specificId =
-    url.searchParams.get(
-      "id"
-    );
-
+    url.searchParams.get("id");
 
   const offset =
     Math.max(
       0,
       parseInt(
-        url.searchParams.get(
-          "offset"
-        ) ||
+        url.searchParams.get("offset") ||
         "0",
         10
       )
@@ -2749,12 +2439,11 @@ async function handleGetNews(
 
 
   /*
-   * Fetch 26 to determine whether
-   * another page exists.
+   * 10 visible + 1 extra.
    *
-   * Frontend shows only 25.
+   * This allows has_more without
+   * loading 25 articles on mobile.
    */
-
   const queryLimit =
     API_PAGE_SIZE + 1;
 
@@ -2774,8 +2463,7 @@ async function handleGetNews(
     (
       SELECT COUNT(*)
       FROM news_loves nl
-      WHERE nl.news_id =
-        news.id
+      WHERE nl.news_id = news.id
     ) AS love_count
   `;
 
@@ -2784,36 +2472,28 @@ async function handleGetNews(
      Specific news
      ----------------------------------------- */
 
-  if (
-    specificId
-  ) {
+  if (specificId) {
 
     const result =
       await env.DB
-        .prepare(
-          `
+        .prepare(`
           SELECT
             ${selectFields}
           FROM news
           WHERE news.id = ?
             AND news.status = 'published'
-          `
-        )
-        .bind(
-          specificId
-        )
+          LIMIT 1
+        `)
+        .bind(specificId)
         .all();
-
 
     const news =
       result.results || [];
 
-
     return json(
       {
         success: true,
-        count:
-          news.length,
+        count: news.length,
         news
       },
       200,
@@ -2832,36 +2512,26 @@ async function handleGetNews(
   if (query) {
 
     const transliterated =
-      toTransliterated(
-        query
-      );
-
+      toTransliterated(query);
 
     result =
       await env.DB
-        .prepare(
-          `
+        .prepare(`
           SELECT
             ${selectFields}
           FROM news
-          WHERE news.status =
-            'published'
+          WHERE news.status = 'published'
             AND (
-              news.search_text
-                LIKE ?
-              OR news.headline
-                LIKE ?
-              OR news.summary
-                LIKE ?
-              OR news.main_topic
-                LIKE ?
+              news.search_text LIKE ?
+              OR news.headline LIKE ?
+              OR news.summary LIKE ?
+              OR news.main_topic LIKE ?
             )
           ORDER BY
             news.published_at DESC
           LIMIT ?
           OFFSET ?
-          `
-        )
+        `)
         .bind(
 
           `%${transliterated}%`,
@@ -2875,9 +2545,9 @@ async function handleGetNews(
           queryLimit,
 
           offset
+
         )
         .all();
-
 
   }
 
@@ -2887,32 +2557,27 @@ async function handleGetNews(
      ----------------------------------------- */
 
   else if (
-    category ===
-    "trending"
+    category === "trending"
   ) {
 
     result =
       await env.DB
-        .prepare(
-          `
+        .prepare(`
           SELECT
             ${selectFields}
           FROM news
-          WHERE news.status =
-            'published'
+          WHERE news.status = 'published'
           ORDER BY
             news.score DESC,
             news.published_at DESC
           LIMIT ?
           OFFSET ?
-          `
-        )
+        `)
         .bind(
           queryLimit,
           offset
         )
         .all();
-
 
   }
 
@@ -2928,27 +2593,23 @@ async function handleGetNews(
 
     result =
       await env.DB
-        .prepare(
-          `
+        .prepare(`
           SELECT
             ${selectFields}
           FROM news
-          WHERE news.status =
-            'published'
+          WHERE news.status = 'published'
             AND news.category = ?
           ORDER BY
             news.published_at DESC
           LIMIT ?
           OFFSET ?
-          `
-        )
+        `)
         .bind(
           category,
           queryLimit,
           offset
         )
         .all();
-
 
   }
 
@@ -2961,19 +2622,16 @@ async function handleGetNews(
 
     result =
       await env.DB
-        .prepare(
-          `
+        .prepare(`
           SELECT
             ${selectFields}
           FROM news
-          WHERE news.status =
-            'published'
+          WHERE news.status = 'published'
           ORDER BY
             news.published_at DESC
           LIMIT ?
           OFFSET ?
-          `
-        )
+        `)
         .bind(
           queryLimit,
           offset
@@ -2983,14 +2641,10 @@ async function handleGetNews(
 
 
   const rawNews =
-    result?.results ||
-    [];
-
+    result?.results || [];
 
   const hasMore =
-    rawNews.length >
-    API_PAGE_SIZE;
-
+    rawNews.length > API_PAGE_SIZE;
 
   const news =
     rawNews.slice(
@@ -3015,6 +2669,7 @@ async function handleGetNews(
         hasMore,
 
       news
+
     },
     200,
     30
@@ -3023,7 +2678,7 @@ async function handleGetNews(
 
 
 /* =========================================================
-   DATABASE LIMIT
+   DATABASE MAXIMUM = 1000
    ========================================================= */
 
 async function enforceMaximumNews(
@@ -3032,124 +2687,87 @@ async function enforceMaximumNews(
 
   const result =
     await env.DB
-      .prepare(
-        `
-        SELECT
-          COUNT(*) AS total
+      .prepare(`
+        SELECT COUNT(*) AS total
         FROM news
-        `
-      )
+      `)
       .first();
-
 
   const total =
     Number(
-      result?.total ||
-      0
+      result?.total || 0
     );
 
 
-  if (
-    total <= MAX_NEWS
-  ) {
-
+  if (total <= MAX_NEWS) {
     return 0;
   }
 
 
   const deleteCount =
-    total -
-    MAX_NEWS;
+    total - MAX_NEWS;
 
 
   const old =
     await env.DB
-      .prepare(
-        `
+      .prepare(`
         SELECT id
         FROM news
-        ORDER BY
-          created_at ASC
+        ORDER BY created_at ASC
         LIMIT ?
-        `
-      )
-      .bind(
-        deleteCount
-      )
+      `)
+      .bind(deleteCount)
       .all();
 
 
   const ids =
     (
-      old.results ||
-      []
+      old.results || []
     )
-      .map(
-        row =>
-          row.id
-      );
+      .map(row => row.id);
 
 
-  for (
-    const id of ids
-  ) {
+  for (const id of ids) {
 
     await env.DB
-      .prepare(
-        `
+      .prepare(`
         DELETE FROM news_loves
         WHERE news_id = ?
-        `
-      )
+      `)
       .bind(id)
       .run();
 
-
     await env.DB
-      .prepare(
-        `
+      .prepare(`
         DELETE FROM news_comments
         WHERE news_id = ?
-        `
-      )
+      `)
       .bind(id)
       .run();
   }
 
 
-  if (
-    ids.length
-  ) {
+  if (ids.length) {
 
     const placeholders =
-      ids
-        .map(
-          () => "?"
-        )
-        .join(",");
-
+      ids.map(() => "?").join(",");
 
     await env.DB
-      .prepare(
-        `
+      .prepare(`
         DELETE FROM news
-        WHERE id IN
-          (${placeholders})
-        `
-      )
-      .bind(
-        ...ids
-      )
+        WHERE id IN (${placeholders})
+      `)
+      .bind(...ids)
       .run();
   }
 
 
-  return deleteCount;
+  return ids.length;
 }
 
 
 /* =========================================================
-   PUSH SUBSCRIPTION
+   PUSH SUBSCRIBE
    ========================================================= */
 
 async function handleSubscribe(
@@ -3162,10 +2780,7 @@ async function handleSubscribe(
     const subscription =
       await request.json();
 
-
-    if (
-      !subscription?.endpoint
-    ) {
+    if (!subscription?.endpoint) {
 
       return json(
         {
@@ -3182,53 +2797,37 @@ async function handleSubscribe(
     const endpoint =
       subscription.endpoint;
 
-
     const keys =
       JSON.stringify(
-        subscription.keys ||
-        {}
+        subscription.keys || {}
       );
 
 
     const existing =
       await env.DB
-        .prepare(
-          `
+        .prepare(`
           SELECT id
           FROM push_subscriptions
           WHERE endpoint = ?
           LIMIT 1
-          `
-        )
-        .bind(
-          endpoint
-        )
+        `)
+        .bind(endpoint)
         .first();
 
 
-    if (
-      existing
-    ) {
-
-      /*
-       * Update keys in case
-       * browser rotated them.
-       */
+    if (existing) {
 
       await env.DB
-        .prepare(
-          `
+        .prepare(`
           UPDATE push_subscriptions
           SET keys_json = ?
           WHERE endpoint = ?
-          `
-        )
+        `)
         .bind(
           keys,
           endpoint
         )
         .run();
-
 
       return json(
         {
@@ -3243,8 +2842,7 @@ async function handleSubscribe(
 
 
     await env.DB
-      .prepare(
-        `
+      .prepare(`
         INSERT INTO push_subscriptions
         (
           id,
@@ -3253,8 +2851,7 @@ async function handleSubscribe(
           created_at
         )
         VALUES (?, ?, ?, ?)
-        `
-      )
+      `)
       .bind(
 
         crypto.randomUUID(),
@@ -3263,8 +2860,8 @@ async function handleSubscribe(
 
         keys,
 
-        new Date()
-          .toISOString()
+        new Date().toISOString()
+
       )
       .run();
 
@@ -3299,7 +2896,7 @@ async function handleSubscribe(
 
 
 /* =========================================================
-   PUSH SENDING
+   PUSH
    ========================================================= */
 
 async function sendPushNotifications(
@@ -3324,24 +2921,18 @@ async function sendPushNotifications(
 
   const subscriptions =
     await env.DB
-      .prepare(
-        `
+      .prepare(`
         SELECT
           endpoint,
           keys_json
         FROM push_subscriptions
-        `
-      )
+      `)
       .all();
 
 
   if (
     !subscriptions.results?.length
   ) {
-
-    console.log(
-      "No push subscriptions."
-    );
 
     return;
   }
@@ -3354,6 +2945,7 @@ async function sendPushNotifications(
     env.VAPID_PUBLIC_KEY,
 
     env.VAPID_PRIVATE_KEY
+
   );
 
 
@@ -3371,34 +2963,30 @@ async function sendPushNotifications(
 
       badge:
         "/assets/logo.png"
+
     });
 
 
   for (
-    const sub of
-    subscriptions.results
+    const sub of subscriptions.results
   ) {
 
     try {
 
-      await webPush
-        .sendNotification(
-          {
-            endpoint:
-              sub.endpoint,
+      await webPush.sendNotification(
 
-            keys:
-              JSON.parse(
-                sub.keys_json
-              )
-          },
-          payload
-        );
+        {
+          endpoint:
+            sub.endpoint,
 
+          keys:
+            JSON.parse(
+              sub.keys_json
+            )
+        },
 
-      console.log(
-        "Push sent:",
-        sub.endpoint
+        payload
+
       );
 
     } catch (error) {
@@ -3408,29 +2996,17 @@ async function sendPushNotifications(
         error
       );
 
-
-      /*
-       * Browser subscription expired.
-       */
-
       if (
-        error?.statusCode ===
-          410 ||
-        error?.statusCode ===
-          404
+        error?.statusCode === 410 ||
+        error?.statusCode === 404
       ) {
 
         await env.DB
-          .prepare(
-            `
-            DELETE FROM
-              push_subscriptions
+          .prepare(`
+            DELETE FROM push_subscriptions
             WHERE endpoint = ?
-            `
-          )
-          .bind(
-            sub.endpoint
-          )
+          `)
+          .bind(sub.endpoint)
           .run();
       }
     }
@@ -3452,14 +3028,10 @@ async function toggleLove(
     const {
       id,
       deviceId
-    } =
-      await request.json();
+    } = await request.json();
 
 
-    if (
-      !id ||
-      !deviceId
-    ) {
+    if (!id || !deviceId) {
 
       return json(
         {
@@ -3474,14 +3046,12 @@ async function toggleLove(
 
     const existing =
       await env.DB
-        .prepare(
-          `
+        .prepare(`
           SELECT id
           FROM news_loves
           WHERE news_id = ?
             AND device_id = ?
-          `
-        )
+        `)
         .bind(
           id,
           deviceId
@@ -3489,18 +3059,14 @@ async function toggleLove(
         .first();
 
 
-    if (
-      existing
-    ) {
+    if (existing) {
 
       await env.DB
-        .prepare(
-          `
+        .prepare(`
           DELETE FROM news_loves
           WHERE news_id = ?
             AND device_id = ?
-          `
-        )
+        `)
         .bind(
           id,
           deviceId
@@ -3510,16 +3076,14 @@ async function toggleLove(
     } else {
 
       await env.DB
-        .prepare(
-          `
+        .prepare(`
           INSERT INTO news_loves
           (
             news_id,
             device_id
           )
           VALUES (?, ?)
-          `
-        )
+        `)
         .bind(
           id,
           deviceId
@@ -3530,14 +3094,11 @@ async function toggleLove(
 
     const count =
       await env.DB
-        .prepare(
-          `
-          SELECT
-            COUNT(*) AS count
+        .prepare(`
+          SELECT COUNT(*) AS count
           FROM news_loves
           WHERE news_id = ?
-          `
-        )
+        `)
         .bind(id)
         .first();
 
@@ -3548,8 +3109,7 @@ async function toggleLove(
 
         love_count:
           Number(
-            count?.count ||
-            0
+            count?.count || 0
           )
       },
       200,
@@ -3583,10 +3143,7 @@ async function getComments(
 ) {
 
   const id =
-    url.searchParams.get(
-      "id"
-    );
-
+    url.searchParams.get("id");
 
   if (!id) {
 
@@ -3603,8 +3160,7 @@ async function getComments(
 
   const result =
     await env.DB
-      .prepare(
-        `
+      .prepare(`
         SELECT
           id,
           author_name,
@@ -3612,10 +3168,8 @@ async function getComments(
           created_at
         FROM news_comments
         WHERE news_id = ?
-        ORDER BY
-          created_at ASC
-        `
-      )
+        ORDER BY created_at ASC
+      `)
       .bind(id)
       .all();
 
@@ -3623,8 +3177,7 @@ async function getComments(
   return json(
     {
       comments:
-        result.results ||
-        []
+        result.results || []
     },
     200,
     30
@@ -3643,14 +3196,10 @@ async function addComment(
       newsId,
       author,
       text
-    } =
-      await request.json();
+    } = await request.json();
 
 
-    if (
-      !newsId ||
-      !text
-    ) {
+    if (!newsId || !text) {
 
       return json(
         {
@@ -3668,8 +3217,7 @@ async function addComment(
 
 
     await env.DB
-      .prepare(
-        `
+      .prepare(`
         INSERT INTO news_comments
         (
           id,
@@ -3679,8 +3227,7 @@ async function addComment(
           created_at
         )
         VALUES (?, ?, ?, ?, ?)
-        `
-      )
+      `)
       .bind(
 
         id,
@@ -3688,16 +3235,13 @@ async function addComment(
         newsId,
 
         cleanText(
-          author ||
-          "Guest"
+          author || "Guest"
         ),
 
-        cleanText(
-          text
-        ),
+        cleanText(text),
 
-        new Date()
-          .toISOString()
+        new Date().toISOString()
+
       )
       .run();
 
@@ -3742,10 +3286,7 @@ async function requestGoogleIndexing(
   try {
 
     const token =
-      await getGoogleAccessToken(
-        env
-      );
-
+      await getGoogleAccessToken(env);
 
     if (!token) {
       return false;
@@ -3769,6 +3310,7 @@ async function requestGoogleIndexing(
           body:
             JSON.stringify({
               url,
+
               type:
                 "URL_UPDATED"
             })
@@ -3783,8 +3325,7 @@ async function requestGoogleIndexing(
     try {
 
       await env.DB
-        .prepare(
-          `
+        .prepare(`
           INSERT INTO indexing_log
           (
             id,
@@ -3795,15 +3336,12 @@ async function requestGoogleIndexing(
             created_at
           )
           VALUES (?, ?, ?, ?, ?, ?)
-          `
-        )
+        `)
         .bind(
 
           crypto.randomUUID(),
 
-          getIdFromNewsUrl(
-            url
-          ),
+          getIdFromNewsUrl(url),
 
           url,
 
@@ -3813,8 +3351,8 @@ async function requestGoogleIndexing(
 
           responseText,
 
-          new Date()
-            .toISOString()
+          new Date().toISOString()
+
         )
         .run();
 
@@ -3832,7 +3370,7 @@ async function requestGoogleIndexing(
   } catch (error) {
 
     console.error(
-      "Indexing API error:",
+      "Indexing error:",
       error
     );
 
@@ -3841,9 +3379,7 @@ async function requestGoogleIndexing(
 }
 
 
-function getIdFromNewsUrl(
-  url
-) {
+function getIdFromNewsUrl(url) {
 
   try {
 
@@ -3862,12 +3398,10 @@ function getIdFromNewsUrl(
 
 
 /* =========================================================
-   GOOGLE ACCESS TOKEN
+   GOOGLE TOKEN
    ========================================================= */
 
-async function getGoogleAccessToken(
-  env
-) {
+async function getGoogleAccessToken(env) {
 
   try {
 
@@ -3913,22 +3447,18 @@ async function getGoogleAccessToken(
 
       iat:
         now
+
     };
 
 
     const encodedHeader =
       base64UrlEncode(
-        JSON.stringify(
-          header
-        )
+        JSON.stringify(header)
       );
-
 
     const encodedClaimSet =
       base64UrlEncode(
-        JSON.stringify(
-          claimSet
-        )
+        JSON.stringify(claimSet)
       );
 
 
@@ -3937,27 +3467,27 @@ async function getGoogleAccessToken(
 
 
     const cryptoKey =
-      await crypto.subtle
-        .importKey(
+      await crypto.subtle.importKey(
 
-          "pkcs8",
+        "pkcs8",
 
-          pemToArrayBuffer(
-            credentials.private_key
-          ),
+        pemToArrayBuffer(
+          credentials.private_key
+        ),
 
-          {
-            name:
-              "RSASSA-PKCS1-v1_5",
+        {
+          name:
+            "RSASSA-PKCS1-v1_5",
 
-            hash:
-              "SHA-256"
-          },
+          hash:
+            "SHA-256"
+        },
 
-          false,
+        false,
 
-          ["sign"]
-        );
+        ["sign"]
+
+      );
 
 
     const signature =
@@ -3971,15 +3501,14 @@ async function getGoogleAccessToken(
           .encode(
             signatureInput
           )
+
       );
 
 
     const encodedSignature =
       base64UrlEncode(
         String.fromCharCode(
-          ...new Uint8Array(
-            signature
-          )
+          ...new Uint8Array(signature)
         )
       );
 
@@ -4013,10 +3542,7 @@ async function getGoogleAccessToken(
       );
 
 
-    if (
-      !response.ok
-    ) {
-
+    if (!response.ok) {
       return null;
     }
 
@@ -4077,31 +3603,25 @@ async function pingSearchEngines() {
    SITEMAP
    ========================================================= */
 
-async function generateSitemap(
-  env
-) {
+async function generateSitemap(env) {
 
   const result =
     await env.DB
-      .prepare(
-        `
+      .prepare(`
         SELECT
           id,
           created_at
         FROM news
-        WHERE status =
-          'published'
-        ORDER BY
-          created_at DESC
-        LIMIT 200
-        `
-      )
+        WHERE status = 'published'
+        ORDER BY created_at DESC
+        LIMIT ?
+      `)
+      .bind(MAX_NEWS)
       .all();
 
 
   const news =
-    result.results ||
-    [];
+    result.results || [];
 
 
   const baseUrl =
@@ -4109,49 +3629,45 @@ async function generateSitemap(
 
 
   let xml =
-    `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`;
+`<?xml version="1.0" encoding="UTF-8"?>
+<urlset
+  xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+>`;
 
 
-  xml +=
-    `
-    <url>
-      <loc>${baseUrl}/</loc>
-      <changefreq>daily</changefreq>
-      <priority>1.0</priority>
-    </url>
-    `;
+  xml += `
+  <url>
+    <loc>${baseUrl}/</loc>
+    <changefreq>hourly</changefreq>
+    <priority>1.0</priority>
+  </url>
+`;
 
 
-  for (
-    const item of news
-  ) {
+  for (const item of news) {
 
     const lastmod =
       item.created_at
-        ? item.created_at
-            .split("T")[0]
+        ? item.created_at.split("T")[0]
         : new Date()
             .toISOString()
             .split("T")[0];
 
 
-    xml +=
-      `
-      <url>
-        <loc>
-          ${baseUrl}/?id=${encodeURIComponent(item.id)}
-        </loc>
-        <lastmod>${lastmod}</lastmod>
-        <changefreq>daily</changefreq>
-        <priority>0.8</priority>
-      </url>
-      `;
+    xml += `
+  <url>
+    <loc>${baseUrl}/?id=${encodeURIComponent(
+      item.id
+    )}</loc>
+    <lastmod>${lastmod}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+`;
   }
 
 
-  xml +=
-    `</urlset>`;
+  xml += "</urlset>";
 
 
   return new Response(
@@ -4160,6 +3676,7 @@ async function generateSitemap(
       status: 200,
 
       headers: {
+
         "Content-Type":
           "application/xml",
 
@@ -4177,20 +3694,16 @@ async function generateSitemap(
    UTILITIES
    ========================================================= */
 
-function normalizeUrl(
-  url
-) {
+function normalizeUrl(url) {
 
   try {
 
     const parsed =
       new URL(url);
 
-    parsed.hash =
-      "";
+    parsed.hash = "";
 
-    return parsed
-      .toString();
+    return parsed.toString();
 
   } catch {
 
@@ -4201,51 +3714,47 @@ function normalizeUrl(
 }
 
 
-function cleanText(
-  value
-) {
+function cleanText(value) {
 
-  return String(
-    value || ""
-  )
+  return String(value || "")
+
     .replace(
       /<[^>]*>/g,
       ""
     )
+
     .replace(
       /\s+/g,
       " "
     )
+
     .trim();
 }
 
 
-function cleanJson(
-  text
-) {
+function cleanJson(text) {
 
   let value =
-    String(
-      text || ""
-    ).trim();
+    String(text || "").trim();
 
 
   if (
-    value.startsWith(
-      "```"
-    )
+    value.startsWith("```")
   ) {
 
     value =
       value
+
         .replace(
           /^```(?:json)?/i,
           ""
         )
+
         .replace(
           /```$/i,
           ""
         )
+
         .trim();
   }
 
@@ -4254,52 +3763,52 @@ function cleanJson(
 }
 
 
-function normalizeCategory(
-  category
-) {
+function normalizeCategory(category) {
 
   const allowed =
     new Set([
+
       "west_bengal",
+
       "india",
+
       "world",
+
       "politics",
+
       "business",
+
       "sports",
+
       "technology",
+
       "entertainment",
+
       "general"
+
     ]);
 
 
   const value =
-    String(
-      category || ""
-    )
+    String(category || "")
       .trim()
       .toLowerCase();
 
 
-  return allowed.has(
-    value
-  )
+  return allowed.has(value)
     ? value
     : "general";
 }
 
 
-function clampScore(
-  score
-) {
+function clampScore(score) {
 
   const number =
     Number(score);
 
 
   if (
-    !Number.isFinite(
-      number
-    )
+    !Number.isFinite(number)
   ) {
 
     return 0;
@@ -4310,29 +3819,26 @@ function clampScore(
     0,
     Math.min(
       100,
-      Math.round(
-        number
-      )
+      Math.round(number)
     )
   );
 }
 
 
-function base64UrlEncode(
-  str
-) {
+function base64UrlEncode(str) {
 
-  return btoa(
-    str
-  )
+  return btoa(str)
+
     .replace(
       /\+/g,
       "-"
     )
+
     .replace(
       /\//g,
       "_"
     )
+
     .replace(
       /=+$/,
       ""
@@ -4340,28 +3846,20 @@ function base64UrlEncode(
 }
 
 
-function pemToArrayBuffer(
-  pem
-) {
+function pemToArrayBuffer(pem) {
 
   const lines =
-    String(
-      pem || ""
-    ).split("\n");
+    String(pem || "")
+      .split("\n");
 
 
-  let base64 =
-    "";
+  let base64 = "";
 
 
-  for (
-    const line of lines
-  ) {
+  for (const line of lines) {
 
     if (
-      !line.includes(
-        "-----"
-      )
+      !line.includes("-----")
     ) {
 
       base64 +=
@@ -4410,6 +3908,7 @@ function corsHeaders() {
 
     "access-control-max-age":
       "86400"
+
   };
 }
 
@@ -4423,16 +3922,12 @@ function json(
   const seconds =
     Math.max(
       0,
-      Number(
-        cacheSeconds
-      ) || 0
+      Number(cacheSeconds) || 0
     );
 
 
   return new Response(
-    JSON.stringify(
-      data
-    ),
+    JSON.stringify(data),
     {
       status,
 
@@ -4445,15 +3940,14 @@ function json(
 
         "cache-control":
           `public, max-age=${seconds}, s-maxage=${seconds}`
+
       }
     }
   );
 }
 
 
-function escapeHtml(
-  text
-) {
+function escapeHtml(text) {
 
   if (!text) {
     return "";
@@ -4489,9 +3983,7 @@ function escapeHtml(
 }
 
 
-function sleep(
-  ms
-) {
+function sleep(ms) {
 
   return new Promise(
     resolve =>

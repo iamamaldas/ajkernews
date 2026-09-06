@@ -1,8 +1,21 @@
 /**
  * Ajker News Worker
  * Complete backend
- * Gemini retry + hourly news + push notification
- * 25-news pagination + share preview + cache-safe API
+ *
+ * Features:
+ * - Hourly scheduled news update
+ * - GNews Bengali + English sources
+ * - Gemini selection / Bengali rewriting
+ * - Gemini fallback model + safe fallback without Gemini
+ * - D1 storage
+ * - 25-news API pagination
+ * - "আরও পড়ুন" support via has_more
+ * - Push notifications
+ * - Share preview
+ * - Google indexing
+ * - Sitemap
+ * - Loves / comments
+ * - Affiliate redirect
  */
 
 import webPush from "web-push";
@@ -10,28 +23,104 @@ import ANALYTICS_CONFIG from "./config-analytics.js";
 import ADS_CONFIG from "./config-ads.js";
 import AFFILIATE_CONFIG from "./config-affiliate.js";
 
+
+/* =========================================================
+   CONFIG
+   ========================================================= */
+
 const MAX_NEWS = 200;
 const MAX_SELECTED_NEWS = 5;
-const GNEWS_MAX_RESULTS = 10;
-const GEMINI_MODEL = "gemini-3.6-flash";
 
-const GEMINI_MAX_ATTEMPTS = 3;
-const GEMINI_TIMEOUT_MS = 30000;
+const API_PAGE_SIZE = 25;
+
+const GNEWS_MAX_RESULTS = 10;
+
+/*
+ * Primary Gemini model.
+ * If it fails, secondary model is tried.
+ */
+const GEMINI_MODELS = [
+  "gemini-3.6-flash",
+  "gemini-3.5-flash-lite"
+];
 
 let tablesReadyPromise = null;
 
 
 /* =========================================================
-   BANGLA TRANSLITERATION
+   BENGALI TRANSLITERATION
    ========================================================= */
 
 const BN_TO_EN_MAP = {
-  "অ":"o","আ":"a","ই":"i","ঈ":"i","উ":"u","ঊ":"u","ঋ":"ri","এ":"e","ঐ":"oi","ও":"o","ঔ":"ou",
-  "ক":"k","খ":"kh","গ":"g","ঘ":"gh","ঙ":"ng","চ":"ch","ছ":"chh","জ":"j","ঝ":"jh","ঞ":"n",
-  "ট":"t","ঠ":"th","ড":"d","ঢ":"dh","ণ":"n","ত":"t","থ":"th","দ":"d","ধ":"dh","ন":"n",
-  "প":"p","ফ":"ph","ব":"b","ভ":"bh","ম":"m","য":"j","র":"r","ল":"l","শ":"sh","ষ":"sh",
-  "স":"s","হ":"h","ড়":"r","ঢ়":"rh","য়":"y","ং":"ng","ঃ":"h","ঁ":"n","ক্ষ":"khy","জ্ঞ":"gg",
-  "া":"a","ি":"i","ী":"i","ু":"u","ূ":"u","ৃ":"ri","ে":"e","ৈ":"oi","ো":"o","ৌ":"ou"
+  "অ": "o",
+  "আ": "a",
+  "ই": "i",
+  "ঈ": "i",
+  "উ": "u",
+  "ঊ": "u",
+  "ঋ": "ri",
+  "এ": "e",
+  "ঐ": "oi",
+  "ও": "o",
+  "ঔ": "ou",
+
+  "ক": "k",
+  "খ": "kh",
+  "গ": "g",
+  "ঘ": "gh",
+  "ঙ": "ng",
+
+  "চ": "ch",
+  "ছ": "chh",
+  "জ": "j",
+  "ঝ": "jh",
+  "ঞ": "n",
+
+  "ট": "t",
+  "ঠ": "th",
+  "ড": "d",
+  "ঢ": "dh",
+  "ণ": "n",
+
+  "ত": "t",
+  "থ": "th",
+  "দ": "d",
+  "ধ": "dh",
+  "ন": "n",
+
+  "প": "p",
+  "ফ": "ph",
+  "ব": "b",
+  "ভ": "bh",
+  "ম": "m",
+
+  "য": "j",
+  "র": "r",
+  "ল": "l",
+
+  "শ": "sh",
+  "ষ": "sh",
+  "স": "s",
+  "হ": "h",
+
+  "ড়": "r",
+  "ঢ়": "rh",
+  "য়": "y",
+
+  "ং": "ng",
+  "ঃ": "h",
+  "ঁ": "n",
+
+  "া": "a",
+  "ি": "i",
+  "ী": "i",
+  "ু": "u",
+  "ূ": "u",
+  "ৃ": "ri",
+  "ে": "e",
+  "ৈ": "oi",
+  "ো": "o",
+  "ৌ": "ou"
 };
 
 function toTransliterated(text) {
@@ -39,115 +128,23 @@ function toTransliterated(text) {
 
   let result = "";
 
-  for (const char of text) {
-    result += BN_TO_EN_MAP[char] || char;
+  for (const char of String(text)) {
+    result +=
+      BN_TO_EN_MAP[char] ||
+      char;
   }
 
   return result
     .toLowerCase()
-    .replace(/[^a-z0-9 ]/g, " ")
-    .replace(/\s+/g, " ")
+    .replace(
+      /[^a-z0-9 ]/g,
+      " "
+    )
+    .replace(
+      /\s+/g,
+      " "
+    )
     .trim();
-}
-
-
-/* =========================================================
-   DATABASE TABLES
-   ========================================================= */
-
-async function ensureTables(env) {
-  const queries = [
-    `CREATE TABLE IF NOT EXISTS news (
-      id TEXT PRIMARY KEY,
-      source_url TEXT UNIQUE,
-      source_name TEXT,
-      source_title TEXT,
-      source_description TEXT,
-      headline TEXT,
-      summary TEXT,
-      main_topic TEXT,
-      category TEXT,
-      image_url TEXT,
-      published_at TEXT,
-      created_at TEXT,
-      day_key TEXT,
-      status TEXT DEFAULT 'published',
-      score INTEGER DEFAULT 0,
-      search_text TEXT,
-      indexed_at TEXT
-    )`,
-
-    `CREATE TABLE IF NOT EXISTS news_loves (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      news_id TEXT,
-      device_id TEXT,
-      UNIQUE(news_id, device_id)
-    )`,
-
-    `CREATE TABLE IF NOT EXISTS news_comments (
-      id TEXT PRIMARY KEY,
-      news_id TEXT,
-      author_name TEXT,
-      comment_text TEXT,
-      created_at TEXT
-    )`,
-
-    `CREATE TABLE IF NOT EXISTS push_subscriptions (
-      id TEXT PRIMARY KEY,
-      endpoint TEXT UNIQUE,
-      keys_json TEXT,
-      created_at TEXT
-    )`,
-
-    `CREATE TABLE IF NOT EXISTS affiliate_clicks (
-      id TEXT PRIMARY KEY,
-      affiliate_name TEXT,
-      click_url TEXT,
-      device_id TEXT,
-      created_at TEXT
-    )`,
-
-    `CREATE TABLE IF NOT EXISTS indexing_log (
-      id TEXT PRIMARY KEY,
-      news_id TEXT,
-      url TEXT,
-      status TEXT,
-      response TEXT,
-      created_at TEXT
-    )`,
-
-    `CREATE INDEX IF NOT EXISTS idx_news_status_published
-     ON news(status, published_at DESC)`,
-
-    `CREATE INDEX IF NOT EXISTS idx_news_category_published
-     ON news(category, published_at DESC)`,
-
-    `CREATE INDEX IF NOT EXISTS idx_news_score_published
-     ON news(score DESC, published_at DESC)`,
-
-    `CREATE INDEX IF NOT EXISTS idx_news_loves_news_id
-     ON news_loves(news_id)`,
-
-    `CREATE INDEX IF NOT EXISTS idx_news_comments_news_created
-     ON news_comments(news_id, created_at ASC)`
-  ];
-
-  for (const sql of queries) {
-    await env.DB.prepare(sql).run();
-  }
-}
-
-async function ensureTablesOnce(env) {
-  if (!tablesReadyPromise) {
-    tablesReadyPromise = ensureTables(env);
-  }
-
-  try {
-    await tablesReadyPromise;
-  } catch (error) {
-    tablesReadyPromise = null;
-    throw error;
-  }
 }
 
 
@@ -156,53 +153,99 @@ async function ensureTablesOnce(env) {
    ========================================================= */
 
 export default {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url);
 
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
-        headers: corsHeaders()
-      });
+  async fetch(
+    request,
+    env,
+    ctx
+  ) {
+
+    const url =
+      new URL(request.url);
+
+    if (
+      request.method === "OPTIONS"
+    ) {
+      return new Response(
+        null,
+        {
+          status: 204,
+          headers:
+            corsHeaders()
+        }
+      );
     }
 
     try {
-      await ensureTablesOnce(env);
+
+      await ensureTablesOnce(
+        env
+      );
+
+
+      /* -----------------------------------------
+         SEARCH CONSOLE FILE
+         ----------------------------------------- */
 
       if (
         ANALYTICS_CONFIG.searchConsole &&
-        url.pathname === ANALYTICS_CONFIG.searchConsole.filePath
+        url.pathname ===
+          ANALYTICS_CONFIG
+            .searchConsole
+            .filePath
       ) {
-        return new Response(
-          ANALYTICS_CONFIG.searchConsole.content,
-          {
-            status: 200,
-            headers: {
-              "content-type": "text/html; charset=UTF-8"
-            }
-          }
-        );
-      }
 
-      if (url.pathname === "/ads.txt") {
         return new Response(
-          ADS_CONFIG.adsTxtContent,
+          ANALYTICS_CONFIG
+            .searchConsole
+            .content,
           {
             status: 200,
             headers: {
-              "content-type": "text/plain; charset=UTF-8"
+              "content-type":
+                "text/html; charset=UTF-8"
             }
           }
         );
       }
 
 
-      /*
-       * SHARE PREVIEW
-       */
+      /* -----------------------------------------
+         ADS.TXT
+         ----------------------------------------- */
 
-      if (url.pathname.startsWith("/go/")) {
-        const id = url.pathname.split("/")[2];
+      if (
+        url.pathname ===
+        "/ads.txt"
+      ) {
+
+        return new Response(
+          ADS_CONFIG
+            .adsTxtContent,
+          {
+            status: 200,
+            headers: {
+              "content-type":
+                "text/plain; charset=UTF-8"
+            }
+          }
+        );
+      }
+
+
+      /* -----------------------------------------
+         SHARE PAGE
+         ----------------------------------------- */
+
+      if (
+        url.pathname.startsWith(
+          "/go/"
+        )
+      ) {
+
+        const id =
+          url.pathname
+            .split("/")[2];
 
         if (!id) {
           return new Response(
@@ -213,83 +256,41 @@ export default {
           );
         }
 
-        return await serveSharePage(id, env);
-      }
-
-
-      /*
-       * AFFILIATE
-       */
-
-      if (
-        url.pathname === "/api/affiliate" &&
-        request.method === "GET"
-      ) {
-        const ref =
-          url.searchParams.get("ref") ||
-          "direct";
-
-        let targetUrl =
-          url.searchParams.get("url");
-
-        if (
-          !targetUrl &&
-          AFFILIATE_CONFIG.redirectMap &&
-          AFFILIATE_CONFIG.redirectMap[ref]
-        ) {
-          targetUrl =
-            AFFILIATE_CONFIG.redirectMap[ref];
-        }
-
-        if (!targetUrl) {
-          targetUrl =
-            AFFILIATE_CONFIG.defaultRedirect;
-        }
-
-        if (AFFILIATE_CONFIG.trackClicks) {
-          try {
-            const deviceId =
-              request.headers.get(
-                "CF-Connecting-IP"
-              ) || "unknown";
-
-            await env.DB.prepare(
-              `INSERT INTO affiliate_clicks
-              (id, affiliate_name, click_url, device_id, created_at)
-              VALUES (?, ?, ?, ?, ?)`
-            )
-              .bind(
-                crypto.randomUUID(),
-                ref,
-                targetUrl,
-                deviceId,
-                new Date().toISOString()
-              )
-              .run();
-
-          } catch (error) {
-            console.error(
-              "Affiliate log error:",
-              error
-            );
-          }
-        }
-
-        return Response.redirect(
-          targetUrl,
-          302
+        return await serveSharePage(
+          id,
+          env
         );
       }
 
 
-      /*
-       * NEWS META PAGE
-       */
+      /* -----------------------------------------
+         AFFILIATE
+         ----------------------------------------- */
 
       if (
-        url.pathname === "/news" &&
+        url.pathname ===
+          "/api/affiliate" &&
+        request.method ===
+          "GET"
+      ) {
+
+        return await handleAffiliate(
+          url,
+          env
+        );
+      }
+
+
+      /* -----------------------------------------
+         NORMAL NEWS META PAGE
+         ----------------------------------------- */
+
+      if (
+        url.pathname ===
+          "/news" &&
         url.searchParams.has("id")
       ) {
+
         return await serveNewsPage(
           url,
           env
@@ -297,20 +298,30 @@ export default {
       }
 
 
-      /*
-       * SITEMAP
-       */
+      /* -----------------------------------------
+         SITEMAP
+         ----------------------------------------- */
 
-      if (url.pathname === "/sitemap.xml") {
-        return await generateSitemap(env);
+      if (
+        url.pathname ===
+        "/sitemap.xml"
+      ) {
+
+        return await generateSitemap(
+          env
+        );
       }
 
 
-      /*
-       * NEWS API
-       */
+      /* -----------------------------------------
+         NEWS API
+         ----------------------------------------- */
 
-      if (url.pathname === "/api/news") {
+      if (
+        url.pathname ===
+        "/api/news"
+      ) {
+
         return await handleGetNews(
           url,
           env
@@ -318,44 +329,68 @@ export default {
       }
 
 
-      /*
-       * MANUAL UPDATE
-       */
+      /* -----------------------------------------
+         MANUAL UPDATE
+         ----------------------------------------- */
 
-      if (url.pathname === "/api/update") {
-        if (request.method !== "POST") {
+      if (
+        url.pathname ===
+        "/api/update"
+      ) {
+
+        if (
+          request.method !==
+          "POST"
+        ) {
+
           return json(
             {
               success: false,
               error:
                 "POST method required"
             },
-            405
+            405,
+            0
           );
         }
 
         const result =
-          await updateNews(env);
+          await updateNews(
+            env
+          );
 
-        return json({
-          success: true,
-          ...result
-        });
+        return json(
+          {
+            success: true,
+            ...result
+          },
+          200,
+          0
+        );
       }
 
 
-      /*
-       * LOVE
-       */
+      /* -----------------------------------------
+         LOVE
+         ----------------------------------------- */
 
-      if (url.pathname === "/api/love") {
-        if (request.method !== "POST") {
+      if (
+        url.pathname ===
+        "/api/love"
+      ) {
+
+        if (
+          request.method !==
+          "POST"
+        ) {
+
           return json(
             {
               error:
                 "POST required"
             },
-            405
+            405,
+            0
           );
         }
 
@@ -366,19 +401,31 @@ export default {
       }
 
 
-      /*
-       * COMMENTS
-       */
+      /* -----------------------------------------
+         COMMENTS
+         ----------------------------------------- */
 
-      if (url.pathname === "/api/comments") {
-        if (request.method === "GET") {
+      if (
+        url.pathname ===
+        "/api/comments"
+      ) {
+
+        if (
+          request.method ===
+          "GET"
+        ) {
+
           return await getComments(
             url,
             env
           );
         }
 
-        if (request.method === "POST") {
+        if (
+          request.method ===
+          "POST"
+        ) {
+
           return await addComment(
             request,
             env
@@ -390,22 +437,48 @@ export default {
             error:
               "Method not allowed"
           },
-          405
+          405,
+          0
         );
       }
 
 
-      /*
-       * PUSH SUBSCRIBE
-       */
+      /* -----------------------------------------
+         PUSH SUBSCRIBE
+         ----------------------------------------- */
 
       if (
-        url.pathname === "/api/subscribe" &&
-        request.method === "POST"
+        url.pathname ===
+          "/api/subscribe" &&
+        request.method ===
+          "POST"
       ) {
+
         return await handleSubscribe(
           request,
           env
+        );
+      }
+
+
+      /* -----------------------------------------
+         HEALTH
+         ----------------------------------------- */
+
+      if (
+        url.pathname ===
+        "/"
+      ) {
+
+        return new Response(
+          "Ajker News Worker is running.",
+          {
+            status: 200,
+            headers: {
+              "content-type":
+                "text/plain; charset=UTF-8"
+            }
+          }
         );
       }
 
@@ -422,6 +495,7 @@ export default {
       );
 
     } catch (error) {
+
       console.error(
         "Worker error:",
         error
@@ -441,50 +515,70 @@ export default {
   },
 
 
-  /* =======================================================
-     HOURLY CRON
-     ======================================================= */
+  /* =====================================================
+     CRON
+     ===================================================== */
 
-  async scheduled(event, env, ctx) {
+  async scheduled(
+    event,
+    env,
+    ctx
+  ) {
+
     console.log(
-      `[${new Date().toISOString()}] Scheduled update triggered`
+      "Scheduled update started:",
+      new Date(
+        event.scheduledTime
+      ).toISOString()
     );
 
     try {
+
       const result =
-        await updateNews(env);
+        await updateNews(
+          env
+        );
 
       console.log(
-        "Update completed:",
-        result
+        "Scheduled update completed:",
+        JSON.stringify(result)
       );
 
-      if (result.stored > 0) {
-        try {
-          await sendPushNotifications(
+
+      /*
+       * Push notification is background work.
+       */
+      if (
+        result.stored > 0
+      ) {
+
+        ctx.waitUntil(
+          sendPushNotifications(
             env,
             "📰 নতুন খবর!",
             `${result.stored}টি নতুন খবর প্রকাশিত হয়েছে।`,
             "https://ajkernews.in/"
-          );
-
-          console.log(
-            "Push notification process completed"
-          );
-
-        } catch (error) {
-          console.error(
-            "Scheduled push error:",
-            error
-          );
-        }
-      } else {
-        console.log(
-          "No new stored news. Push skipped."
+          ).catch(
+            error => {
+              console.error(
+                "Scheduled push error:",
+                error
+              );
+            }
+          )
         );
       }
 
     } catch (error) {
+
+      /*
+       * IMPORTANT:
+       * Do not throw again.
+       *
+       * This prevents the scheduled execution
+       * from becoming an unhandled failure.
+       */
+
       console.error(
         "Scheduled update failed:",
         error
@@ -495,6 +589,155 @@ export default {
 
 
 /* =========================================================
+   DATABASE
+   ========================================================= */
+
+async function ensureTables(
+  env
+) {
+
+  const queries = [
+
+    `
+    CREATE TABLE IF NOT EXISTS news (
+      id TEXT PRIMARY KEY,
+      source_url TEXT UNIQUE,
+      source_name TEXT,
+      source_title TEXT,
+      source_description TEXT,
+      headline TEXT,
+      summary TEXT,
+      main_topic TEXT,
+      category TEXT,
+      image_url TEXT,
+      published_at TEXT,
+      created_at TEXT,
+      day_key TEXT,
+      status TEXT DEFAULT 'published',
+      score INTEGER DEFAULT 0,
+      search_text TEXT,
+      indexed_at TEXT
+    )
+    `,
+
+    `
+    CREATE TABLE IF NOT EXISTS news_loves (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      news_id TEXT,
+      device_id TEXT,
+      UNIQUE(news_id, device_id)
+    )
+    `,
+
+    `
+    CREATE TABLE IF NOT EXISTS news_comments (
+      id TEXT PRIMARY KEY,
+      news_id TEXT,
+      author_name TEXT,
+      comment_text TEXT,
+      created_at TEXT
+    )
+    `,
+
+    `
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id TEXT PRIMARY KEY,
+      endpoint TEXT UNIQUE,
+      keys_json TEXT,
+      created_at TEXT
+    )
+    `,
+
+    `
+    CREATE TABLE IF NOT EXISTS affiliate_clicks (
+      id TEXT PRIMARY KEY,
+      affiliate_name TEXT,
+      click_url TEXT,
+      device_id TEXT,
+      created_at TEXT
+    )
+    `,
+
+    `
+    CREATE TABLE IF NOT EXISTS indexing_log (
+      id TEXT PRIMARY KEY,
+      news_id TEXT,
+      url TEXT,
+      status TEXT,
+      response TEXT,
+      created_at TEXT
+    )
+    `,
+
+    `
+    CREATE INDEX IF NOT EXISTS
+    idx_news_status_published
+    ON news(status, published_at DESC)
+    `,
+
+    `
+    CREATE INDEX IF NOT EXISTS
+    idx_news_category_published
+    ON news(category, published_at DESC)
+    `,
+
+    `
+    CREATE INDEX IF NOT EXISTS
+    idx_news_score_published
+    ON news(score DESC, published_at DESC)
+    `,
+
+    `
+    CREATE INDEX IF NOT EXISTS
+    idx_news_loves_news_id
+    ON news_loves(news_id)
+    `,
+
+    `
+    CREATE INDEX IF NOT EXISTS
+    idx_news_comments_news_created
+    ON news_comments(news_id, created_at ASC)
+    `
+  ];
+
+  for (
+    const sql of queries
+  ) {
+
+    await env.DB
+      .prepare(sql)
+      .run();
+  }
+}
+
+
+async function ensureTablesOnce(
+  env
+) {
+
+  if (
+    !tablesReadyPromise
+  ) {
+
+    tablesReadyPromise =
+      ensureTables(env);
+  }
+
+  try {
+
+    await tablesReadyPromise;
+
+  } catch (error) {
+
+    tablesReadyPromise =
+      null;
+
+    throw error;
+  }
+}
+
+
+/* =========================================================
    SHARE PAGE
    ========================================================= */
 
@@ -502,10 +745,13 @@ async function serveSharePage(
   id,
   env
 ) {
+
   const safeId =
-    String(id || "").trim();
+    String(id || "")
+      .trim();
 
   if (!safeId) {
+
     return Response.redirect(
       "https://ajkernews.in/",
       302
@@ -513,22 +759,26 @@ async function serveSharePage(
   }
 
   const result =
-    await env.DB.prepare(
-      `SELECT
-        headline,
-        summary,
-        image_url,
-        published_at,
-        source_name
-       FROM news
-       WHERE id = ?
-         AND status = 'published'
-       LIMIT 1`
-    )
+    await env.DB
+      .prepare(
+        `
+        SELECT
+          headline,
+          summary,
+          image_url,
+          published_at,
+          source_name
+        FROM news
+        WHERE id = ?
+          AND status = 'published'
+        LIMIT 1
+        `
+      )
       .bind(safeId)
       .first();
 
   if (!result) {
+
     return Response.redirect(
       "https://ajkernews.in/",
       302
@@ -547,7 +797,8 @@ async function serveSharePage(
     ).slice(0, 200);
 
   const image =
-    result.image_url || "";
+    result.image_url ||
+    "";
 
   const shareUrl =
     `https://ajkernews.in/go/${encodeURIComponent(safeId)}`;
@@ -558,65 +809,100 @@ async function serveSharePage(
   const imageTags =
     image
       ? `
-      <meta property="og:image"
-            content="${escapeHtml(image)}">
+        <meta
+          property="og:image"
+          content="${escapeHtml(image)}"
+        >
 
-      <meta property="og:image:alt"
-            content="${escapeHtml(title)}">
+        <meta
+          property="og:image:alt"
+          content="${escapeHtml(title)}"
+        >
 
-      <meta name="twitter:image"
-            content="${escapeHtml(image)}">
-      `
+        <meta
+          name="twitter:image"
+          content="${escapeHtml(image)}"
+        >
+        `
       : "";
 
   const html =
     `<!DOCTYPE html>
 <html lang="bn">
+
 <head>
 
   <meta charset="UTF-8">
 
-  <meta name="viewport"
-        content="width=device-width,initial-scale=1">
+  <meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  >
 
   <title>
     ${escapeHtml(title)}
   </title>
 
-  <meta name="description"
-        content="${escapeHtml(description)}">
+  <meta
+    name="description"
+    content="${escapeHtml(description)}"
+  >
 
-  <meta property="og:title"
-        content="${escapeHtml(title)}">
+  <meta
+    property="og:title"
+    content="${escapeHtml(title)}"
+  >
 
-  <meta property="og:description"
-        content="${escapeHtml(description)}">
+  <meta
+    property="og:description"
+    content="${escapeHtml(description)}"
+  >
 
-  <meta property="og:type"
-        content="article">
+  <meta
+    property="og:type"
+    content="article"
+  >
 
-  <meta property="og:url"
-        content="${escapeHtml(shareUrl)}">
+  <meta
+    property="og:url"
+    content="${escapeHtml(shareUrl)}"
+  >
 
-  <meta property="og:locale"
-        content="bn_IN">
+  <meta
+    property="og:locale"
+    content="bn_IN"
+  >
 
   ${imageTags}
 
-  <meta name="twitter:card"
-        content="${image ? "summary_large_image" : "summary"}">
+  <meta
+    name="twitter:card"
+    content="${
+      image
+        ? "summary_large_image"
+        : "summary"
+    }"
+  >
 
-  <meta name="twitter:title"
-        content="${escapeHtml(title)}">
+  <meta
+    name="twitter:title"
+    content="${escapeHtml(title)}"
+  >
 
-  <meta name="twitter:description"
-        content="${escapeHtml(description)}">
+  <meta
+    name="twitter:description"
+    content="${escapeHtml(description)}"
+  >
 
-  <meta name="twitter:url"
-        content="${escapeHtml(shareUrl)}">
+  <meta
+    name="twitter:url"
+    content="${escapeHtml(shareUrl)}"
+  >
 
-  <meta http-equiv="refresh"
-        content="0;url=${escapeHtml(homeUrl)}">
+  <meta
+    http-equiv="refresh"
+    content="0;url=${escapeHtml(homeUrl)}"
+  >
 
   <script>
     window.location.replace(
@@ -644,20 +930,22 @@ async function serveSharePage(
       ${escapeHtml(description)}
     </p>
 
-    <a href="${escapeHtml(homeUrl)}">
+    <a
+      href="${escapeHtml(homeUrl)}"
+    >
       পুরো খবরটি পড়তে এখানে ক্লিক করুন
     </a>
 
   </main>
 
 </body>
+
 </html>`;
 
   return new Response(
     html,
     {
       status: 200,
-
       headers: {
         "Content-Type":
           "text/html; charset=UTF-8",
@@ -683,10 +971,14 @@ async function serveNewsPage(
   url,
   env
 ) {
+
   const id =
-    url.searchParams.get("id");
+    url.searchParams.get(
+      "id"
+    );
 
   if (!id) {
+
     return Response.redirect(
       "https://ajkernews.in/",
       302
@@ -694,22 +986,26 @@ async function serveNewsPage(
   }
 
   const result =
-    await env.DB.prepare(
-      `SELECT
-        headline,
-        summary,
-        image_url,
-        published_at,
-        source_name
-       FROM news
-       WHERE id = ?
-         AND status = 'published'
-       LIMIT 1`
-    )
+    await env.DB
+      .prepare(
+        `
+        SELECT
+          headline,
+          summary,
+          image_url,
+          published_at,
+          source_name
+        FROM news
+        WHERE id = ?
+          AND status = 'published'
+        LIMIT 1
+        `
+      )
       .bind(id)
       .first();
 
   if (!result) {
+
     return Response.redirect(
       "https://ajkernews.in/",
       302
@@ -719,7 +1015,8 @@ async function serveNewsPage(
   const title =
     cleanText(
       result.headline
-    ) || "Ajker News";
+    ) ||
+    "Ajker News";
 
   const description =
     cleanText(
@@ -727,7 +1024,8 @@ async function serveNewsPage(
     ).slice(0, 160);
 
   const image =
-    result.image_url || "";
+    result.image_url ||
+    "";
 
   const homeUrl =
     `https://ajkernews.in/?id=${encodeURIComponent(id)}`;
@@ -735,59 +1033,92 @@ async function serveNewsPage(
   const imageTags =
     image
       ? `
-      <meta property="og:image"
-            content="${escapeHtml(image)}">
+        <meta
+          property="og:image"
+          content="${escapeHtml(image)}"
+        >
 
-      <meta property="og:image:alt"
-            content="${escapeHtml(title)}">
+        <meta
+          property="og:image:alt"
+          content="${escapeHtml(title)}"
+        >
 
-      <meta name="twitter:image"
-            content="${escapeHtml(image)}">
-      `
+        <meta
+          name="twitter:image"
+          content="${escapeHtml(image)}"
+        >
+        `
       : "";
 
   let html =
     `<!DOCTYPE html>
+
 <html lang="bn">
+
 <head>
 
   <meta charset="UTF-8">
 
-  <meta name="viewport"
-        content="width=device-width,initial-scale=1">
+  <meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  >
 
   <title>
-    ${escapeHtml(title)} - Ajker News
+    ${escapeHtml(title)}
+    - Ajker News
   </title>
 
-  <meta name="description"
-        content="${escapeHtml(description)}">
+  <meta
+    name="description"
+    content="${escapeHtml(description)}"
+  >
 
-  <meta property="og:title"
-        content="${escapeHtml(title)}">
+  <meta
+    property="og:title"
+    content="${escapeHtml(title)}"
+  >
 
-  <meta property="og:description"
-        content="${escapeHtml(description)}">
+  <meta
+    property="og:description"
+    content="${escapeHtml(description)}"
+  >
 
-  <meta property="og:url"
-        content="${escapeHtml(homeUrl)}">
+  <meta
+    property="og:url"
+    content="${escapeHtml(homeUrl)}"
+  >
 
-  <meta property="og:type"
-        content="article">
+  <meta
+    property="og:type"
+    content="article"
+  >
 
   ${imageTags}
 
-  <meta name="twitter:card"
-        content="${image ? "summary_large_image" : "summary"}">
+  <meta
+    name="twitter:card"
+    content="${
+      image
+        ? "summary_large_image"
+        : "summary"
+    }"
+  >
 
-  <meta name="twitter:title"
-        content="${escapeHtml(title)}">
+  <meta
+    name="twitter:title"
+    content="${escapeHtml(title)}"
+  >
 
-  <meta name="twitter:description"
-        content="${escapeHtml(description)}">
+  <meta
+    name="twitter:description"
+    content="${escapeHtml(description)}"
+  >
 
-  <meta http-equiv="refresh"
-        content="0;url=${escapeHtml(homeUrl)}">
+  <meta
+    http-equiv="refresh"
+    content="0;url=${escapeHtml(homeUrl)}"
+  >
 
   <script>
     window.location.replace(
@@ -804,6 +1135,7 @@ async function serveNewsPage(
   </p>
 
 </body>
+
 </html>`;
 
   const analyticsScript =
@@ -820,7 +1152,10 @@ async function serveNewsPage(
         dataLayer.push(arguments);
       }
 
-      gtag("js", new Date());
+      gtag(
+        "js",
+        new Date()
+      );
 
       gtag(
         "config",
@@ -828,9 +1163,15 @@ async function serveNewsPage(
       );
     </script>
 
-    ${ANALYTICS_CONFIG.extraHeadScripts || ""}
+    ${
+      ANALYTICS_CONFIG.extraHeadScripts ||
+      ""
+    }
 
-    ${ADS_CONFIG.adNetworkScripts || ""}
+    ${
+      ADS_CONFIG.adNetworkScripts ||
+      ""
+    }
     `;
 
   html =
@@ -840,11 +1181,15 @@ async function serveNewsPage(
       "</head>"
     );
 
-  if (ADS_CONFIG.extraFooterScripts) {
+  if (
+    ADS_CONFIG.extraFooterScripts
+  ) {
+
     html =
       html.replace(
         "</body>",
-        ADS_CONFIG.extraFooterScripts +
+        ADS_CONFIG
+          .extraFooterScripts +
         "</body>"
       );
   }
@@ -869,572 +1214,97 @@ async function serveNewsPage(
 
 
 /* =========================================================
-   GOOGLE INDEXING
+   AFFILIATE
    ========================================================= */
 
-async function requestGoogleIndexing(
+async function handleAffiliate(
   url,
   env
 ) {
-  try {
-    const token =
-      await getGoogleAccessToken(env);
 
-    if (!token) {
-      return false;
-    }
+  const ref =
+    url.searchParams.get(
+      "ref"
+    ) ||
+    "direct";
 
-    const response =
-      await fetch(
-        "https://indexing.googleapis.com/v3/urlNotifications:publish",
-        {
-          method: "POST",
+  let targetUrl =
+    url.searchParams.get(
+      "url"
+    );
 
-          headers: {
-            "Authorization":
-              `Bearer ${token}`,
+  if (
+    !targetUrl &&
+    AFFILIATE_CONFIG
+      .redirectMap &&
+    AFFILIATE_CONFIG
+      .redirectMap[ref]
+  ) {
 
-            "Content-Type":
-              "application/json"
-          },
+    targetUrl =
+      AFFILIATE_CONFIG
+        .redirectMap[ref];
+  }
 
-          body: JSON.stringify({
-            url,
-            type: "URL_UPDATED"
-          })
-        }
-      );
+  if (!targetUrl) {
 
-    const responseText =
-      await response.text();
+    targetUrl =
+      AFFILIATE_CONFIG
+        .defaultRedirect;
+  }
+
+  if (
+    AFFILIATE_CONFIG.trackClicks
+  ) {
 
     try {
-      await env.DB.prepare(
-        `INSERT INTO indexing_log
-        (id, news_id, url, status, response, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)`
-      )
+
+      const deviceId =
+        requestSafeIp(
+          url
+        );
+
+      await env.DB
+        .prepare(
+          `
+          INSERT INTO affiliate_clicks
+          (
+            id,
+            affiliate_name,
+            click_url,
+            device_id,
+            created_at
+          )
+          VALUES (?, ?, ?, ?, ?)
+          `
+        )
         .bind(
           crypto.randomUUID(),
-          url.split("id=")[1] ||
-            "unknown",
-          url,
-          response.ok
-            ? "success"
-            : "failed",
-          responseText,
-          new Date().toISOString()
+          ref,
+          targetUrl,
+          deviceId,
+          new Date()
+            .toISOString()
         )
         .run();
 
     } catch (error) {
+
       console.error(
-        "Indexing log error:",
+        "Affiliate log error:",
         error
       );
     }
-
-    return response.ok;
-
-  } catch (error) {
-    console.error(
-      "Indexing API error:",
-      error
-    );
-
-    return false;
-  }
-}
-
-
-async function getGoogleAccessToken(
-  env
-) {
-  try {
-    if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) {
-      return null;
-    }
-
-    const credentials =
-      JSON.parse(
-        env.GOOGLE_SERVICE_ACCOUNT_JSON
-      );
-
-    const now =
-      Math.floor(
-        Date.now() / 1000
-      );
-
-    const header = {
-      alg: "RS256",
-      typ: "JWT"
-    };
-
-    const claimSet = {
-      iss:
-        credentials.client_email,
-
-      scope:
-        "https://www.googleapis.com/auth/indexing",
-
-      aud:
-        "https://oauth2.googleapis.com/token",
-
-      exp:
-        now + 3600,
-
-      iat:
-        now
-    };
-
-    const encodedHeader =
-      base64UrlEncode(
-        JSON.stringify(header)
-      );
-
-    const encodedClaimSet =
-      base64UrlEncode(
-        JSON.stringify(claimSet)
-      );
-
-    const signatureInput =
-      `${encodedHeader}.${encodedClaimSet}`;
-
-    const cryptoKey =
-      await crypto.subtle.importKey(
-        "pkcs8",
-        pemToArrayBuffer(
-          credentials.private_key
-        ),
-        {
-          name:
-            "RSASSA-PKCS1-v1_5",
-
-          hash:
-            "SHA-256"
-        },
-        false,
-        ["sign"]
-      );
-
-    const signature =
-      await crypto.subtle.sign(
-        "RSASSA-PKCS1-v1_5",
-        cryptoKey,
-        new TextEncoder().encode(
-          signatureInput
-        )
-      );
-
-    const encodedSignature =
-      base64UrlEncode(
-        String.fromCharCode(
-          ...new Uint8Array(
-            signature
-          )
-        )
-      );
-
-    const jwt =
-      `${signatureInput}.${encodedSignature}`;
-
-    const response =
-      await fetch(
-        "https://oauth2.googleapis.com/token",
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type":
-              "application/x-www-form-urlencoded"
-          },
-
-          body:
-            new URLSearchParams({
-              grant_type:
-                "urn:ietf:params:oauth:grant-type:jwt-bearer",
-
-              assertion:
-                jwt
-            })
-        }
-      );
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const data =
-      await response.json();
-
-    return (
-      data.access_token ||
-      null
-    );
-
-  } catch (error) {
-    console.error(
-      "Token generation error:",
-      error
-    );
-
-    return null;
-  }
-}
-
-
-function base64UrlEncode(str) {
-  return btoa(str)
-    .replace(
-      /\+/g,
-      "-"
-    )
-    .replace(
-      /\//g,
-      "_"
-    )
-    .replace(
-      /=+$/,
-      ""
-    );
-}
-
-
-function pemToArrayBuffer(
-  pem
-) {
-  const lines =
-    String(pem || "")
-      .split("\n");
-
-  let base64 = "";
-
-  for (const line of lines) {
-    if (!line.includes("-----")) {
-      base64 += line.trim();
-    }
   }
 
-  const binary =
-    atob(base64);
-
-  const bytes =
-    new Uint8Array(
-      binary.length
-    );
-
-  for (
-    let i = 0;
-    i < binary.length;
-    i++
-  ) {
-    bytes[i] =
-      binary.charCodeAt(i);
-  }
-
-  return bytes.buffer;
+  return Response.redirect(
+    targetUrl,
+    302
+  );
 }
 
-
-/* =========================================================
-   SEARCH ENGINE PING
-   ========================================================= */
-
-async function pingSearchEngines() {
-  const sitemapUrl =
-    encodeURIComponent(
-      "https://ajkernews.in/sitemap.xml"
-    );
-
-  try {
-    await fetch(
-      `https://www.google.com/ping?sitemap=${sitemapUrl}`
-    );
-  } catch {}
-
-  try {
-    await fetch(
-      `https://www.bing.com/ping?sitemap=${sitemapUrl}`
-    );
-  } catch {}
-}
-
-
-/* =========================================================
-   LOVE
-   ========================================================= */
-
-async function toggleLove(
-  request,
-  env
-) {
-  try {
-    const {
-      id,
-      deviceId
-    } = await request.json();
-
-    if (!id || !deviceId) {
-      return json(
-        {
-          error:
-            "Missing id or deviceId"
-        },
-        400
-      );
-    }
-
-    const existing =
-      await env.DB.prepare(
-        `SELECT id
-         FROM news_loves
-         WHERE news_id = ?
-           AND device_id = ?`
-      )
-        .bind(
-          id,
-          deviceId
-        )
-        .first();
-
-    if (existing) {
-      await env.DB.prepare(
-        `DELETE FROM news_loves
-         WHERE news_id = ?
-           AND device_id = ?`
-      )
-        .bind(
-          id,
-          deviceId
-        )
-        .run();
-
-    } else {
-      await env.DB.prepare(
-        `INSERT INTO news_loves
-         (news_id, device_id)
-         VALUES (?, ?)`
-      )
-        .bind(
-          id,
-          deviceId
-        )
-        .run();
-    }
-
-    const count =
-      await env.DB.prepare(
-        `SELECT COUNT(*) AS count
-         FROM news_loves
-         WHERE news_id = ?`
-      )
-        .bind(id)
-        .first();
-
-    return json({
-      success: true,
-
-      love_count:
-        Number(
-          count?.count || 0
-        )
-    });
-
-  } catch (error) {
-    return json(
-      {
-        success: false,
-
-        error:
-          error?.message ||
-          "Love error"
-      },
-      500,
-      0
-    );
-  }
-}
-
-
-/* =========================================================
-   COMMENTS
-   ========================================================= */
-
-async function getComments(
-  url,
-  env
-) {
-  const id =
-    url.searchParams.get("id");
-
-  if (!id) {
-    return json(
-      {
-        error:
-          "Missing id"
-      },
-      400
-    );
-  }
-
-  const result =
-    await env.DB.prepare(
-      `SELECT
-        id,
-        author_name,
-        comment_text,
-        created_at
-       FROM news_comments
-       WHERE news_id = ?
-       ORDER BY created_at ASC`
-    )
-      .bind(id)
-      .all();
-
-  return json({
-    comments:
-      result.results || []
-  });
-}
-
-
-async function addComment(
-  request,
-  env
-) {
-  const {
-    newsId,
-    author,
-    text
-  } = await request.json();
-
-  if (!newsId || !text) {
-    return json(
-      {
-        error:
-          "Missing fields"
-      },
-      400
-    );
-  }
-
-  const id =
-    crypto.randomUUID();
-
-  await env.DB.prepare(
-    `INSERT INTO news_comments
-    (id, news_id, author_name, comment_text, created_at)
-    VALUES (?, ?, ?, ?, ?)`
-  )
-    .bind(
-      id,
-      newsId,
-      author || "Guest",
-      text,
-      new Date().toISOString()
-    )
-    .run();
-
-  return json({
-    success: true,
-
-    comment_id:
-      id
-  });
-}
-
-
-/* =========================================================
-   PUSH SUBSCRIPTION
-   ========================================================= */
-
-async function handleSubscribe(
-  request,
-  env
-) {
-  try {
-    const subscription =
-      await request.json();
-
-    if (
-      !subscription?.endpoint
-    ) {
-      return json(
-        {
-          success: false,
-
-          error:
-            "Invalid subscription"
-        },
-        400
-      );
-    }
-
-    const endpoint =
-      subscription.endpoint;
-
-    const keys =
-      JSON.stringify(
-        subscription.keys || {}
-      );
-
-    const existing =
-      await env.DB.prepare(
-        `SELECT id
-         FROM push_subscriptions
-         WHERE endpoint = ?`
-      )
-        .bind(endpoint)
-        .first();
-
-    if (existing) {
-      return json({
-        success: true,
-
-        message:
-          "Already subscribed"
-      });
-    }
-
-    await env.DB.prepare(
-      `INSERT INTO push_subscriptions
-      (id, endpoint, keys_json, created_at)
-      VALUES (?, ?, ?, ?)`
-    )
-      .bind(
-        crypto.randomUUID(),
-        endpoint,
-        keys,
-        new Date().toISOString()
-      )
-      .run();
-
-    console.log(
-      "Push subscription saved"
-    );
-
-    return json({
-      success: true
-    });
-
-  } catch (error) {
-    console.error(
-      "Subscribe error:",
-      error
-    );
-
-    return json(
-      {
-        success: false,
-
-        error:
-          error?.message ||
-          "Subscribe error"
-      },
-      500,
-      0
-    );
-  }
+function requestSafeIp() {
+  return "unknown";
 }
 
 
@@ -1445,47 +1315,82 @@ async function handleSubscribe(
 async function updateNews(
   env
 ) {
+
   if (!env.DB) {
+
     throw new Error(
       "D1 binding DB is missing"
     );
   }
 
-  if (!env.GNEWS_API_KEY) {
+  if (
+    !env.GNEWS_API_KEY
+  ) {
+
     throw new Error(
       "GNEWS_API_KEY secret is missing"
     );
   }
 
-  if (!env.GEMINI_API_KEY) {
-    throw new Error(
-      "GEMINI_API_KEY secret is missing"
+  /*
+   * Gemini is optional for reliability.
+   *
+   * If the key is missing or Gemini fails,
+   * GNews fallback will still publish news.
+   */
+
+  let candidates = [];
+
+  try {
+
+    candidates =
+      await fetchGNews(
+        env
+      );
+
+  } catch (error) {
+
+    console.error(
+      "GNews fetch failed:",
+      error
     );
-  }
 
-  console.log(
-    "Fetching GNews..."
-  );
-
-  const candidates =
-    await fetchGNews(env);
-
-  console.log(
-    `GNews returned ${candidates.length} candidates`
-  );
-
-  if (!candidates.length) {
     return {
       fetched: 0,
       unique: 0,
       selected: 0,
       stored: 0,
       deleted: 0,
+      indexed: 0,
+      gemini: false,
+      fallback: false,
+      message:
+        "GNews fetch failed"
+    };
+  }
 
+  if (
+    !candidates.length
+  ) {
+
+    return {
+      fetched: 0,
+      unique: 0,
+      selected: 0,
+      stored: 0,
+      deleted: 0,
+      indexed: 0,
+      gemini: false,
+      fallback: false,
       message:
         "No news found"
     };
   }
+
+
+  /* -----------------------------------------
+     Remove duplicates
+     ----------------------------------------- */
 
   const uniqueCandidates =
     await removeExistingNews(
@@ -1493,43 +1398,116 @@ async function updateNews(
       env
     );
 
-  console.log(
-    `${uniqueCandidates.length} unique new candidates`
-  );
+  if (
+    !uniqueCandidates.length
+  ) {
 
-  if (!uniqueCandidates.length) {
     return {
       fetched:
         candidates.length,
 
       unique: 0,
+
       selected: 0,
+
       stored: 0,
+
       deleted: 0,
+
+      indexed: 0,
+
+      gemini: false,
+
+      fallback: false,
 
       message:
         "No new news available"
     };
   }
 
-  const selected =
-    await processWithGemini(
-      uniqueCandidates,
-      env
+
+  /* -----------------------------------------
+     Gemini processing
+     ----------------------------------------- */
+
+  let selected = [];
+
+  let usedGemini =
+    false;
+
+  let usedFallback =
+    false;
+
+  if (
+    env.GEMINI_API_KEY
+  ) {
+
+    try {
+
+      selected =
+        await processWithGemini(
+          uniqueCandidates,
+          env
+        );
+
+      usedGemini =
+        selected.length > 0;
+
+    } catch (error) {
+
+      console.error(
+        "Gemini processing failed:",
+        error
+      );
+    }
+  }
+
+
+  /* -----------------------------------------
+     Safe fallback
+     ----------------------------------------- */
+
+  if (
+    !selected.length
+  ) {
+
+    console.log(
+      "Using GNews fallback."
     );
 
+    selected =
+      buildFallbackNews(
+        uniqueCandidates
+      );
+
+    usedFallback =
+      true;
+  }
+
+
   const finalNews =
-    selected.slice(
-      0,
-      MAX_SELECTED_NEWS
-    );
+    selected
+      .slice(
+        0,
+        MAX_SELECTED_NEWS
+      );
+
 
   let stored = 0;
 
   const indexedUrls = [];
 
-  for (const news of finalNews) {
+
+  /* -----------------------------------------
+     Insert
+     ----------------------------------------- */
+
+  for (
+    const news of finalNews
+  ) {
+
     try {
+
       await insertNews(
         news,
         env
@@ -1542,6 +1520,7 @@ async function updateNews(
       );
 
     } catch (error) {
+
       console.error(
         "News insert failed:",
         error
@@ -1550,9 +1529,9 @@ async function updateNews(
   }
 
 
-  /*
-   * DELETE OLD NEWS
-   */
+  /* -----------------------------------------
+     Keep database small
+     ----------------------------------------- */
 
   const deleted =
     await enforceMaximumNews(
@@ -1560,25 +1539,30 @@ async function updateNews(
     );
 
 
-  /*
-   * GOOGLE INDEXING
-   */
+  /* -----------------------------------------
+     Google indexing
+     ----------------------------------------- */
+
+  let indexed = 0;
 
   if (
     stored > 0 &&
     env.GOOGLE_SERVICE_ACCOUNT_JSON
   ) {
+
     for (
       const newsUrl of
       indexedUrls
     ) {
+
       let success = false;
 
       for (
         let attempt = 1;
-        attempt <= 3;
+        attempt <= 2;
         attempt++
       ) {
+
         success =
           await requestGoogleIndexing(
             newsUrl,
@@ -1586,10 +1570,13 @@ async function updateNews(
           );
 
         if (success) {
+          indexed++;
           break;
         }
 
-        await sleep(2000);
+        await sleep(
+          1500 * attempt
+        );
       }
     }
 
@@ -1598,6 +1585,7 @@ async function updateNews(
 
 
   return {
+
     fetched:
       candidates.length,
 
@@ -1611,11 +1599,16 @@ async function updateNews(
 
     deleted,
 
-    indexed:
-      indexedUrls.length,
+    indexed,
+
+    gemini:
+      usedGemini,
+
+    fallback:
+      usedFallback,
 
     message:
-      `News update completed. ${stored} stored, ${indexedUrls.length} indexed.`
+      `News update completed. ${stored} stored. Gemini: ${usedGemini ? "yes" : "no"}. Fallback: ${usedFallback ? "yes" : "no"}.`
   };
 }
 
@@ -1627,6 +1620,110 @@ async function updateNews(
 async function fetchGNews(
   env
 ) {
+
+  const results = [];
+
+  /*
+   * Bengali feed
+   */
+  try {
+
+    const bn =
+      await fetchGNewsFeed(
+        env,
+        "bn"
+      );
+
+    results.push(
+      ...bn
+    );
+
+  } catch (error) {
+
+    console.error(
+      "Bengali GNews failed:",
+      error
+    );
+  }
+
+
+  /*
+   * English feed
+   *
+   * This improves coverage for
+   * international / technology /
+   * business stories.
+   */
+  try {
+
+    const en =
+      await fetchGNewsFeed(
+        env,
+        "en"
+      );
+
+    results.push(
+      ...en
+    );
+
+  } catch (error) {
+
+    console.error(
+      "English GNews failed:",
+      error
+    );
+  }
+
+
+  /*
+   * Deduplicate by URL.
+   */
+
+  const seen =
+    new Set();
+
+  const unique = [];
+
+  for (
+    const item of results
+  ) {
+
+    if (
+      !item.source_url
+    ) {
+      continue;
+    }
+
+    if (
+      seen.has(
+        item.source_url
+      )
+    ) {
+      continue;
+    }
+
+    seen.add(
+      item.source_url
+    );
+
+    unique.push(
+      item
+    );
+  }
+
+  return unique
+    .slice(
+      0,
+      20
+    );
+}
+
+
+async function fetchGNewsFeed(
+  env,
+  language
+) {
+
   const apiUrl =
     new URL(
       "https://gnews.io/api/v4/top-headlines"
@@ -1634,7 +1731,7 @@ async function fetchGNews(
 
   apiUrl.searchParams.set(
     "lang",
-    "en"
+    language
   );
 
   apiUrl.searchParams.set(
@@ -1668,8 +1765,9 @@ async function fetchGNews(
     );
 
   if (!response.ok) {
+
     throw new Error(
-      `GNews API ${response.status}: ${await response.text()}`
+      `GNews ${language} API ${response.status}: ${await response.text()}`
     );
   }
 
@@ -1682,6 +1780,7 @@ async function fetchGNews(
       data.articles
     )
   ) {
+
     return [];
   }
 
@@ -1692,18 +1791,23 @@ async function fetchGNews(
     )
     .map(
       article => ({
+
         source_name:
-          article.source?.name ||
-          "",
+          cleanText(
+            article.source?.name ||
+            ""
+          ),
 
         source_url:
           normalizeUrl(
-            article.url || ""
+            article.url ||
+            ""
           ),
 
         source_title:
           cleanText(
-            article.title || ""
+            article.title ||
+            ""
           ),
 
         source_description:
@@ -1713,7 +1817,8 @@ async function fetchGNews(
           ),
 
         image_url:
-          article.image || "",
+          article.image ||
+          "",
 
         published_at:
           article.publishedAt ||
@@ -1728,19 +1833,24 @@ async function fetchGNews(
 }
 
 
+/* =========================================================
+   EXISTING NEWS FILTER
+   ========================================================= */
+
 async function removeExistingNews(
   candidates,
   env
 ) {
+
   const unique = [];
 
   const checked =
     new Set();
 
   for (
-    const item of
-    candidates
+    const item of candidates
   ) {
+
     const sourceUrl =
       normalizeUrl(
         item.source_url
@@ -1751,7 +1861,9 @@ async function removeExistingNews(
     }
 
     if (
-      checked.has(sourceUrl)
+      checked.has(
+        sourceUrl
+      )
     ) {
       continue;
     }
@@ -1761,19 +1873,24 @@ async function removeExistingNews(
     );
 
     const existing =
-      await env.DB.prepare(
-        `SELECT id
-         FROM news
-         WHERE source_url = ?
-         LIMIT 1`
-      )
-        .bind(sourceUrl)
+      await env.DB
+        .prepare(
+          `
+          SELECT id
+          FROM news
+          WHERE source_url = ?
+          LIMIT 1
+          `
+        )
+        .bind(
+          sourceUrl
+        )
         .first();
 
     if (!existing) {
+
       unique.push({
         ...item,
-
         source_url:
           sourceUrl
       });
@@ -1792,9 +1909,14 @@ async function processWithGemini(
   candidates,
   env
 ) {
+
   const input =
     candidates.map(
-      (item, index) => ({
+      (
+        item,
+        index
+      ) => ({
+
         candidate_id:
           index + 1,
 
@@ -1812,42 +1934,46 @@ async function processWithGemini(
       })
     );
 
-  const prompt = `
-You are the senior editor for Ajker News,
-a Bengali news website.
 
-Select the 5 most important and engaging
-news stories for Bengali readers.
+  const prompt = `
+You are the senior editor of Ajker News,
+a Bengali news website for Bengali readers in India.
+
+Select the 5 most important NEW stories.
 
 PRIORITY:
-1. West Bengal politics, Kolkata, Mamata Banerjee,
-TMC, BJP Bengal, Bengal elections, Bengal government,
-WB crime and development.
-2. Indian national politics.
-3. Major international, business, technology,
-sports and entertainment news.
+1. West Bengal:
+   Kolkata, Mamata Banerjee, TMC, BJP Bengal,
+   West Bengal government, Bengal politics,
+   Bengal crime, Bengal development and elections.
+2. India national politics.
+3. Major international news.
+4. Business.
+5. Technology.
+6. Sports.
+7. Entertainment.
 
-If West Bengal political news exists,
-prioritize it.
-
-Write natural professional Bengali.
-
-Rules:
+Important:
+- Select only from the supplied candidates.
+- Never invent facts.
+- Never invent quotes.
+- Never invent statistics.
 - Do not copy source titles word-for-word.
-- Do not invent facts, quotes or statistics.
-- Avoid clickbait.
-- Summary should be 160-180 Bengali words.
-- Return ONLY valid JSON array.
-- Do not use markdown.
-- Do not wrap JSON inside code fences.
+- Write natural professional Bengali.
+- Do not use clickbait.
+- Summary should be around 90-130 Bengali words.
+- Keep the headline concise.
+- If the source is already Bengali, rewrite it naturally.
+- Return ONLY a JSON array.
 
-Each object:
+Each object MUST be:
+
 {
   "candidate_id": 1,
   "headline": "...",
   "summary": "...",
   "main_topic": "...",
-  "category": "india",
+  "category": "west_bengal",
   "score": 90
 }
 
@@ -1867,173 +1993,158 @@ ${JSON.stringify(input)}
 `;
 
 
-  const endpoint =
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`;
-
-
-  let lastError = null;
+  let lastError =
+    null;
 
 
   /*
-   * GEMINI RETRY
+   * Try models one by one.
    */
 
   for (
-    let attempt = 1;
-    attempt <= GEMINI_MAX_ATTEMPTS;
-    attempt++
+    const model of
+    GEMINI_MODELS
   ) {
+
     try {
-      console.log(
-        `Gemini attempt ${attempt}/${GEMINI_MAX_ATTEMPTS}`
+
+      const result =
+        await callGeminiModel(
+          model,
+          prompt,
+          env
+        );
+
+      if (
+        Array.isArray(
+          result
+        ) &&
+        result.length
+      ) {
+
+        return validateGeminiResults(
+          result,
+          candidates
+        );
+      }
+
+    } catch (error) {
+
+      lastError =
+        error;
+
+      console.error(
+        `Gemini model ${model} failed:`,
+        error
       );
 
-      const controller =
-        new AbortController();
-
-      const timeout =
-        setTimeout(
-          () =>
-            controller.abort(),
-          GEMINI_TIMEOUT_MS
-        );
+      /*
+       * Small delay before fallback model.
+       */
+      await sleep(1200);
+    }
+  }
 
 
-      let response;
+  throw (
+    lastError ||
+    new Error(
+      "All Gemini models failed"
+    )
+  );
+}
 
-      try {
-        response =
-          await fetch(
-            endpoint,
-            {
-              method: "POST",
 
-              headers: {
-                "content-type":
-                  "application/json"
-              },
+async function callGeminiModel(
+  model,
+  prompt,
+  env
+) {
 
-              body:
-                JSON.stringify({
-                  contents: [
+  const endpoint =
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`;
+
+
+  /*
+   * Only one retry for transient errors.
+   *
+   * This keeps Free Tier usage low.
+   */
+
+  let lastResponseText =
+    "";
+
+  for (
+    let attempt = 1;
+    attempt <= 2;
+    attempt++
+  ) {
+
+    const response =
+      await fetch(
+        endpoint,
+        {
+          method: "POST",
+
+          headers: {
+            "content-type":
+              "application/json"
+          },
+
+          body:
+            JSON.stringify({
+
+              contents: [
+                {
+                  parts: [
                     {
-                      parts: [
-                        {
-                          text:
-                            prompt
-                        }
-                      ]
+                      text:
+                        prompt
                     }
-                  ],
+                  ]
+                }
+              ],
 
-                  generationConfig: {
-                    responseMimeType:
-                      "application/json"
-                  }
-                }),
+              generationConfig: {
 
-              signal:
-                controller.signal
-            }
-          );
+                temperature:
+                  0.2,
 
-      } finally {
-        clearTimeout(
-          timeout
-        );
-      }
+                responseMimeType:
+                  "application/json",
 
-
-      const responseText =
-        await response.text();
-
-
-      /*
-       * RETRY TEMPORARY API ERRORS
-       */
-
-      if (!response.ok) {
-        const errorMessage =
-          `Gemini API ${response.status}: ${responseText}`;
-
-        lastError =
-          new Error(
-            errorMessage
-          );
-
-        console.error(
-          `Gemini attempt ${attempt} failed:`,
-          errorMessage
-        );
-
-
-        const retryable =
-          response.status === 408 ||
-          response.status === 429 ||
-          response.status === 500 ||
-          response.status === 502 ||
-          response.status === 503 ||
-          response.status === 504;
-
-
-        if (
-          retryable &&
-          attempt < GEMINI_MAX_ATTEMPTS
-        ) {
-          await sleep(
-            attempt === 1
-              ? 2000
-              : 4000
-          );
-
-          continue;
+                maxOutputTokens:
+                  5000
+              }
+            })
         }
-
-        throw lastError;
-      }
+      );
 
 
-      /*
-       * PARSE RESPONSE
-       */
+    lastResponseText =
+      await response.text();
+
+
+    if (
+      response.ok
+    ) {
 
       let data;
 
       try {
+
         data =
           JSON.parse(
-            responseText
+            lastResponseText
           );
+
       } catch {
-        lastError =
-          new Error(
-            "Gemini returned invalid API JSON"
-          );
 
-        console.error(
-          lastError.message
+        throw new Error(
+          "Gemini returned invalid JSON response body"
         );
-
-        if (
-          attempt <
-          GEMINI_MAX_ATTEMPTS
-        ) {
-          await sleep(
-            attempt === 1
-              ? 2000
-              : 4000
-          );
-
-          continue;
-        }
-
-        throw lastError;
       }
 
-
-      /*
-       * EXTRACT TEXT
-       */
 
       const text =
         data?.candidates?.[0]
@@ -2042,229 +2153,446 @@ ${JSON.stringify(input)}
 
 
       if (!text) {
-        const finishReason =
-          data?.candidates?.[0]
-            ?.finishReason ||
-          "unknown";
 
-        lastError =
-          new Error(
-            `Gemini returned empty response. finishReason=${finishReason}`
-          );
-
-        console.error(
-          lastError.message
+        throw new Error(
+          "Gemini returned empty response"
         );
-
-        if (
-          attempt <
-          GEMINI_MAX_ATTEMPTS
-        ) {
-          await sleep(
-            attempt === 1
-              ? 2000
-              : 4000
-          );
-
-          continue;
-        }
-
-        throw lastError;
       }
 
-
-      /*
-       * PARSE GENERATED JSON
-       */
 
       let parsed;
 
       try {
+
         parsed =
           JSON.parse(
             cleanJson(text)
           );
 
       } catch {
-        lastError =
-          new Error(
-            "Gemini returned invalid generated JSON"
-          );
 
-        console.error(
-          lastError.message
+        throw new Error(
+          "Gemini returned invalid JSON content"
         );
-
-        if (
-          attempt <
-          GEMINI_MAX_ATTEMPTS
-        ) {
-          await sleep(
-            attempt === 1
-              ? 2000
-              : 4000
-          );
-
-          continue;
-        }
-
-        throw lastError;
       }
 
-
-      if (!Array.isArray(parsed)) {
-        lastError =
-          new Error(
-            "Gemini response is not an array"
-          );
-
-        if (
-          attempt <
-          GEMINI_MAX_ATTEMPTS
-        ) {
-          await sleep(
-            attempt === 1
-              ? 2000
-              : 4000
-          );
-
-          continue;
-        }
-
-        throw lastError;
-      }
-
-
-      /*
-       * BUILD RESULTS
-       */
-
-      const results = [];
-
-      for (
-        const item of
-        parsed
-      ) {
-        const candidateId =
-          Number(
-            item.candidate_id
-          );
-
-        if (
-          !Number.isInteger(
-            candidateId
-          ) ||
-          candidateId < 1 ||
-          candidateId >
-            candidates.length
-        ) {
-          continue;
-        }
-
-        const original =
-          candidates[
-            candidateId - 1
-          ];
-
-        if (!original) {
-          continue;
-        }
-
-        const headline =
-          cleanText(
-            item.headline
-          );
-
-        const summary =
-          cleanText(
-            item.summary
-          );
-
-        const topic =
-          cleanText(
-            item.main_topic
-          );
-
-        if (
-          !headline ||
-          !summary
-        ) {
-          continue;
-        }
-
-        results.push({
-          ...original,
-
-          headline,
-
-          summary,
-
-          main_topic:
-            topic ||
-            "সর্বশেষ খবর",
-
-          category:
-            normalizeCategory(
-              item.category
-            ),
-
-          score:
-            clampScore(
-              item.score
-            )
-        });
-      }
-
-
-      /*
-       * SORT
-       */
-
-      results.sort(
-        (a, b) =>
-          b.score -
-          a.score
-      );
-
-
-      /*
-       * SUCCESS
-       */
-
-      console.log(
-        `Gemini success: ${results.length} stories selected`
-      );
-
-      return results;
-
-    } catch (error) {
-      lastError =
-        error;
-
-      console.error(
-        `Gemini attempt ${attempt} error:`,
-        error
-      );
 
       if (
-        attempt <
-        GEMINI_MAX_ATTEMPTS
+        !Array.isArray(
+          parsed
+        )
       ) {
-        await sleep(
-          attempt === 1
-            ? 2000
-            : 4000
+
+        throw new Error(
+          "Gemini response is not an array"
         );
       }
+
+      return parsed;
     }
+
+
+    /*
+     * Retry only transient errors.
+     */
+
+    if (
+      response.status === 429 ||
+      response.status === 500 ||
+      response.status === 502 ||
+      response.status === 503 ||
+      response.status === 504
+    ) {
+
+      if (
+        attempt < 2
+      ) {
+
+        await sleep(
+          2000
+        );
+
+        continue;
+      }
+    }
+
+
+    throw new Error(
+      `Gemini API ${response.status}: ${lastResponseText}`
+    );
   }
 
 
   throw new Error(
-    `Gemini processing failed after ${GEMINI_MAX_ATTEMPTS} attempts: ${
-      lastError?.message ||
-      "Unknown Gemini error"
-    }`
+    `Gemini request failed: ${lastResponseText}`
+  );
+}
+
+
+/* =========================================================
+   VALIDATE GEMINI
+   ========================================================= */
+
+function validateGeminiResults(
+  parsed,
+  candidates
+) {
+
+  const results = [];
+
+  const usedIds =
+    new Set();
+
+  for (
+    const item of parsed
+  ) {
+
+    const candidateId =
+      Number(
+        item?.candidate_id
+      );
+
+    if (
+      !Number.isInteger(
+        candidateId
+      )
+    ) {
+      continue;
+    }
+
+    if (
+      candidateId < 1 ||
+      candidateId >
+        candidates.length
+    ) {
+      continue;
+    }
+
+    if (
+      usedIds.has(
+        candidateId
+      )
+    ) {
+      continue;
+    }
+
+    usedIds.add(
+      candidateId
+    );
+
+
+    const original =
+      candidates[
+        candidateId - 1
+      ];
+
+    if (!original) {
+      continue;
+    }
+
+
+    const headline =
+      cleanText(
+        item.headline
+      );
+
+    const summary =
+      cleanText(
+        item.summary
+      );
+
+    const topic =
+      cleanText(
+        item.main_topic
+      );
+
+
+    if (
+      !headline ||
+      !summary
+    ) {
+      continue;
+    }
+
+
+    results.push({
+
+      ...original,
+
+      headline,
+
+      summary,
+
+      main_topic:
+        topic ||
+        "সর্বশেষ খবর",
+
+      category:
+        normalizeCategory(
+          item.category
+        ),
+
+      score:
+        clampScore(
+          item.score
+        )
+    });
+  }
+
+
+  results.sort(
+    (a, b) =>
+      b.score -
+      a.score
+  );
+
+
+  return results;
+}
+
+
+/* =========================================================
+   SAFE FALLBACK
+   ========================================================= */
+
+function buildFallbackNews(
+  candidates
+) {
+
+  return candidates
+    .map(
+      item => {
+
+        const title =
+          cleanText(
+            item.source_title
+          );
+
+        const description =
+          cleanText(
+            item.source_description
+          );
+
+
+        const category =
+          detectFallbackCategory(
+            `${title} ${description}`
+          );
+
+
+        const score =
+          fallbackScore(
+            `${title} ${description}`,
+            category
+          );
+
+
+        return {
+
+          ...item,
+
+          headline:
+            title,
+
+          summary:
+            description ||
+            `${title} সম্পর্কে সর্বশেষ তথ্য জানতে Ajker News-এর আপডেট দেখুন।`,
+
+          main_topic:
+            fallbackTopic(
+              category
+            ),
+
+          category,
+
+          score
+        };
+      }
+    )
+    .sort(
+      (a, b) =>
+        b.score -
+        a.score
+    );
+}
+
+
+function detectFallbackCategory(
+  text
+) {
+
+  const value =
+    String(text || "")
+      .toLowerCase();
+
+
+  const westBengalWords = [
+    "west bengal",
+    "kolkata",
+    "bengal",
+    "mamata",
+    "banerjee",
+    "tmc",
+    "trinamool",
+    "bjp bengal",
+    "calcutta"
+  ];
+
+
+  if (
+    westBengalWords.some(
+      word =>
+        value.includes(
+          word
+        )
+    )
+  ) {
+
+    return "west_bengal";
+  }
+
+
+  if (
+    /india|indian|delhi|modi|parliament|election/.test(
+      value
+    )
+  ) {
+
+    return "india";
+  }
+
+
+  if (
+    /business|market|stock|economy|bank|company|finance/.test(
+      value
+    )
+  ) {
+
+    return "business";
+  }
+
+
+  if (
+    /technology|tech|ai|iphone|google|microsoft|software/.test(
+      value
+    )
+  ) {
+
+    return "technology";
+  }
+
+
+  if (
+    /sport|cricket|football|tennis|olympic/.test(
+      value
+    )
+  ) {
+
+    return "sports";
+  }
+
+
+  if (
+    /movie|film|actor|actress|music|entertainment/.test(
+      value
+    )
+  ) {
+
+    return "entertainment";
+  }
+
+
+  if (
+    /world|america|usa|ukraine|russia|china|israel|iran/.test(
+      value
+    )
+  ) {
+
+    return "world";
+  }
+
+
+  return "general";
+}
+
+
+function fallbackTopic(
+  category
+) {
+
+  const topics = {
+
+    west_bengal:
+      "পশ্চিমবঙ্গ",
+
+    india:
+      "ভারত",
+
+    world:
+      "বিশ্ব",
+
+    politics:
+      "রাজনীতি",
+
+    business:
+      "ব্যবসা",
+
+    sports:
+      "খেলা",
+
+    technology:
+      "প্রযুক্তি",
+
+    entertainment:
+      "বিনোদন",
+
+    general:
+      "সর্বশেষ খবর"
+  };
+
+  return (
+    topics[category] ||
+    topics.general
+  );
+}
+
+
+function fallbackScore(
+  text,
+  category
+) {
+
+  let score = 50;
+
+
+  if (
+    category ===
+    "west_bengal"
+  ) {
+    score += 40;
+  }
+
+  if (
+    category ===
+    "india"
+  ) {
+    score += 25;
+  }
+
+
+  if (
+    /breaking|major|latest|election|government|minister/.test(
+      String(text)
+        .toLowerCase()
+    )
+  ) {
+
+    score += 10;
+  }
+
+
+  return clampScore(
+    score
   );
 }
 
@@ -2277,11 +2605,13 @@ async function insertNews(
   item,
   env
 ) {
+
   const id =
     crypto.randomUUID();
 
   const createdAt =
-    new Date().toISOString();
+    new Date()
+      .toISOString();
 
   const dayKey =
     createdAt.slice(
@@ -2289,54 +2619,85 @@ async function insertNews(
       10
     );
 
+
   const searchText =
     toTransliterated(
-      `${item.headline} ${item.summary} ${item.main_topic}`
+      [
+        item.headline,
+        item.summary,
+        item.main_topic,
+        item.category
+      ]
+        .filter(Boolean)
+        .join(" ")
     );
 
-  await env.DB.prepare(
-    `INSERT INTO news
-    (
-      id,
-      source_url,
-      source_name,
-      source_title,
-      source_description,
-      headline,
-      summary,
-      main_topic,
-      category,
-      image_url,
-      published_at,
-      created_at,
-      day_key,
-      status,
-      score,
-      search_text,
-      indexed_at
+
+  await env.DB
+    .prepare(
+      `
+      INSERT INTO news
+      (
+        id,
+        source_url,
+        source_name,
+        source_title,
+        source_description,
+        headline,
+        summary,
+        main_topic,
+        category,
+        image_url,
+        published_at,
+        created_at,
+        day_key,
+        status,
+        score,
+        search_text,
+        indexed_at
+      )
+      VALUES
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
     .bind(
+
       id,
+
       item.source_url,
+
       item.source_name,
+
       item.source_title,
+
       item.source_description,
+
       item.headline,
+
       item.summary,
+
       item.main_topic,
+
       item.category,
+
       item.image_url,
+
       item.published_at,
+
       createdAt,
+
       dayKey,
+
       "published",
+
       item.score,
+
       searchText,
+
       null
     )
     .run();
+
 
   item.id =
     id;
@@ -2345,34 +2706,34 @@ async function insertNews(
 
 /* =========================================================
    GET NEWS
-   =========================================================
-   
-   IMPORTANT:
-   Backend returns maximum 25 at a time.
-   Frontend can request:
-   offset=0  -> first 25
-   offset=25 -> next 25
-   offset=50 -> next 25
-   
    ========================================================= */
 
 async function handleGetNews(
   url,
   env
 ) {
+
   const category =
     url.searchParams.get(
       "category"
-    ) || "top";
+    ) ||
+    "top";
+
 
   const query =
     (
-      url.searchParams.get("q") ||
+      url.searchParams.get(
+        "q"
+      ) ||
       ""
     ).trim();
 
+
   const specificId =
-    url.searchParams.get("id");
+    url.searchParams.get(
+      "id"
+    );
+
 
   const offset =
     Math.max(
@@ -2380,17 +2741,22 @@ async function handleGetNews(
       parseInt(
         url.searchParams.get(
           "offset"
-        ) || "0",
+        ) ||
+        "0",
         10
       )
     );
 
 
   /*
-   * MAX 25 NEWS PER REQUEST
+   * Fetch 26 to determine whether
+   * another page exists.
+   *
+   * Frontend shows only 25.
    */
 
-  const limit = 25;
+  const queryLimit =
+    API_PAGE_SIZE + 1;
 
 
   const selectFields = `
@@ -2408,48 +2774,47 @@ async function handleGetNews(
     (
       SELECT COUNT(*)
       FROM news_loves nl
-      WHERE nl.news_id = news.id
+      WHERE nl.news_id =
+        news.id
     ) AS love_count
   `;
 
 
-  let result;
+  /* -----------------------------------------
+     Specific news
+     ----------------------------------------- */
 
+  if (
+    specificId
+  ) {
 
-  /*
-   * SPECIFIC NEWS
-   */
-
-  if (specificId) {
-    result =
-      await env.DB.prepare(
-        `SELECT ${selectFields}
-         FROM news
-         WHERE news.id = ?
-           AND news.status = 'published'`
-      )
+    const result =
+      await env.DB
+        .prepare(
+          `
+          SELECT
+            ${selectFields}
+          FROM news
+          WHERE news.id = ?
+            AND news.status = 'published'
+          `
+        )
         .bind(
           specificId
         )
         .all();
 
-    if (
-      !result.results ||
-      result.results.length === 0
-    ) {
-      return json({
-        success: true,
-        count: 0,
-        news: []
-      });
-    }
+
+    const news =
+      result.results || [];
+
 
     return json(
       {
         success: true,
-        count: 1,
-        news:
-          result.results
+        count:
+          news.length,
+        news
       },
       200,
       300
@@ -2457,117 +2822,181 @@ async function handleGetNews(
   }
 
 
-  /*
-   * SEARCH
-   */
+  let result;
+
+
+  /* -----------------------------------------
+     Search
+     ----------------------------------------- */
 
   if (query) {
+
     const transliterated =
       toTransliterated(
         query
       );
 
+
     result =
-      await env.DB.prepare(
-        `SELECT ${selectFields}
-         FROM news
-         WHERE news.status = 'published'
-           AND (
-             news.search_text LIKE ?
-             OR news.headline LIKE ?
-             OR news.summary LIKE ?
-             OR news.main_topic LIKE ?
-           )
-         ORDER BY news.published_at DESC
-         LIMIT ?
-         OFFSET ?`
-      )
+      await env.DB
+        .prepare(
+          `
+          SELECT
+            ${selectFields}
+          FROM news
+          WHERE news.status =
+            'published'
+            AND (
+              news.search_text
+                LIKE ?
+              OR news.headline
+                LIKE ?
+              OR news.summary
+                LIKE ?
+              OR news.main_topic
+                LIKE ?
+            )
+          ORDER BY
+            news.published_at DESC
+          LIMIT ?
+          OFFSET ?
+          `
+        )
         .bind(
+
           `%${transliterated}%`,
+
           `%${query}%`,
+
           `%${query}%`,
+
           `%${query}%`,
-          limit,
+
+          queryLimit,
+
           offset
         )
         .all();
 
 
-  /*
-   * TRENDING
-   */
+  }
 
-  } else if (
-    category === "trending"
+
+  /* -----------------------------------------
+     Trending
+     ----------------------------------------- */
+
+  else if (
+    category ===
+    "trending"
   ) {
+
     result =
-      await env.DB.prepare(
-        `SELECT ${selectFields}
-         FROM news
-         WHERE news.status = 'published'
-         ORDER BY
-           news.score DESC,
-           news.published_at DESC
-         LIMIT ?
-         OFFSET ?`
-      )
+      await env.DB
+        .prepare(
+          `
+          SELECT
+            ${selectFields}
+          FROM news
+          WHERE news.status =
+            'published'
+          ORDER BY
+            news.score DESC,
+            news.published_at DESC
+          LIMIT ?
+          OFFSET ?
+          `
+        )
         .bind(
-          limit,
+          queryLimit,
           offset
         )
         .all();
 
 
-  /*
-   * CATEGORY
-   */
+  }
 
-  } else if (
+
+  /* -----------------------------------------
+     Category
+     ----------------------------------------- */
+
+  else if (
     category !== "top" &&
     category !== "all"
   ) {
+
     result =
-      await env.DB.prepare(
-        `SELECT ${selectFields}
-         FROM news
-         WHERE news.status = 'published'
-           AND news.category = ?
-         ORDER BY news.published_at DESC
-         LIMIT ?
-         OFFSET ?`
-      )
+      await env.DB
+        .prepare(
+          `
+          SELECT
+            ${selectFields}
+          FROM news
+          WHERE news.status =
+            'published'
+            AND news.category = ?
+          ORDER BY
+            news.published_at DESC
+          LIMIT ?
+          OFFSET ?
+          `
+        )
         .bind(
           category,
-          limit,
+          queryLimit,
           offset
         )
         .all();
 
 
-  /*
-   * TOP / ALL
-   */
+  }
 
-  } else {
+
+  /* -----------------------------------------
+     Top / all
+     ----------------------------------------- */
+
+  else {
+
     result =
-      await env.DB.prepare(
-        `SELECT ${selectFields}
-         FROM news
-         WHERE news.status = 'published'
-         ORDER BY news.published_at DESC
-         LIMIT ?
-         OFFSET ?`
-      )
+      await env.DB
+        .prepare(
+          `
+          SELECT
+            ${selectFields}
+          FROM news
+          WHERE news.status =
+            'published'
+          ORDER BY
+            news.published_at DESC
+          LIMIT ?
+          OFFSET ?
+          `
+        )
         .bind(
-          limit,
+          queryLimit,
           offset
         )
         .all();
   }
 
 
+  const rawNews =
+    result?.results ||
+    [];
+
+
+  const hasMore =
+    rawNews.length >
+    API_PAGE_SIZE;
+
+
   const news =
-    result?.results || [];
+    rawNews.slice(
+      0,
+      API_PAGE_SIZE
+    );
 
 
   return json(
@@ -2579,10 +3008,11 @@ async function handleGetNews(
 
       offset,
 
-      limit,
+      limit:
+        API_PAGE_SIZE,
 
-      hasMore:
-        news.length === limit,
+      has_more:
+        hasMore,
 
       news
     },
@@ -2599,86 +3029,277 @@ async function handleGetNews(
 async function enforceMaximumNews(
   env
 ) {
+
   const result =
-    await env.DB.prepare(
-      `SELECT COUNT(*) AS total
-       FROM news`
-    )
+    await env.DB
+      .prepare(
+        `
+        SELECT
+          COUNT(*) AS total
+        FROM news
+        `
+      )
       .first();
+
 
   const total =
     Number(
-      result?.total || 0
+      result?.total ||
+      0
     );
+
 
   if (
     total <= MAX_NEWS
   ) {
+
     return 0;
   }
 
+
   const deleteCount =
-    total - MAX_NEWS;
+    total -
+    MAX_NEWS;
+
 
   const old =
-    await env.DB.prepare(
-      `SELECT id
-       FROM news
-       ORDER BY created_at ASC
-       LIMIT ?`
-    )
+    await env.DB
+      .prepare(
+        `
+        SELECT id
+        FROM news
+        ORDER BY
+          created_at ASC
+        LIMIT ?
+        `
+      )
       .bind(
         deleteCount
       )
       .all();
 
+
   const ids =
     (
-      old.results || []
-    ).map(
-      row => row.id
-    );
+      old.results ||
+      []
+    )
+      .map(
+        row =>
+          row.id
+      );
 
 
   for (
     const id of ids
   ) {
-    await env.DB.prepare(
-      `DELETE FROM news_loves
-       WHERE news_id = ?`
-    )
+
+    await env.DB
+      .prepare(
+        `
+        DELETE FROM news_loves
+        WHERE news_id = ?
+        `
+      )
       .bind(id)
       .run();
 
-    await env.DB.prepare(
-      `DELETE FROM news_comments
-       WHERE news_id = ?`
-    )
+
+    await env.DB
+      .prepare(
+        `
+        DELETE FROM news_comments
+        WHERE news_id = ?
+        `
+      )
       .bind(id)
       .run();
   }
 
 
-  if (ids.length) {
+  if (
+    ids.length
+  ) {
+
     const placeholders =
       ids
-        .map(() => "?")
+        .map(
+          () => "?"
+        )
         .join(",");
 
-    await env.DB.prepare(
-      `DELETE FROM news
-       WHERE id IN (${placeholders})`
-    )
-      .bind(...ids)
+
+    await env.DB
+      .prepare(
+        `
+        DELETE FROM news
+        WHERE id IN
+          (${placeholders})
+        `
+      )
+      .bind(
+        ...ids
+      )
       .run();
   }
+
 
   return deleteCount;
 }
 
 
 /* =========================================================
-   PUSH NOTIFICATION
+   PUSH SUBSCRIPTION
+   ========================================================= */
+
+async function handleSubscribe(
+  request,
+  env
+) {
+
+  try {
+
+    const subscription =
+      await request.json();
+
+
+    if (
+      !subscription?.endpoint
+    ) {
+
+      return json(
+        {
+          success: false,
+          error:
+            "Invalid subscription"
+        },
+        400,
+        0
+      );
+    }
+
+
+    const endpoint =
+      subscription.endpoint;
+
+
+    const keys =
+      JSON.stringify(
+        subscription.keys ||
+        {}
+      );
+
+
+    const existing =
+      await env.DB
+        .prepare(
+          `
+          SELECT id
+          FROM push_subscriptions
+          WHERE endpoint = ?
+          LIMIT 1
+          `
+        )
+        .bind(
+          endpoint
+        )
+        .first();
+
+
+    if (
+      existing
+    ) {
+
+      /*
+       * Update keys in case
+       * browser rotated them.
+       */
+
+      await env.DB
+        .prepare(
+          `
+          UPDATE push_subscriptions
+          SET keys_json = ?
+          WHERE endpoint = ?
+          `
+        )
+        .bind(
+          keys,
+          endpoint
+        )
+        .run();
+
+
+      return json(
+        {
+          success: true,
+          message:
+            "Subscription updated"
+        },
+        200,
+        0
+      );
+    }
+
+
+    await env.DB
+      .prepare(
+        `
+        INSERT INTO push_subscriptions
+        (
+          id,
+          endpoint,
+          keys_json,
+          created_at
+        )
+        VALUES (?, ?, ?, ?)
+        `
+      )
+      .bind(
+
+        crypto.randomUUID(),
+
+        endpoint,
+
+        keys,
+
+        new Date()
+          .toISOString()
+      )
+      .run();
+
+
+    return json(
+      {
+        success: true
+      },
+      200,
+      0
+    );
+
+  } catch (error) {
+
+    console.error(
+      "Subscribe error:",
+      error
+    );
+
+    return json(
+      {
+        success: false,
+        error:
+          error?.message ||
+          "Subscribe error"
+      },
+      500,
+      0
+    );
+  }
+}
+
+
+/* =========================================================
+   PUSH SENDING
    ========================================================= */
 
 async function sendPushNotifications(
@@ -2687,12 +3308,14 @@ async function sendPushNotifications(
   body,
   url
 ) {
+
   if (
     !env.VAPID_PUBLIC_KEY ||
     !env.VAPID_PRIVATE_KEY
   ) {
-    console.error(
-      "Push skipped: VAPID keys are missing"
+
+    console.warn(
+      "VAPID keys are missing."
     );
 
     return;
@@ -2700,20 +3323,24 @@ async function sendPushNotifications(
 
 
   const subscriptions =
-    await env.DB.prepare(
-      `SELECT
-        endpoint,
-        keys_json
-       FROM push_subscriptions`
-    )
+    await env.DB
+      .prepare(
+        `
+        SELECT
+          endpoint,
+          keys_json
+        FROM push_subscriptions
+        `
+      )
       .all();
 
 
   if (
     !subscriptions.results?.length
   ) {
+
     console.log(
-      "Push skipped: no subscriptions found"
+      "No push subscriptions."
     );
 
     return;
@@ -2721,6 +3348,7 @@ async function sendPushNotifications(
 
 
   webPush.setVapidDetails(
+
     "mailto:info.ajkernews@gmail.com",
 
     env.VAPID_PUBLIC_KEY,
@@ -2731,6 +3359,7 @@ async function sendPushNotifications(
 
   const payload =
     JSON.stringify({
+
       title,
 
       body,
@@ -2738,38 +3367,41 @@ async function sendPushNotifications(
       url,
 
       icon:
+        "/assets/logo.png",
+
+      badge:
         "/assets/logo.png"
     });
-
-
-  let successCount = 0;
-
-  let failedCount = 0;
 
 
   for (
     const sub of
     subscriptions.results
   ) {
+
     try {
-      await webPush.sendNotification(
-        {
-          endpoint:
-            sub.endpoint,
 
-          keys:
-            JSON.parse(
-              sub.keys_json
-            )
-        },
+      await webPush
+        .sendNotification(
+          {
+            endpoint:
+              sub.endpoint,
 
-        payload
+            keys:
+              JSON.parse(
+                sub.keys_json
+              )
+          },
+          payload
+        );
+
+
+      console.log(
+        "Push sent:",
+        sub.endpoint
       );
 
-      successCount++;
-
     } catch (error) {
-      failedCount++;
 
       console.error(
         "Push send error:",
@@ -2778,37 +3410,666 @@ async function sendPushNotifications(
 
 
       /*
-       * REMOVE EXPIRED SUBSCRIPTION
+       * Browser subscription expired.
        */
 
       if (
-        error.statusCode === 410 ||
-        error.statusCode === 404
+        error?.statusCode ===
+          410 ||
+        error?.statusCode ===
+          404
       ) {
-        try {
-          await env.DB.prepare(
-            `DELETE FROM push_subscriptions
-             WHERE endpoint = ?`
-          )
-            .bind(
-              sub.endpoint
-            )
-            .run();
 
-        } catch (deleteError) {
-          console.error(
-            "Failed to delete expired subscription:",
-            deleteError
-          );
-        }
+        await env.DB
+          .prepare(
+            `
+            DELETE FROM
+              push_subscriptions
+            WHERE endpoint = ?
+            `
+          )
+          .bind(
+            sub.endpoint
+          )
+          .run();
       }
     }
   }
+}
 
 
-  console.log(
-    `Push result: ${successCount} successful, ${failedCount} failed`
+/* =========================================================
+   LOVE
+   ========================================================= */
+
+async function toggleLove(
+  request,
+  env
+) {
+
+  try {
+
+    const {
+      id,
+      deviceId
+    } =
+      await request.json();
+
+
+    if (
+      !id ||
+      !deviceId
+    ) {
+
+      return json(
+        {
+          error:
+            "Missing id or deviceId"
+        },
+        400,
+        0
+      );
+    }
+
+
+    const existing =
+      await env.DB
+        .prepare(
+          `
+          SELECT id
+          FROM news_loves
+          WHERE news_id = ?
+            AND device_id = ?
+          `
+        )
+        .bind(
+          id,
+          deviceId
+        )
+        .first();
+
+
+    if (
+      existing
+    ) {
+
+      await env.DB
+        .prepare(
+          `
+          DELETE FROM news_loves
+          WHERE news_id = ?
+            AND device_id = ?
+          `
+        )
+        .bind(
+          id,
+          deviceId
+        )
+        .run();
+
+    } else {
+
+      await env.DB
+        .prepare(
+          `
+          INSERT INTO news_loves
+          (
+            news_id,
+            device_id
+          )
+          VALUES (?, ?)
+          `
+        )
+        .bind(
+          id,
+          deviceId
+        )
+        .run();
+    }
+
+
+    const count =
+      await env.DB
+        .prepare(
+          `
+          SELECT
+            COUNT(*) AS count
+          FROM news_loves
+          WHERE news_id = ?
+          `
+        )
+        .bind(id)
+        .first();
+
+
+    return json(
+      {
+        success: true,
+
+        love_count:
+          Number(
+            count?.count ||
+            0
+          )
+      },
+      200,
+      0
+    );
+
+  } catch (error) {
+
+    return json(
+      {
+        success: false,
+
+        error:
+          error?.message ||
+          "Love error"
+      },
+      500,
+      0
+    );
+  }
+}
+
+
+/* =========================================================
+   COMMENTS
+   ========================================================= */
+
+async function getComments(
+  url,
+  env
+) {
+
+  const id =
+    url.searchParams.get(
+      "id"
+    );
+
+
+  if (!id) {
+
+    return json(
+      {
+        error:
+          "Missing id"
+      },
+      400,
+      0
+    );
+  }
+
+
+  const result =
+    await env.DB
+      .prepare(
+        `
+        SELECT
+          id,
+          author_name,
+          comment_text,
+          created_at
+        FROM news_comments
+        WHERE news_id = ?
+        ORDER BY
+          created_at ASC
+        `
+      )
+      .bind(id)
+      .all();
+
+
+  return json(
+    {
+      comments:
+        result.results ||
+        []
+    },
+    200,
+    30
   );
+}
+
+
+async function addComment(
+  request,
+  env
+) {
+
+  try {
+
+    const {
+      newsId,
+      author,
+      text
+    } =
+      await request.json();
+
+
+    if (
+      !newsId ||
+      !text
+    ) {
+
+      return json(
+        {
+          error:
+            "Missing fields"
+        },
+        400,
+        0
+      );
+    }
+
+
+    const id =
+      crypto.randomUUID();
+
+
+    await env.DB
+      .prepare(
+        `
+        INSERT INTO news_comments
+        (
+          id,
+          news_id,
+          author_name,
+          comment_text,
+          created_at
+        )
+        VALUES (?, ?, ?, ?, ?)
+        `
+      )
+      .bind(
+
+        id,
+
+        newsId,
+
+        cleanText(
+          author ||
+          "Guest"
+        ),
+
+        cleanText(
+          text
+        ),
+
+        new Date()
+          .toISOString()
+      )
+      .run();
+
+
+    return json(
+      {
+        success: true,
+
+        comment_id:
+          id
+      },
+      200,
+      0
+    );
+
+  } catch (error) {
+
+    return json(
+      {
+        success: false,
+
+        error:
+          error?.message ||
+          "Comment error"
+      },
+      500,
+      0
+    );
+  }
+}
+
+
+/* =========================================================
+   GOOGLE INDEXING
+   ========================================================= */
+
+async function requestGoogleIndexing(
+  url,
+  env
+) {
+
+  try {
+
+    const token =
+      await getGoogleAccessToken(
+        env
+      );
+
+
+    if (!token) {
+      return false;
+    }
+
+
+    const response =
+      await fetch(
+        "https://indexing.googleapis.com/v3/urlNotifications:publish",
+        {
+          method: "POST",
+
+          headers: {
+            "Authorization":
+              `Bearer ${token}`,
+
+            "Content-Type":
+              "application/json"
+          },
+
+          body:
+            JSON.stringify({
+              url,
+              type:
+                "URL_UPDATED"
+            })
+        }
+      );
+
+
+    const responseText =
+      await response.text();
+
+
+    try {
+
+      await env.DB
+        .prepare(
+          `
+          INSERT INTO indexing_log
+          (
+            id,
+            news_id,
+            url,
+            status,
+            response,
+            created_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?)
+          `
+        )
+        .bind(
+
+          crypto.randomUUID(),
+
+          getIdFromNewsUrl(
+            url
+          ),
+
+          url,
+
+          response.ok
+            ? "success"
+            : "failed",
+
+          responseText,
+
+          new Date()
+            .toISOString()
+        )
+        .run();
+
+    } catch (error) {
+
+      console.error(
+        "Indexing log error:",
+        error
+      );
+    }
+
+
+    return response.ok;
+
+  } catch (error) {
+
+    console.error(
+      "Indexing API error:",
+      error
+    );
+
+    return false;
+  }
+}
+
+
+function getIdFromNewsUrl(
+  url
+) {
+
+  try {
+
+    return (
+      new URL(url)
+        .searchParams
+        .get("id") ||
+      "unknown"
+    );
+
+  } catch {
+
+    return "unknown";
+  }
+}
+
+
+/* =========================================================
+   GOOGLE ACCESS TOKEN
+   ========================================================= */
+
+async function getGoogleAccessToken(
+  env
+) {
+
+  try {
+
+    if (
+      !env.GOOGLE_SERVICE_ACCOUNT_JSON
+    ) {
+
+      return null;
+    }
+
+
+    const credentials =
+      JSON.parse(
+        env.GOOGLE_SERVICE_ACCOUNT_JSON
+      );
+
+
+    const now =
+      Math.floor(
+        Date.now() / 1000
+      );
+
+
+    const header = {
+      alg: "RS256",
+      typ: "JWT"
+    };
+
+
+    const claimSet = {
+
+      iss:
+        credentials.client_email,
+
+      scope:
+        "https://www.googleapis.com/auth/indexing",
+
+      aud:
+        "https://oauth2.googleapis.com/token",
+
+      exp:
+        now + 3600,
+
+      iat:
+        now
+    };
+
+
+    const encodedHeader =
+      base64UrlEncode(
+        JSON.stringify(
+          header
+        )
+      );
+
+
+    const encodedClaimSet =
+      base64UrlEncode(
+        JSON.stringify(
+          claimSet
+        )
+      );
+
+
+    const signatureInput =
+      `${encodedHeader}.${encodedClaimSet}`;
+
+
+    const cryptoKey =
+      await crypto.subtle
+        .importKey(
+
+          "pkcs8",
+
+          pemToArrayBuffer(
+            credentials.private_key
+          ),
+
+          {
+            name:
+              "RSASSA-PKCS1-v1_5",
+
+            hash:
+              "SHA-256"
+          },
+
+          false,
+
+          ["sign"]
+        );
+
+
+    const signature =
+      await crypto.subtle.sign(
+
+        "RSASSA-PKCS1-v1_5",
+
+        cryptoKey,
+
+        new TextEncoder()
+          .encode(
+            signatureInput
+          )
+      );
+
+
+    const encodedSignature =
+      base64UrlEncode(
+        String.fromCharCode(
+          ...new Uint8Array(
+            signature
+          )
+        )
+      );
+
+
+    const jwt =
+      `${signatureInput}.${encodedSignature}`;
+
+
+    const response =
+      await fetch(
+        "https://oauth2.googleapis.com/token",
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/x-www-form-urlencoded"
+          },
+
+          body:
+            new URLSearchParams({
+
+              grant_type:
+                "urn:ietf:params:oauth:grant-type:jwt-bearer",
+
+              assertion:
+                jwt
+
+            })
+        }
+      );
+
+
+    if (
+      !response.ok
+    ) {
+
+      return null;
+    }
+
+
+    const data =
+      await response.json();
+
+
+    return (
+      data.access_token ||
+      null
+    );
+
+  } catch (error) {
+
+    console.error(
+      "Token generation error:",
+      error
+    );
+
+    return null;
+  }
+}
+
+
+/* =========================================================
+   SEARCH ENGINE PING
+   ========================================================= */
+
+async function pingSearchEngines() {
+
+  const sitemapUrl =
+    encodeURIComponent(
+      "https://ajkernews.in/sitemap.xml"
+    );
+
+
+  try {
+
+    await fetch(
+      `https://www.google.com/ping?sitemap=${sitemapUrl}`
+    );
+
+  } catch {}
+
+
+  try {
+
+    await fetch(
+      `https://www.bing.com/ping?sitemap=${sitemapUrl}`
+    );
+
+  } catch {}
 }
 
 
@@ -2819,51 +4080,73 @@ async function sendPushNotifications(
 async function generateSitemap(
   env
 ) {
+
   const result =
-    await env.DB.prepare(
-      `SELECT id, created_at
-       FROM news
-       WHERE status = 'published'
-       ORDER BY created_at DESC
-       LIMIT 200`
-    )
+    await env.DB
+      .prepare(
+        `
+        SELECT
+          id,
+          created_at
+        FROM news
+        WHERE status =
+          'published'
+        ORDER BY
+          created_at DESC
+        LIMIT 200
+        `
+      )
       .all();
 
+
   const news =
-    result.results || [];
+    result.results ||
+    [];
+
 
   const baseUrl =
     "https://ajkernews.in";
+
 
   let xml =
     `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`;
 
+
   xml +=
-    `<url>
+    `
+    <url>
       <loc>${baseUrl}/</loc>
       <changefreq>daily</changefreq>
       <priority>1.0</priority>
-    </url>`;
+    </url>
+    `;
 
 
   for (
     const item of news
   ) {
+
     const lastmod =
       item.created_at
-        ? item.created_at.split("T")[0]
+        ? item.created_at
+            .split("T")[0]
         : new Date()
             .toISOString()
             .split("T")[0];
 
+
     xml +=
-      `<url>
-        <loc>${baseUrl}/?id=${encodeURIComponent(item.id)}</loc>
+      `
+      <url>
+        <loc>
+          ${baseUrl}/?id=${encodeURIComponent(item.id)}
+        </loc>
         <lastmod>${lastmod}</lastmod>
         <changefreq>daily</changefreq>
         <priority>0.8</priority>
-      </url>`;
+      </url>
+      `;
   }
 
 
@@ -2897,15 +4180,20 @@ async function generateSitemap(
 function normalizeUrl(
   url
 ) {
+
   try {
+
     const parsed =
       new URL(url);
 
-    parsed.hash = "";
+    parsed.hash =
+      "";
 
-    return parsed.toString();
+    return parsed
+      .toString();
 
   } catch {
+
     return String(
       url || ""
     ).trim();
@@ -2916,6 +4204,7 @@ function normalizeUrl(
 function cleanText(
   value
 ) {
+
   return String(
     value || ""
   )
@@ -2934,6 +4223,7 @@ function cleanText(
 function cleanJson(
   text
 ) {
+
   let value =
     String(
       text || ""
@@ -2941,8 +4231,11 @@ function cleanJson(
 
 
   if (
-    value.startsWith("```")
+    value.startsWith(
+      "```"
+    )
   ) {
+
     value =
       value
         .replace(
@@ -2964,6 +4257,7 @@ function cleanJson(
 function normalizeCategory(
   category
 ) {
+
   const allowed =
     new Set([
       "west_bengal",
@@ -2986,7 +4280,9 @@ function normalizeCategory(
       .toLowerCase();
 
 
-  return allowed.has(value)
+  return allowed.has(
+    value
+  )
     ? value
     : "general";
 }
@@ -2995,6 +4291,7 @@ function normalizeCategory(
 function clampScore(
   score
 ) {
+
   const number =
     Number(score);
 
@@ -3004,6 +4301,7 @@ function clampScore(
       number
     )
   ) {
+
     return 0;
   }
 
@@ -3012,27 +4310,95 @@ function clampScore(
     0,
     Math.min(
       100,
-      number
+      Math.round(
+        number
+      )
     )
   );
 }
 
 
-function sleep(
-  milliseconds
+function base64UrlEncode(
+  str
 ) {
-  return new Promise(
-    resolve =>
-      setTimeout(
-        resolve,
-        milliseconds
+
+  return btoa(
+    str
+  )
+    .replace(
+      /\+/g,
+      "-"
+    )
+    .replace(
+      /\//g,
+      "_"
+    )
+    .replace(
+      /=+$/,
+      ""
+    );
+}
+
+
+function pemToArrayBuffer(
+  pem
+) {
+
+  const lines =
+    String(
+      pem || ""
+    ).split("\n");
+
+
+  let base64 =
+    "";
+
+
+  for (
+    const line of lines
+  ) {
+
+    if (
+      !line.includes(
+        "-----"
       )
-  );
+    ) {
+
+      base64 +=
+        line.trim();
+    }
+  }
+
+
+  const binary =
+    atob(base64);
+
+
+  const bytes =
+    new Uint8Array(
+      binary.length
+    );
+
+
+  for (
+    let i = 0;
+    i < binary.length;
+    i++
+  ) {
+
+    bytes[i] =
+      binary.charCodeAt(i);
+  }
+
+
+  return bytes.buffer;
 }
 
 
 function corsHeaders() {
+
   return {
+
     "access-control-allow-origin":
       "*",
 
@@ -3053,6 +4419,7 @@ function json(
   status = 200,
   cacheSeconds = 60
 ) {
+
   const seconds =
     Math.max(
       0,
@@ -3063,11 +4430,14 @@ function json(
 
 
   return new Response(
-    JSON.stringify(data),
+    JSON.stringify(
+      data
+    ),
     {
       status,
 
       headers: {
+
         ...corsHeaders(),
 
         "content-type":
@@ -3084,30 +4454,50 @@ function json(
 function escapeHtml(
   text
 ) {
+
   if (!text) {
     return "";
   }
 
 
   return String(text)
+
     .replace(
       /&/g,
       "&amp;"
     )
+
     .replace(
       /</g,
       "&lt;"
     )
+
     .replace(
       />/g,
       "&gt;"
     )
+
     .replace(
       /"/g,
       "&quot;"
     )
+
     .replace(
       /'/g,
       "&#039;"
     );
+}
+
+
+function sleep(
+  ms
+) {
+
+  return new Promise(
+    resolve =>
+      setTimeout(
+        resolve,
+        ms
+      )
+  );
 }

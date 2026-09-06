@@ -252,16 +252,16 @@
         const WORKER_BASE = 'https://ajkernews.ajkernews-1c0.workers.dev';
         const API_URL = `${WORKER_BASE}/api/news`;
 
-        // ===== VAPID Public Key =====
-        const VAPID_PUBLIC_KEY = 'BP_YE5p4y9ES6_1cRhqKnLGQtlN3MsrMNtaGTOLm90hEs0d4a1JjKx9xW6ovdlTTPHhYr-4wTfymdWZXKYlosJA';
+        // ===== VAPID Public Key (UPDATED) =====
+        const VAPID_PUBLIC_KEY = 'BNTHm7e-hEeZs-PbEtE4d16zHDswrMLPFhZXtcpSS3Dh0ooav-oQMw29CTNu7CyP0xbDkb0bf8aayUVedVCX3tw';
 
         let currentCategory = 'top';
         let currentSearchQuery = '';
         let currentNews = [];
-        let visibleCount = 25;
+        let visibleCount = 10;
         let isLoadingNews = false;
         let currentOffset = 0;
-        const PAGE_SIZE = 25;
+        const PAGE_SIZE = 10;
 
         // Personal Ads data
         const PERSONAL_ADS = [
@@ -473,7 +473,7 @@
 
                 const normalizedNews = data.news.map(normalizeNews).filter(Boolean);
                 currentNews = search ? rankSearchResults(normalizedNews, search) : normalizedNews;
-                visibleCount = 25;
+                visibleCount = 10;
                 renderNews(currentNews);
             } catch (error) {
                 console.error('News loading error:', error);
@@ -562,6 +562,8 @@
             const loadMoreBtn = document.getElementById('loadMoreBtn');
             if (newsList.length > visibleCount) {
                 loadMoreBtn.style.display = 'block';
+                loadMoreBtn.disabled = false;
+                loadMoreBtn.textContent = 'আরও খবর দেখুন';
             } else {
                 loadMoreBtn.style.display = 'none';
             }
@@ -576,7 +578,7 @@
 
         // ==================== LOAD MORE ====================
         async function loadMoreNews() {
-            if (isLoadingNews) return; // 🔥 ডুপ্লিকেট কল বন্ধ
+            if (isLoadingNews) return;
             const loadMoreBtn = document.getElementById('loadMoreBtn');
             loadMoreBtn.textContent = '⏳ লোড হচ্ছে...';
             loadMoreBtn.disabled = true;
@@ -597,6 +599,7 @@
                 }
                 const newNews = data.news.map(normalizeNews).filter(Boolean);
                 currentNews = [...currentNews, ...newNews];
+                visibleCount += newNews.length;
                 renderNews(currentNews);
                 if (newNews.length < PAGE_SIZE) {
                     loadMoreBtn.textContent = '📭 সব খবর দেখানো হয়েছে';

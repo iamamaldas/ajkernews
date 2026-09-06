@@ -1,6 +1,8 @@
 /**
  * Ajker News Worker
- * Complete backend - share preview + cache-safe API + auto indexing
+ * Complete backend
+ * Gemini retry + hourly news + push notification
+ * 25-news pagination + share preview + cache-safe API
  */
 
 import webPush from "web-push";
@@ -13,7 +15,15 @@ const MAX_SELECTED_NEWS = 5;
 const GNEWS_MAX_RESULTS = 10;
 const GEMINI_MODEL = "gemini-3.6-flash";
 
+const GEMINI_MAX_ATTEMPTS = 3;
+const GEMINI_TIMEOUT_MS = 30000;
+
 let tablesReadyPromise = null;
+
+
+/* =========================================================
+   BANGLA TRANSLITERATION
+   ========================================================= */
 
 const BN_TO_EN_MAP = {
   "অ":"o","আ":"a","ই":"i","ঈ":"i","উ":"u","ঊ":"u","ঋ":"ri","এ":"e","ঐ":"oi","ও":"o","ঔ":"ou",
@@ -26,14 +36,24 @@ const BN_TO_EN_MAP = {
 
 function toTransliterated(text) {
   if (!text) return "";
+
   let result = "";
-  for (const char of text) result += BN_TO_EN_MAP[char] || char;
+
+  for (const char of text) {
+    result += BN_TO_EN_MAP[char] || char;
+  }
+
   return result
     .toLowerCase()
     .replace(/[^a-z0-9 ]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
+
+
+/* =========================================================
+   DATABASE TABLES
+   ========================================================= */
 
 async function ensureTables(env) {
   const queries = [
@@ -130,6 +150,11 @@ async function ensureTablesOnce(env) {
   }
 }
 
+
+/* =========================================================
+   FETCH HANDLER
+   ========================================================= */
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -160,54 +185,73 @@ export default {
       }
 
       if (url.pathname === "/ads.txt") {
-        return new Response(ADS_CONFIG.adsTxtContent, {
-          status: 200,
-          headers: {
-            "content-type": "text/plain; charset=UTF-8"
+        return new Response(
+          ADS_CONFIG.adsTxtContent,
+          {
+            status: 200,
+            headers: {
+              "content-type": "text/plain; charset=UTF-8"
+            }
           }
-        });
+        );
       }
 
+
       /*
-       * IMPORTANT:
-       * /go/:id must NOT redirect immediately.
-       * WhatsApp/Facebook need this HTML to read OG metadata.
+       * SHARE PREVIEW
        */
+
       if (url.pathname.startsWith("/go/")) {
         const id = url.pathname.split("/")[2];
 
         if (!id) {
-          return new Response("Invalid link", {
-            status: 400
-          });
+          return new Response(
+            "Invalid link",
+            {
+              status: 400
+            }
+          );
         }
 
         return await serveSharePage(id, env);
       }
 
+
+      /*
+       * AFFILIATE
+       */
+
       if (
         url.pathname === "/api/affiliate" &&
         request.method === "GET"
       ) {
-        const ref = url.searchParams.get("ref") || "direct";
-        let targetUrl = url.searchParams.get("url");
+        const ref =
+          url.searchParams.get("ref") ||
+          "direct";
+
+        let targetUrl =
+          url.searchParams.get("url");
 
         if (
           !targetUrl &&
           AFFILIATE_CONFIG.redirectMap &&
           AFFILIATE_CONFIG.redirectMap[ref]
         ) {
-          targetUrl = AFFILIATE_CONFIG.redirectMap[ref];
+          targetUrl =
+            AFFILIATE_CONFIG.redirectMap[ref];
         }
 
         if (!targetUrl) {
-          targetUrl = AFFILIATE_CONFIG.defaultRedirect;
+          targetUrl =
+            AFFILIATE_CONFIG.defaultRedirect;
         }
 
         if (AFFILIATE_CONFIG.trackClicks) {
           try {
             const deviceId =
-              request.headers.get("CF-Connecting-IP") || "unknown";
+              request.headers.get(
+                "CF-Connecting-IP"
+              ) || "unknown";
 
             await env.DB.prepare(
               `INSERT INTO affiliate_clicks
@@ -222,41 +266,76 @@ export default {
                 new Date().toISOString()
               )
               .run();
+
           } catch (error) {
-            console.error("Affiliate log error:", error);
+            console.error(
+              "Affiliate log error:",
+              error
+            );
           }
         }
 
-        return Response.redirect(targetUrl, 302);
+        return Response.redirect(
+          targetUrl,
+          302
+        );
       }
+
+
+      /*
+       * NEWS META PAGE
+       */
 
       if (
         url.pathname === "/news" &&
         url.searchParams.has("id")
       ) {
-        return await serveNewsPage(url, env);
+        return await serveNewsPage(
+          url,
+          env
+        );
       }
+
+
+      /*
+       * SITEMAP
+       */
 
       if (url.pathname === "/sitemap.xml") {
         return await generateSitemap(env);
       }
 
+
+      /*
+       * NEWS API
+       */
+
       if (url.pathname === "/api/news") {
-        return await handleGetNews(url, env);
+        return await handleGetNews(
+          url,
+          env
+        );
       }
+
+
+      /*
+       * MANUAL UPDATE
+       */
 
       if (url.pathname === "/api/update") {
         if (request.method !== "POST") {
           return json(
             {
               success: false,
-              error: "POST method required"
+              error:
+                "POST method required"
             },
             405
           );
         }
 
-        const result = await updateNews(env);
+        const result =
+          await updateNews(env);
 
         return json({
           success: true,
@@ -264,55 +343,89 @@ export default {
         });
       }
 
+
+      /*
+       * LOVE
+       */
+
       if (url.pathname === "/api/love") {
         if (request.method !== "POST") {
           return json(
             {
-              error: "POST required"
+              error:
+                "POST required"
             },
             405
           );
         }
 
-        return await toggleLove(request, env);
+        return await toggleLove(
+          request,
+          env
+        );
       }
+
+
+      /*
+       * COMMENTS
+       */
 
       if (url.pathname === "/api/comments") {
         if (request.method === "GET") {
-          return await getComments(url, env);
+          return await getComments(
+            url,
+            env
+          );
         }
 
         if (request.method === "POST") {
-          return await addComment(request, env);
+          return await addComment(
+            request,
+            env
+          );
         }
 
         return json(
           {
-            error: "Method not allowed"
+            error:
+              "Method not allowed"
           },
           405
         );
       }
 
+
+      /*
+       * PUSH SUBSCRIBE
+       */
+
       if (
         url.pathname === "/api/subscribe" &&
         request.method === "POST"
       ) {
-        return await handleSubscribe(request, env);
+        return await handleSubscribe(
+          request,
+          env
+        );
       }
+
 
       return new Response(
         "Ajker News Worker is running.",
         {
           status: 200,
           headers: {
-            "content-type": "text/plain; charset=UTF-8"
+            "content-type":
+              "text/plain; charset=UTF-8"
           }
         }
       );
 
     } catch (error) {
-      console.error("Worker error:", error);
+      console.error(
+        "Worker error:",
+        error
+      );
 
       return json(
         {
@@ -327,15 +440,24 @@ export default {
     }
   },
 
+
+  /* =======================================================
+     HOURLY CRON
+     ======================================================= */
+
   async scheduled(event, env, ctx) {
     console.log(
       `[${new Date().toISOString()}] Scheduled update triggered`
     );
 
     try {
-      const result = await updateNews(env);
+      const result =
+        await updateNews(env);
 
-      console.log("Update completed:", result);
+      console.log(
+        "Update completed:",
+        result
+      );
 
       if (result.stored > 0) {
         try {
@@ -345,12 +467,21 @@ export default {
             `${result.stored}টি নতুন খবর প্রকাশিত হয়েছে।`,
             "https://ajkernews.in/"
           );
+
+          console.log(
+            "Push notification process completed"
+          );
+
         } catch (error) {
           console.error(
             "Scheduled push error:",
             error
           );
         }
+      } else {
+        console.log(
+          "No new stored news. Push skipped."
+        );
       }
 
     } catch (error) {
@@ -367,8 +498,12 @@ export default {
    SHARE PAGE
    ========================================================= */
 
-async function serveSharePage(id, env) {
-  const safeId = String(id || "").trim();
+async function serveSharePage(
+  id,
+  env
+) {
+  const safeId =
+    String(id || "").trim();
 
   if (!safeId) {
     return Response.redirect(
@@ -377,20 +512,21 @@ async function serveSharePage(id, env) {
     );
   }
 
-  const result = await env.DB.prepare(
-    `SELECT
-      headline,
-      summary,
-      image_url,
-      published_at,
-      source_name
-     FROM news
-     WHERE id = ?
-       AND status = 'published'
-     LIMIT 1`
-  )
-    .bind(safeId)
-    .first();
+  const result =
+    await env.DB.prepare(
+      `SELECT
+        headline,
+        summary,
+        image_url,
+        published_at,
+        source_name
+       FROM news
+       WHERE id = ?
+         AND status = 'published'
+       LIMIT 1`
+    )
+      .bind(safeId)
+      .first();
 
   if (!result) {
     return Response.redirect(
@@ -399,15 +535,19 @@ async function serveSharePage(id, env) {
     );
   }
 
-  const title = cleanText(
-    result.headline || "Ajker News"
-  );
+  const title =
+    cleanText(
+      result.headline ||
+      "Ajker News"
+    );
 
-  const description = cleanText(
-    result.summary || ""
-  ).slice(0, 200);
+  const description =
+    cleanText(
+      result.summary || ""
+    ).slice(0, 200);
 
-  const image = result.image_url || "";
+  const image =
+    result.image_url || "";
 
   const shareUrl =
     `https://ajkernews.in/go/${encodeURIComponent(safeId)}`;
@@ -415,25 +555,33 @@ async function serveSharePage(id, env) {
   const homeUrl =
     `https://ajkernews.in/?id=${encodeURIComponent(safeId)}`;
 
-  const imageTags = image
-    ? `
+  const imageTags =
+    image
+      ? `
       <meta property="og:image"
             content="${escapeHtml(image)}">
+
       <meta property="og:image:alt"
             content="${escapeHtml(title)}">
+
       <meta name="twitter:image"
             content="${escapeHtml(image)}">
       `
-    : "";
+      : "";
 
-  const html = `<!DOCTYPE html>
+  const html =
+    `<!DOCTYPE html>
 <html lang="bn">
 <head>
+
   <meta charset="UTF-8">
+
   <meta name="viewport"
         content="width=device-width,initial-scale=1">
 
-  <title>${escapeHtml(title)}</title>
+  <title>
+    ${escapeHtml(title)}
+  </title>
 
   <meta name="description"
         content="${escapeHtml(description)}">
@@ -467,7 +615,6 @@ async function serveSharePage(id, env) {
   <meta name="twitter:url"
         content="${escapeHtml(shareUrl)}">
 
-  <!-- Human visitors go to the normal website -->
   <meta http-equiv="refresh"
         content="0;url=${escapeHtml(homeUrl)}">
 
@@ -476,9 +623,11 @@ async function serveSharePage(id, env) {
       ${JSON.stringify(homeUrl)}
     );
   </script>
+
 </head>
 
 <body>
+
   <main
     style="
       font-family:sans-serif;
@@ -486,32 +635,43 @@ async function serveSharePage(id, env) {
       line-height:1.7;
     "
   >
-    <h1>${escapeHtml(title)}</h1>
 
-    <p>${escapeHtml(description)}</p>
+    <h1>
+      ${escapeHtml(title)}
+    </h1>
+
+    <p>
+      ${escapeHtml(description)}
+    </p>
 
     <a href="${escapeHtml(homeUrl)}">
       পুরো খবরটি পড়তে এখানে ক্লিক করুন
     </a>
+
   </main>
+
 </body>
 </html>`;
 
-  return new Response(html, {
-    status: 200,
-    headers: {
-      "Content-Type":
-        "text/html; charset=UTF-8",
+  return new Response(
+    html,
+    {
+      status: 200,
 
-      "Cache-Control":
-        "public, max-age=300, s-maxage=300",
+      headers: {
+        "Content-Type":
+          "text/html; charset=UTF-8",
 
-      "X-Content-Type-Options":
-        "nosniff",
+        "Cache-Control":
+          "public, max-age=300, s-maxage=300",
 
-      ...corsHeaders()
+        "X-Content-Type-Options":
+          "nosniff",
+
+        ...corsHeaders()
+      }
     }
-  });
+  );
 }
 
 
@@ -519,8 +679,12 @@ async function serveSharePage(id, env) {
    NORMAL NEWS META PAGE
    ========================================================= */
 
-async function serveNewsPage(url, env) {
-  const id = url.searchParams.get("id");
+async function serveNewsPage(
+  url,
+  env
+) {
+  const id =
+    url.searchParams.get("id");
 
   if (!id) {
     return Response.redirect(
@@ -529,20 +693,21 @@ async function serveNewsPage(url, env) {
     );
   }
 
-  const result = await env.DB.prepare(
-    `SELECT
-      headline,
-      summary,
-      image_url,
-      published_at,
-      source_name
-     FROM news
-     WHERE id = ?
-       AND status = 'published'
-     LIMIT 1`
-  )
-    .bind(id)
-    .first();
+  const result =
+    await env.DB.prepare(
+      `SELECT
+        headline,
+        summary,
+        image_url,
+        published_at,
+        source_name
+       FROM news
+       WHERE id = ?
+         AND status = 'published'
+       LIMIT 1`
+    )
+      .bind(id)
+      .first();
 
   if (!result) {
     return Response.redirect(
@@ -552,11 +717,14 @@ async function serveNewsPage(url, env) {
   }
 
   const title =
-    cleanText(result.headline) ||
-    "Ajker News";
+    cleanText(
+      result.headline
+    ) || "Ajker News";
 
   const description =
-    cleanText(result.summary || "").slice(0, 160);
+    cleanText(
+      result.summary || ""
+    ).slice(0, 160);
 
   const image =
     result.image_url || "";
@@ -564,20 +732,25 @@ async function serveNewsPage(url, env) {
   const homeUrl =
     `https://ajkernews.in/?id=${encodeURIComponent(id)}`;
 
-  const imageTags = image
-    ? `
+  const imageTags =
+    image
+      ? `
       <meta property="og:image"
             content="${escapeHtml(image)}">
+
       <meta property="og:image:alt"
             content="${escapeHtml(title)}">
+
       <meta name="twitter:image"
             content="${escapeHtml(image)}">
       `
-    : "";
+      : "";
 
-  let html = `<!DOCTYPE html>
+  let html =
+    `<!DOCTYPE html>
 <html lang="bn">
 <head>
+
   <meta charset="UTF-8">
 
   <meta name="viewport"
@@ -621,16 +794,20 @@ async function serveNewsPage(url, env) {
       ${JSON.stringify(homeUrl)}
     );
   </script>
+
 </head>
 
 <body>
+
   <p>
     ${escapeHtml(title)}
   </p>
+
 </body>
 </html>`;
 
-  const analyticsScript = `
+  const analyticsScript =
+    `
     <script async
       src="https://www.googletagmanager.com/gtag/js?id=${ANALYTICS_CONFIG.gaTrackingId}">
     </script>
@@ -652,34 +829,42 @@ async function serveNewsPage(url, env) {
     </script>
 
     ${ANALYTICS_CONFIG.extraHeadScripts || ""}
-    ${ADS_CONFIG.adNetworkScripts || ""}
-  `;
 
-  html = html.replace(
-    "</head>",
-    analyticsScript + "</head>"
-  );
+    ${ADS_CONFIG.adNetworkScripts || ""}
+    `;
+
+  html =
+    html.replace(
+      "</head>",
+      analyticsScript +
+      "</head>"
+    );
 
   if (ADS_CONFIG.extraFooterScripts) {
-    html = html.replace(
-      "</body>",
-      ADS_CONFIG.extraFooterScripts +
-      "</body>"
-    );
+    html =
+      html.replace(
+        "</body>",
+        ADS_CONFIG.extraFooterScripts +
+        "</body>"
+      );
   }
 
-  return new Response(html, {
-    status: 200,
-    headers: {
-      "Content-Type":
-        "text/html; charset=UTF-8",
+  return new Response(
+    html,
+    {
+      status: 200,
 
-      "Cache-Control":
-        "public, max-age=300, s-maxage=300",
+      headers: {
+        "Content-Type":
+          "text/html; charset=UTF-8",
 
-      ...corsHeaders()
+        "Cache-Control":
+          "public, max-age=300, s-maxage=300",
+
+        ...corsHeaders()
+      }
     }
-  });
+  );
 }
 
 
@@ -687,7 +872,10 @@ async function serveNewsPage(url, env) {
    GOOGLE INDEXING
    ========================================================= */
 
-async function requestGoogleIndexing(url, env) {
+async function requestGoogleIndexing(
+  url,
+  env
+) {
   try {
     const token =
       await getGoogleAccessToken(env);
@@ -696,25 +884,26 @@ async function requestGoogleIndexing(url, env) {
       return false;
     }
 
-    const response = await fetch(
-      "https://indexing.googleapis.com/v3/urlNotifications:publish",
-      {
-        method: "POST",
+    const response =
+      await fetch(
+        "https://indexing.googleapis.com/v3/urlNotifications:publish",
+        {
+          method: "POST",
 
-        headers: {
-          "Authorization":
-            `Bearer ${token}`,
+          headers: {
+            "Authorization":
+              `Bearer ${token}`,
 
-          "Content-Type":
-            "application/json"
-        },
+            "Content-Type":
+              "application/json"
+          },
 
-        body: JSON.stringify({
-          url,
-          type: "URL_UPDATED"
-        })
-      }
-    );
+          body: JSON.stringify({
+            url,
+            type: "URL_UPDATED"
+          })
+        }
+      );
 
     const responseText =
       await response.text();
@@ -727,13 +916,17 @@ async function requestGoogleIndexing(url, env) {
       )
         .bind(
           crypto.randomUUID(),
-          url.split("id=")[1] || "unknown",
+          url.split("id=")[1] ||
+            "unknown",
           url,
-          response.ok ? "success" : "failed",
+          response.ok
+            ? "success"
+            : "failed",
           responseText,
           new Date().toISOString()
         )
         .run();
+
     } catch (error) {
       console.error(
         "Indexing log error:",
@@ -753,7 +946,10 @@ async function requestGoogleIndexing(url, env) {
   }
 }
 
-async function getGoogleAccessToken(env) {
+
+async function getGoogleAccessToken(
+  env
+) {
   try {
     if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) {
       return null;
@@ -765,7 +961,9 @@ async function getGoogleAccessToken(env) {
       );
 
     const now =
-      Math.floor(Date.now() / 1000);
+      Math.floor(
+        Date.now() / 1000
+      );
 
     const header = {
       alg: "RS256",
@@ -773,13 +971,20 @@ async function getGoogleAccessToken(env) {
     };
 
     const claimSet = {
-      iss: credentials.client_email,
+      iss:
+        credentials.client_email,
+
       scope:
         "https://www.googleapis.com/auth/indexing",
+
       aud:
         "https://oauth2.googleapis.com/token",
-      exp: now + 3600,
-      iat: now
+
+      exp:
+        now + 3600,
+
+      iat:
+        now
     };
 
     const encodedHeader =
@@ -804,6 +1009,7 @@ async function getGoogleAccessToken(env) {
         {
           name:
             "RSASSA-PKCS1-v1_5",
+
           hash:
             "SHA-256"
         },
@@ -823,7 +1029,9 @@ async function getGoogleAccessToken(env) {
     const encodedSignature =
       base64UrlEncode(
         String.fromCharCode(
-          ...new Uint8Array(signature)
+          ...new Uint8Array(
+            signature
+          )
         )
       );
 
@@ -845,7 +1053,9 @@ async function getGoogleAccessToken(env) {
             new URLSearchParams({
               grant_type:
                 "urn:ietf:params:oauth:grant-type:jwt-bearer",
-              assertion: jwt
+
+              assertion:
+                jwt
             })
         }
       );
@@ -857,7 +1067,10 @@ async function getGoogleAccessToken(env) {
     const data =
       await response.json();
 
-    return data.access_token || null;
+    return (
+      data.access_token ||
+      null
+    );
 
   } catch (error) {
     console.error(
@@ -869,16 +1082,30 @@ async function getGoogleAccessToken(env) {
   }
 }
 
+
 function base64UrlEncode(str) {
   return btoa(str)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+    .replace(
+      /\+/g,
+      "-"
+    )
+    .replace(
+      /\//g,
+      "_"
+    )
+    .replace(
+      /=+$/,
+      ""
+    );
 }
 
-function pemToArrayBuffer(pem) {
+
+function pemToArrayBuffer(
+  pem
+) {
   const lines =
-    String(pem || "").split("\n");
+    String(pem || "")
+      .split("\n");
 
   let base64 = "";
 
@@ -937,7 +1164,10 @@ async function pingSearchEngines() {
    LOVE
    ========================================================= */
 
-async function toggleLove(request, env) {
+async function toggleLove(
+  request,
+  env
+) {
   try {
     const {
       id,
@@ -961,7 +1191,10 @@ async function toggleLove(request, env) {
          WHERE news_id = ?
            AND device_id = ?`
       )
-        .bind(id, deviceId)
+        .bind(
+          id,
+          deviceId
+        )
         .first();
 
     if (existing) {
@@ -970,15 +1203,22 @@ async function toggleLove(request, env) {
          WHERE news_id = ?
            AND device_id = ?`
       )
-        .bind(id, deviceId)
+        .bind(
+          id,
+          deviceId
+        )
         .run();
+
     } else {
       await env.DB.prepare(
         `INSERT INTO news_loves
          (news_id, device_id)
          VALUES (?, ?)`
       )
-        .bind(id, deviceId)
+        .bind(
+          id,
+          deviceId
+        )
         .run();
     }
 
@@ -993,14 +1233,18 @@ async function toggleLove(request, env) {
 
     return json({
       success: true,
+
       love_count:
-        Number(count?.count || 0)
+        Number(
+          count?.count || 0
+        )
     });
 
   } catch (error) {
     return json(
       {
         success: false,
+
         error:
           error?.message ||
           "Love error"
@@ -1016,14 +1260,18 @@ async function toggleLove(request, env) {
    COMMENTS
    ========================================================= */
 
-async function getComments(url, env) {
+async function getComments(
+  url,
+  env
+) {
   const id =
     url.searchParams.get("id");
 
   if (!id) {
     return json(
       {
-        error: "Missing id"
+        error:
+          "Missing id"
       },
       400
     );
@@ -1049,7 +1297,11 @@ async function getComments(url, env) {
   });
 }
 
-async function addComment(request, env) {
+
+async function addComment(
+  request,
+  env
+) {
   const {
     newsId,
     author,
@@ -1085,7 +1337,9 @@ async function addComment(request, env) {
 
   return json({
     success: true,
-    comment_id: id
+
+    comment_id:
+      id
   });
 }
 
@@ -1094,15 +1348,21 @@ async function addComment(request, env) {
    PUSH SUBSCRIPTION
    ========================================================= */
 
-async function handleSubscribe(request, env) {
+async function handleSubscribe(
+  request,
+  env
+) {
   try {
     const subscription =
       await request.json();
 
-    if (!subscription?.endpoint) {
+    if (
+      !subscription?.endpoint
+    ) {
       return json(
         {
           success: false,
+
           error:
             "Invalid subscription"
         },
@@ -1130,6 +1390,7 @@ async function handleSubscribe(request, env) {
     if (existing) {
       return json({
         success: true,
+
         message:
           "Already subscribed"
       });
@@ -1148,14 +1409,24 @@ async function handleSubscribe(request, env) {
       )
       .run();
 
+    console.log(
+      "Push subscription saved"
+    );
+
     return json({
       success: true
     });
 
   } catch (error) {
+    console.error(
+      "Subscribe error:",
+      error
+    );
+
     return json(
       {
         success: false,
+
         error:
           error?.message ||
           "Subscribe error"
@@ -1171,7 +1442,9 @@ async function handleSubscribe(request, env) {
    NEWS UPDATE
    ========================================================= */
 
-async function updateNews(env) {
+async function updateNews(
+  env
+) {
   if (!env.DB) {
     throw new Error(
       "D1 binding DB is missing"
@@ -1190,8 +1463,16 @@ async function updateNews(env) {
     );
   }
 
+  console.log(
+    "Fetching GNews..."
+  );
+
   const candidates =
     await fetchGNews(env);
+
+  console.log(
+    `GNews returned ${candidates.length} candidates`
+  );
 
   if (!candidates.length) {
     return {
@@ -1200,6 +1481,7 @@ async function updateNews(env) {
       selected: 0,
       stored: 0,
       deleted: 0,
+
       message:
         "No news found"
     };
@@ -1211,14 +1493,20 @@ async function updateNews(env) {
       env
     );
 
+  console.log(
+    `${uniqueCandidates.length} unique new candidates`
+  );
+
   if (!uniqueCandidates.length) {
     return {
       fetched:
         candidates.length,
+
       unique: 0,
       selected: 0,
       stored: 0,
       deleted: 0,
+
       message:
         "No new news available"
     };
@@ -1237,6 +1525,7 @@ async function updateNews(env) {
     );
 
   let stored = 0;
+
   const indexedUrls = [];
 
   for (const news of finalNews) {
@@ -1260,16 +1549,29 @@ async function updateNews(env) {
     }
   }
 
+
+  /*
+   * DELETE OLD NEWS
+   */
+
   const deleted =
     await enforceMaximumNews(
       env
     );
 
+
+  /*
+   * GOOGLE INDEXING
+   */
+
   if (
     stored > 0 &&
     env.GOOGLE_SERVICE_ACCOUNT_JSON
   ) {
-    for (const newsUrl of indexedUrls) {
+    for (
+      const newsUrl of
+      indexedUrls
+    ) {
       let success = false;
 
       for (
@@ -1283,32 +1585,35 @@ async function updateNews(env) {
             env
           );
 
-        if (success) break;
+        if (success) {
+          break;
+        }
 
-        await new Promise(
-          resolve =>
-            setTimeout(
-              resolve,
-              2000
-            )
-        );
+        await sleep(2000);
       }
     }
 
     await pingSearchEngines();
   }
 
+
   return {
     fetched:
       candidates.length,
+
     unique:
       uniqueCandidates.length,
+
     selected:
       finalNews.length,
+
     stored,
+
     deleted,
+
     indexed:
       indexedUrls.length,
+
     message:
       `News update completed. ${stored} stored, ${indexedUrls.length} indexed.`
   };
@@ -1319,7 +1624,9 @@ async function updateNews(env) {
    GNEWS
    ========================================================= */
 
-async function fetchGNews(env) {
+async function fetchGNews(
+  env
+) {
   const apiUrl =
     new URL(
       "https://gnews.io/api/v4/top-headlines"
@@ -1337,7 +1644,9 @@ async function fetchGNews(env) {
 
   apiUrl.searchParams.set(
     "max",
-    String(GNEWS_MAX_RESULTS)
+    String(
+      GNEWS_MAX_RESULTS
+    )
   );
 
   apiUrl.searchParams.set(
@@ -1350,6 +1659,7 @@ async function fetchGNews(env) {
       apiUrl.toString(),
       {
         method: "GET",
+
         headers: {
           accept:
             "application/json"
@@ -1380,31 +1690,36 @@ async function fetchGNews(env) {
       0,
       GNEWS_MAX_RESULTS
     )
-    .map(article => ({
-      source_name:
-        article.source?.name || "",
+    .map(
+      article => ({
+        source_name:
+          article.source?.name ||
+          "",
 
-      source_url:
-        normalizeUrl(
-          article.url || ""
-        ),
+        source_url:
+          normalizeUrl(
+            article.url || ""
+          ),
 
-      source_title:
-        cleanText(
-          article.title || ""
-        ),
+        source_title:
+          cleanText(
+            article.title || ""
+          ),
 
-      source_description:
-        cleanText(
-          article.description || ""
-        ),
+        source_description:
+          cleanText(
+            article.description ||
+            ""
+          ),
 
-      image_url:
-        article.image || "",
+        image_url:
+          article.image || "",
 
-      published_at:
-        article.publishedAt || ""
-    }))
+        published_at:
+          article.publishedAt ||
+          ""
+      })
+    )
     .filter(
       article =>
         article.source_url &&
@@ -1412,26 +1727,38 @@ async function fetchGNews(env) {
     );
 }
 
+
 async function removeExistingNews(
   candidates,
   env
 ) {
   const unique = [];
-  const checked = new Set();
 
-  for (const item of candidates) {
+  const checked =
+    new Set();
+
+  for (
+    const item of
+    candidates
+  ) {
     const sourceUrl =
       normalizeUrl(
         item.source_url
       );
 
-    if (!sourceUrl) continue;
-
-    if (checked.has(sourceUrl)) {
+    if (!sourceUrl) {
       continue;
     }
 
-    checked.add(sourceUrl);
+    if (
+      checked.has(sourceUrl)
+    ) {
+      continue;
+    }
+
+    checked.add(
+      sourceUrl
+    );
 
     const existing =
       await env.DB.prepare(
@@ -1446,6 +1773,7 @@ async function removeExistingNews(
     if (!existing) {
       unique.push({
         ...item,
+
         source_url:
           sourceUrl
       });
@@ -1510,6 +1838,8 @@ Rules:
 - Avoid clickbait.
 - Summary should be 160-180 Bengali words.
 - Return ONLY valid JSON array.
+- Do not use markdown.
+- Do not wrap JSON inside code fences.
 
 Each object:
 {
@@ -1536,152 +1866,406 @@ Candidates:
 ${JSON.stringify(input)}
 `;
 
+
   const endpoint =
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`;
 
-  const response =
-    await fetch(
-      endpoint,
-      {
-        method: "POST",
 
-        headers: {
-          "content-type":
-            "application/json"
-        },
+  let lastError = null;
 
-        body: JSON.stringify({
-          contents: [
+
+  /*
+   * GEMINI RETRY
+   */
+
+  for (
+    let attempt = 1;
+    attempt <= GEMINI_MAX_ATTEMPTS;
+    attempt++
+  ) {
+    try {
+      console.log(
+        `Gemini attempt ${attempt}/${GEMINI_MAX_ATTEMPTS}`
+      );
+
+      const controller =
+        new AbortController();
+
+      const timeout =
+        setTimeout(
+          () =>
+            controller.abort(),
+          GEMINI_TIMEOUT_MS
+        );
+
+
+      let response;
+
+      try {
+        response =
+          await fetch(
+            endpoint,
             {
-              parts: [
-                {
-                  text: prompt
-                }
-              ]
+              method: "POST",
+
+              headers: {
+                "content-type":
+                  "application/json"
+              },
+
+              body:
+                JSON.stringify({
+                  contents: [
+                    {
+                      parts: [
+                        {
+                          text:
+                            prompt
+                        }
+                      ]
+                    }
+                  ],
+
+                  generationConfig: {
+                    responseMimeType:
+                      "application/json"
+                  }
+                }),
+
+              signal:
+                controller.signal
             }
-          ],
+          );
 
-          generationConfig: {
-            temperature: 0.3,
-            responseMimeType:
-              "application/json"
-          }
-        })
+      } finally {
+        clearTimeout(
+          timeout
+        );
       }
-    );
 
-  if (!response.ok) {
-    throw new Error(
-      `Gemini API ${response.status}: ${await response.text()}`
-    );
-  }
 
-  const data =
-    await response.json();
+      const responseText =
+        await response.text();
 
-  const text =
-    data?.candidates?.[0]
-      ?.content?.parts?.[0]
-      ?.text;
 
-  if (!text) {
-    throw new Error(
-      "Gemini returned empty response"
-    );
-  }
+      /*
+       * RETRY TEMPORARY API ERRORS
+       */
 
-  let parsed;
+      if (!response.ok) {
+        const errorMessage =
+          `Gemini API ${response.status}: ${responseText}`;
 
-  try {
-    parsed =
-      JSON.parse(
-        cleanJson(text)
+        lastError =
+          new Error(
+            errorMessage
+          );
+
+        console.error(
+          `Gemini attempt ${attempt} failed:`,
+          errorMessage
+        );
+
+
+        const retryable =
+          response.status === 408 ||
+          response.status === 429 ||
+          response.status === 500 ||
+          response.status === 502 ||
+          response.status === 503 ||
+          response.status === 504;
+
+
+        if (
+          retryable &&
+          attempt < GEMINI_MAX_ATTEMPTS
+        ) {
+          await sleep(
+            attempt === 1
+              ? 2000
+              : 4000
+          );
+
+          continue;
+        }
+
+        throw lastError;
+      }
+
+
+      /*
+       * PARSE RESPONSE
+       */
+
+      let data;
+
+      try {
+        data =
+          JSON.parse(
+            responseText
+          );
+      } catch {
+        lastError =
+          new Error(
+            "Gemini returned invalid API JSON"
+          );
+
+        console.error(
+          lastError.message
+        );
+
+        if (
+          attempt <
+          GEMINI_MAX_ATTEMPTS
+        ) {
+          await sleep(
+            attempt === 1
+              ? 2000
+              : 4000
+          );
+
+          continue;
+        }
+
+        throw lastError;
+      }
+
+
+      /*
+       * EXTRACT TEXT
+       */
+
+      const text =
+        data?.candidates?.[0]
+          ?.content?.parts?.[0]
+          ?.text;
+
+
+      if (!text) {
+        const finishReason =
+          data?.candidates?.[0]
+            ?.finishReason ||
+          "unknown";
+
+        lastError =
+          new Error(
+            `Gemini returned empty response. finishReason=${finishReason}`
+          );
+
+        console.error(
+          lastError.message
+        );
+
+        if (
+          attempt <
+          GEMINI_MAX_ATTEMPTS
+        ) {
+          await sleep(
+            attempt === 1
+              ? 2000
+              : 4000
+          );
+
+          continue;
+        }
+
+        throw lastError;
+      }
+
+
+      /*
+       * PARSE GENERATED JSON
+       */
+
+      let parsed;
+
+      try {
+        parsed =
+          JSON.parse(
+            cleanJson(text)
+          );
+
+      } catch {
+        lastError =
+          new Error(
+            "Gemini returned invalid generated JSON"
+          );
+
+        console.error(
+          lastError.message
+        );
+
+        if (
+          attempt <
+          GEMINI_MAX_ATTEMPTS
+        ) {
+          await sleep(
+            attempt === 1
+              ? 2000
+              : 4000
+          );
+
+          continue;
+        }
+
+        throw lastError;
+      }
+
+
+      if (!Array.isArray(parsed)) {
+        lastError =
+          new Error(
+            "Gemini response is not an array"
+          );
+
+        if (
+          attempt <
+          GEMINI_MAX_ATTEMPTS
+        ) {
+          await sleep(
+            attempt === 1
+              ? 2000
+              : 4000
+          );
+
+          continue;
+        }
+
+        throw lastError;
+      }
+
+
+      /*
+       * BUILD RESULTS
+       */
+
+      const results = [];
+
+      for (
+        const item of
+        parsed
+      ) {
+        const candidateId =
+          Number(
+            item.candidate_id
+          );
+
+        if (
+          !Number.isInteger(
+            candidateId
+          ) ||
+          candidateId < 1 ||
+          candidateId >
+            candidates.length
+        ) {
+          continue;
+        }
+
+        const original =
+          candidates[
+            candidateId - 1
+          ];
+
+        if (!original) {
+          continue;
+        }
+
+        const headline =
+          cleanText(
+            item.headline
+          );
+
+        const summary =
+          cleanText(
+            item.summary
+          );
+
+        const topic =
+          cleanText(
+            item.main_topic
+          );
+
+        if (
+          !headline ||
+          !summary
+        ) {
+          continue;
+        }
+
+        results.push({
+          ...original,
+
+          headline,
+
+          summary,
+
+          main_topic:
+            topic ||
+            "সর্বশেষ খবর",
+
+          category:
+            normalizeCategory(
+              item.category
+            ),
+
+          score:
+            clampScore(
+              item.score
+            )
+        });
+      }
+
+
+      /*
+       * SORT
+       */
+
+      results.sort(
+        (a, b) =>
+          b.score -
+          a.score
       );
-  } catch {
-    throw new Error(
-      "Gemini returned invalid JSON"
-    );
-  }
 
-  if (!Array.isArray(parsed)) {
-    throw new Error(
-      "Gemini response is not an array"
-    );
-  }
 
-  const results = [];
+      /*
+       * SUCCESS
+       */
 
-  for (const item of parsed) {
-    const candidateId =
-      Number(
-        item.candidate_id
+      console.log(
+        `Gemini success: ${results.length} stories selected`
       );
 
-    if (
-      !Number.isInteger(
-        candidateId
-      ) ||
-      candidateId < 1 ||
-      candidateId > candidates.length
-    ) {
-      continue;
+      return results;
+
+    } catch (error) {
+      lastError =
+        error;
+
+      console.error(
+        `Gemini attempt ${attempt} error:`,
+        error
+      );
+
+      if (
+        attempt <
+        GEMINI_MAX_ATTEMPTS
+      ) {
+        await sleep(
+          attempt === 1
+            ? 2000
+            : 4000
+        );
+      }
     }
-
-    const original =
-      candidates[
-        candidateId - 1
-      ];
-
-    if (!original) continue;
-
-    const headline =
-      cleanText(
-        item.headline
-      );
-
-    const summary =
-      cleanText(
-        item.summary
-      );
-
-    const topic =
-      cleanText(
-        item.main_topic
-      );
-
-    if (!headline || !summary) {
-      continue;
-    }
-
-    results.push({
-      ...original,
-
-      headline,
-
-      summary,
-
-      main_topic:
-        topic ||
-        "সর্বশেষ খবর",
-
-      category:
-        normalizeCategory(
-          item.category
-        ),
-
-      score:
-        clampScore(
-          item.score
-        )
-    });
   }
 
-  results.sort(
-    (a, b) =>
-      b.score - a.score
+
+  throw new Error(
+    `Gemini processing failed after ${GEMINI_MAX_ATTEMPTS} attempts: ${
+      lastError?.message ||
+      "Unknown Gemini error"
+    }`
   );
-
-  return results;
 }
 
 
@@ -1700,7 +2284,10 @@ async function insertNews(
     new Date().toISOString();
 
   const dayKey =
-    createdAt.slice(0, 10);
+    createdAt.slice(
+      0,
+      10
+    );
 
   const searchText =
     toTransliterated(
@@ -1751,12 +2338,22 @@ async function insertNews(
     )
     .run();
 
-  item.id = id;
+  item.id =
+    id;
 }
 
 
 /* =========================================================
    GET NEWS
+   =========================================================
+   
+   IMPORTANT:
+   Backend returns maximum 25 at a time.
+   Frontend can request:
+   offset=0  -> first 25
+   offset=25 -> next 25
+   offset=50 -> next 25
+   
    ========================================================= */
 
 async function handleGetNews(
@@ -1788,7 +2385,13 @@ async function handleGetNews(
       )
     );
 
+
+  /*
+   * MAX 25 NEWS PER REQUEST
+   */
+
   const limit = 25;
+
 
   const selectFields = `
     news.id,
@@ -1809,7 +2412,13 @@ async function handleGetNews(
     ) AS love_count
   `;
 
+
   let result;
+
+
+  /*
+   * SPECIFIC NEWS
+   */
 
   if (specificId) {
     result =
@@ -1819,7 +2428,9 @@ async function handleGetNews(
          WHERE news.id = ?
            AND news.status = 'published'`
       )
-        .bind(specificId)
+        .bind(
+          specificId
+        )
         .all();
 
     if (
@@ -1844,6 +2455,11 @@ async function handleGetNews(
       300
     );
   }
+
+
+  /*
+   * SEARCH
+   */
 
   if (query) {
     const transliterated =
@@ -1876,6 +2492,11 @@ async function handleGetNews(
         )
         .all();
 
+
+  /*
+   * TRENDING
+   */
+
   } else if (
     category === "trending"
   ) {
@@ -1895,6 +2516,11 @@ async function handleGetNews(
           offset
         )
         .all();
+
+
+  /*
+   * CATEGORY
+   */
 
   } else if (
     category !== "top" &&
@@ -1917,6 +2543,11 @@ async function handleGetNews(
         )
         .all();
 
+
+  /*
+   * TOP / ALL
+   */
+
   } else {
     result =
       await env.DB.prepare(
@@ -1934,16 +2565,25 @@ async function handleGetNews(
         .all();
   }
 
+
   const news =
     result?.results || [];
+
 
   return json(
     {
       success: true,
+
       count:
         news.length,
+
       offset,
+
       limit,
+
+      hasMore:
+        news.length === limit,
+
       news
     },
     200,
@@ -1953,7 +2593,7 @@ async function handleGetNews(
 
 
 /* =========================================================
-   LIMIT DATABASE
+   DATABASE LIMIT
    ========================================================= */
 
 async function enforceMaximumNews(
@@ -1963,7 +2603,8 @@ async function enforceMaximumNews(
     await env.DB.prepare(
       `SELECT COUNT(*) AS total
        FROM news`
-    ).first();
+    )
+      .first();
 
   const total =
     Number(
@@ -1986,14 +2627,22 @@ async function enforceMaximumNews(
        ORDER BY created_at ASC
        LIMIT ?`
     )
-      .bind(deleteCount)
+      .bind(
+        deleteCount
+      )
       .all();
 
   const ids =
-    (old.results || [])
-      .map(row => row.id);
+    (
+      old.results || []
+    ).map(
+      row => row.id
+    );
 
-  for (const id of ids) {
+
+  for (
+    const id of ids
+  ) {
     await env.DB.prepare(
       `DELETE FROM news_loves
        WHERE news_id = ?`
@@ -2009,9 +2658,11 @@ async function enforceMaximumNews(
       .run();
   }
 
+
   if (ids.length) {
     const placeholders =
-      ids.map(() => "?")
+      ids
+        .map(() => "?")
         .join(",");
 
     await env.DB.prepare(
@@ -2027,7 +2678,7 @@ async function enforceMaximumNews(
 
 
 /* =========================================================
-   PUSH
+   PUSH NOTIFICATION
    ========================================================= */
 
 async function sendPushNotifications(
@@ -2040,35 +2691,61 @@ async function sendPushNotifications(
     !env.VAPID_PUBLIC_KEY ||
     !env.VAPID_PRIVATE_KEY
   ) {
+    console.error(
+      "Push skipped: VAPID keys are missing"
+    );
+
     return;
   }
 
+
   const subscriptions =
     await env.DB.prepare(
-      `SELECT endpoint, keys_json
+      `SELECT
+        endpoint,
+        keys_json
        FROM push_subscriptions`
-    ).all();
+    )
+      .all();
+
 
   if (
     !subscriptions.results?.length
   ) {
+    console.log(
+      "Push skipped: no subscriptions found"
+    );
+
     return;
   }
 
+
   webPush.setVapidDetails(
     "mailto:info.ajkernews@gmail.com",
+
     env.VAPID_PUBLIC_KEY,
+
     env.VAPID_PRIVATE_KEY
   );
+
 
   const payload =
     JSON.stringify({
       title,
+
       body,
+
       url,
+
       icon:
         "/assets/logo.png"
     });
+
+
+  let successCount = 0;
+
+  let failedCount = 0;
+
 
   for (
     const sub of
@@ -2085,30 +2762,53 @@ async function sendPushNotifications(
               sub.keys_json
             )
         },
+
         payload
       );
 
+      successCount++;
+
     } catch (error) {
+      failedCount++;
+
       console.error(
         "Push send error:",
         error
       );
 
+
+      /*
+       * REMOVE EXPIRED SUBSCRIPTION
+       */
+
       if (
         error.statusCode === 410 ||
         error.statusCode === 404
       ) {
-        await env.DB.prepare(
-          `DELETE FROM push_subscriptions
-           WHERE endpoint = ?`
-        )
-          .bind(
-            sub.endpoint
+        try {
+          await env.DB.prepare(
+            `DELETE FROM push_subscriptions
+             WHERE endpoint = ?`
           )
-          .run();
+            .bind(
+              sub.endpoint
+            )
+            .run();
+
+        } catch (deleteError) {
+          console.error(
+            "Failed to delete expired subscription:",
+            deleteError
+          );
+        }
       }
     }
   }
+
+
+  console.log(
+    `Push result: ${successCount} successful, ${failedCount} failed`
+  );
 }
 
 
@@ -2126,7 +2826,8 @@ async function generateSitemap(
        WHERE status = 'published'
        ORDER BY created_at DESC
        LIMIT 200`
-    ).all();
+    )
+      .all();
 
   const news =
     result.results || [];
@@ -2145,7 +2846,10 @@ async function generateSitemap(
       <priority>1.0</priority>
     </url>`;
 
-  for (const item of news) {
+
+  for (
+    const item of news
+  ) {
     const lastmod =
       item.created_at
         ? item.created_at.split("T")[0]
@@ -2162,8 +2866,10 @@ async function generateSitemap(
       </url>`;
   }
 
+
   xml +=
     `</urlset>`;
+
 
   return new Response(
     xml,
@@ -2188,7 +2894,9 @@ async function generateSitemap(
    UTILITIES
    ========================================================= */
 
-function normalizeUrl(url) {
+function normalizeUrl(
+  url
+) {
   try {
     const parsed =
       new URL(url);
@@ -2204,7 +2912,10 @@ function normalizeUrl(url) {
   }
 }
 
-function cleanText(value) {
+
+function cleanText(
+  value
+) {
   return String(
     value || ""
   )
@@ -2219,11 +2930,15 @@ function cleanText(value) {
     .trim();
 }
 
-function cleanJson(text) {
+
+function cleanJson(
+  text
+) {
   let value =
     String(
       text || ""
     ).trim();
+
 
   if (
     value.startsWith("```")
@@ -2241,8 +2956,10 @@ function cleanJson(text) {
         .trim();
   }
 
+
   return value;
 }
+
 
 function normalizeCategory(
   category
@@ -2260,6 +2977,7 @@ function normalizeCategory(
       "general"
     ]);
 
+
   const value =
     String(
       category || ""
@@ -2267,14 +2985,19 @@ function normalizeCategory(
       .trim()
       .toLowerCase();
 
+
   return allowed.has(value)
     ? value
     : "general";
 }
 
-function clampScore(score) {
+
+function clampScore(
+  score
+) {
   const number =
     Number(score);
+
 
   if (
     !Number.isFinite(
@@ -2284,6 +3007,7 @@ function clampScore(score) {
     return 0;
   }
 
+
   return Math.max(
     0,
     Math.min(
@@ -2292,6 +3016,20 @@ function clampScore(score) {
     )
   );
 }
+
+
+function sleep(
+  milliseconds
+) {
+  return new Promise(
+    resolve =>
+      setTimeout(
+        resolve,
+        milliseconds
+      )
+  );
+}
+
 
 function corsHeaders() {
   return {
@@ -2309,6 +3047,7 @@ function corsHeaders() {
   };
 }
 
+
 function json(
   data,
   status = 200,
@@ -2317,8 +3056,11 @@ function json(
   const seconds =
     Math.max(
       0,
-      Number(cacheSeconds) || 0
+      Number(
+        cacheSeconds
+      ) || 0
     );
+
 
   return new Response(
     JSON.stringify(data),
@@ -2338,10 +3080,14 @@ function json(
   );
 }
 
-function escapeHtml(text) {
+
+function escapeHtml(
+  text
+) {
   if (!text) {
     return "";
   }
+
 
   return String(text)
     .replace(

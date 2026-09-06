@@ -1,7 +1,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL PERFECT VERSION
+ * FINAL PERFECT VERSION WITH IMPROVED PUSH NOTIFICATIONS
  * =========================================================
  *
  * FEATURES:
@@ -12,6 +12,7 @@
  * - ডুপ্লিকেট ফিল্টার, ১০০০ নিউজ লিমিট
  * - গুগল ইনডেক্সিং, পুশ নোটিফিকেশন
  * - প্রেম/কমেন্ট/শেয়ার API
+ * - উন্নত push error handling ও unsubscribe API
  *
  * IMPORTANT:
  * Cron schedule: 0 * * * *
@@ -226,6 +227,14 @@ export default {
         request.method === "POST"
       ) {
         return await handleSubscribe(request, env);
+      }
+
+      // Push unsubscribe (NEW)
+      if (
+        url.pathname === "/api/unsubscribe" &&
+        request.method === "POST"
+      ) {
+        return await handleUnsubscribe(request, env);
       }
 
       // Health
@@ -1412,13 +1421,45 @@ async function handleSubscribe(request, env) {
 
 
 /* =========================================================
-   PUSH
+   PUSH UNSUBSCRIBE (NEW)
+   ========================================================= */
+
+async function handleUnsubscribe(request, env) {
+
+  try {
+
+    const { endpoint } = await request.json();
+
+    if (!endpoint) {
+      return json({ error: "Missing endpoint" }, 400, 0);
+    }
+
+    const result = await env.DB
+      .prepare(`DELETE FROM push_subscriptions WHERE endpoint = ?`)
+      .bind(endpoint)
+      .run();
+
+    if (result.meta?.rows_written > 0) {
+      return json({ success: true, message: "Unsubscribed successfully" }, 200, 0);
+    } else {
+      return json({ success: false, message: "Subscription not found" }, 404, 0);
+    }
+
+  } catch (error) {
+    console.error("Unsubscribe error:", error);
+    return json({ success: false, error: error?.message || "Unsubscribe error" }, 500, 0);
+  }
+}
+
+
+/* =========================================================
+   PUSH NOTIFICATIONS (IMPROVED)
    ========================================================= */
 
 async function sendPushNotifications(env, title, body, url) {
 
   if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) {
-    console.warn("VAPID keys are missing.");
+    console.warn("⚠️ VAPID keys are missing.");
     return;
   }
 
@@ -1427,9 +1468,11 @@ async function sendPushNotifications(env, title, body, url) {
     .all();
 
   if (!subscriptions.results?.length) {
+    console.log("📭 No push subscriptions found.");
     return;
   }
 
+  // VAPID email - এখানে আপনার ইমেইল দিন
   webPush.setVapidDetails(
     "mailto:info.ajkernews@gmail.com",
     env.VAPID_PUBLIC_KEY,
@@ -1437,32 +1480,95 @@ async function sendPushNotifications(env, title, body, url) {
   );
 
   const payload = JSON.stringify({
-    title,
-    body,
-    url,
+    title: title || "📰 নতুন খবর!",
+    body: body || "আজকের গুরুত্বপূর্ণ খবর দেখুন।",
+    url: url || "https://ajkernews.in/",
     icon: "/assets/logo.png",
     badge: "/assets/logo.png"
   });
 
+  let successCount = 0;
+  let expiredCount = 0;
+  let errorCount = 0;
+  const errorDetails = [];
+
+  console.log(`📤 Sending push to ${subscriptions.results.length} subscribers...`);
+
   for (const sub of subscriptions.results) {
     try {
-      await webPush.sendNotification(
-        {
-          endpoint: sub.endpoint,
-          keys: JSON.parse(sub.keys_json)
-        },
-        payload
-      );
+      const subscription = {
+        endpoint: sub.endpoint,
+        keys: JSON.parse(sub.keys_json)
+      };
+
+      await webPush.sendNotification(subscription, payload);
+      successCount++;
+
     } catch (error) {
-      console.error("Push send error:", error);
-      if (error?.statusCode === 410 || error?.statusCode === 404) {
+      const statusCode = error?.statusCode || 'unknown';
+      const errorMessage = error?.message || 'Unknown error';
+
+      console.log({
+        level: 'error',
+        message: `Push failed for ${sub.endpoint.substring(0, 40)}...`,
+        statusCode: statusCode,
+        error: errorMessage
+      });
+
+      // 410 = Gone, 404 = Not Found – subscription expired
+      if (statusCode === 410 || statusCode === 404) {
         await env.DB
           .prepare(`DELETE FROM push_subscriptions WHERE endpoint = ?`)
           .bind(sub.endpoint)
           .run();
+        expiredCount++;
+        console.log(`🗑️ Removed expired subscription (${statusCode})`);
+      }
+      // 429 = Too Many Requests – retry with backoff
+      else if (statusCode === 429) {
+        console.log(`⏳ Rate limited, waiting 3 seconds...`);
+        await sleep(3000);
+        try {
+          // একবার retry
+          await webPush.sendNotification(
+            {
+              endpoint: sub.endpoint,
+              keys: JSON.parse(sub.keys_json)
+            },
+            payload
+          );
+          successCount++;
+        } catch (retryError) {
+          errorCount++;
+          errorDetails.push({
+            endpoint: sub.endpoint.substring(0, 30),
+            status: retryError?.statusCode || 'unknown',
+            message: retryError?.message || 'Retry failed'
+          });
+        }
+      }
+      // অন্যান্য error
+      else {
+        errorCount++;
+        errorDetails.push({
+          endpoint: sub.endpoint.substring(0, 30),
+          status: statusCode,
+          message: errorMessage
+        });
       }
     }
   }
+
+  // Summary log
+  console.log({
+    level: 'info',
+    message: 'Push notification summary',
+    total: subscriptions.results.length,
+    success: successCount,
+    expired: expiredCount,
+    failed: errorCount,
+    errors: errorDetails.length > 0 ? errorDetails : undefined
+  });
 }
 
 

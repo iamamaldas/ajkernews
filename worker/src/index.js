@@ -1,29 +1,17 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL VERSION
+ * UPDATED VERSION
  * =========================================================
  *
- * FINAL SETTINGS
- * - Hourly update
- * - Maximum 3 new news per hour
- * - Maximum 1000 stored news
- * - API page size 10
- * - Indian Bengali + Hindi + English + Tamil + Telugu
- * - Gemini selection + Bengali rewriting
- * - Safe fallback without Gemini
- * - D1
- * - Love / Comments
- * - Push notifications
- * - Share preview
- * - Sitemap
- * - Google indexing support
- * - Affiliate redirect
- * - Ads / Analytics config
+ * CHANGES:
+ * - প্রতি ঘণ্টায় GNews-এ মাত্র 1-2টি রিকোয়েস্ট (ভাষা অনুযায়ী)
+ * - প্রতি রিকোয়েস্টে 10টি আর্টিকেল আনা হয়
+ * - Gemini সেরা 3টি বেছে নেয় (MAX_SELECTED_NEWS = 3)
+ * - ডুপ্লিকেট চেক, ১০০০ নিউজের সীমা, ইনডেক্সিং, পুশ ইত্যাদি অপরিবর্তিত
  *
  * IMPORTANT:
- * Cron schedule should remain:
- * 0 * * * *
+ * Cron schedule: 0 * * * *
  *
  * =========================================================
  */
@@ -56,17 +44,16 @@ const API_PAGE_SIZE = 10;
 /*
  * GNews articles per language.
  *
- * 5 feeds x 6 = maximum 30 candidates.
- * Only 3 are finally published.
+ * এখন প্রতি ভাষায় ১০টি করে আনা হবে (ফ্রি প্ল্যানের max)।
+ * ২টি ভাষা = সর্বোচ্চ ২০টি ক্যান্ডিডেট।
  */
-const GNEWS_MAX_RESULTS = 6;
+const GNEWS_MAX_RESULTS = 10;
 
 /*
  * Indian languages / sources.
  *
- * Bengali is primary.
- * Hindi + English provide broad India coverage.
- * Tamil + Telugu add regional Indian coverage.
+ * Bengali (bn) + English (en) – এটাই যথেষ্ট।
+ * বেশি ভাষা যোগ করলে রিকোয়েস্ট সংখ্যা বাড়বে, যা ফ্রি সীমা অতিক্রম করতে পারে।
  */
 const GNEWS_LANGUAGES = [
   "bn",
@@ -1115,7 +1102,7 @@ function requestSafeIp() {
 
 
 /* =========================================================
-   NEWS UPDATE
+   NEWS UPDATE (CHANGED)
    ========================================================= */
 
 async function updateNews(env) {
@@ -1137,7 +1124,7 @@ async function updateNews(env) {
   try {
 
     candidates =
-      await fetchGNews(env);
+      await fetchGNews(env);  // এখন প্রতি ভাষায় ১০টি করে আনে
 
   } catch (error) {
 
@@ -1383,7 +1370,7 @@ async function updateNews(env) {
 
 
 /* =========================================================
-   GNEWS
+   GNEWS (UPDATED)
    ========================================================= */
 
 async function fetchGNews(env) {
@@ -1391,10 +1378,8 @@ async function fetchGNews(env) {
   const results = [];
 
   /*
-   * Fetch Indian-language feeds.
-   *
-   * If one language fails, the other feeds
-   * continue normally.
+   * এখন প্রতিটি ভাষার জন্য ১০টি করে আনা হয়।
+   * যদি একটি ভাষা ফেইল করে, বাকিগুলো চলতে থাকে।
    */
 
   for (
@@ -1453,8 +1438,7 @@ async function fetchGNews(env) {
 
 
   /*
-   * Keep candidate list reasonably small
-   * for Gemini and Cloudflare.
+   * সর্বোচ্চ ২০টি ক্যান্ডিডেট (২ ভাষা × ১০) – Gemini-এর জন্য যথেষ্ট।
    */
   return unique.slice(0, 30);
 }
@@ -1482,7 +1466,7 @@ async function fetchGNewsFeed(
 
   apiUrl.searchParams.set(
     "max",
-    String(GNEWS_MAX_RESULTS)
+    String(GNEWS_MAX_RESULTS)  // এখন ১০
   );
 
   apiUrl.searchParams.set(

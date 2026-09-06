@@ -40,6 +40,32 @@
         .header-logo { height:28px; width:auto; border:none; border-radius:0; object-fit:contain; }
         .header-left h1 { font-size:24px; line-height:1; font-weight:700; color:#111111; white-space:nowrap; letter-spacing:-0.3px; }
         .header-right { display:flex; align-items:center; gap:10px; flex-shrink:0; }
+        
+        /* ===== রিফ্রেশ বাটন স্টাইল ===== */
+        .refresh-btn {
+            width: 36px;
+            height: 36px;
+            padding: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            color: #222;
+            transition: transform 0.3s ease;
+        }
+        .refresh-btn:hover { opacity: 0.6; }
+        .refresh-btn.spinning svg {
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* ===== রিফ্রেশ বাটন স্টাইল শেষ ===== */
+        
         .notif-btn { width:36px; height:36px; padding:4px; display:flex; align-items:center; justify-content:center; background:transparent; border:none; cursor:pointer; -webkit-tap-highlight-color:transparent; color:#222; font-size:22px; line-height:1; transition:opacity 0.2s; }
         .notif-btn:hover { opacity:0.6; }
         .notif-btn.subscribed { color:#4CAF50; }
@@ -124,6 +150,7 @@
             .header-left h1 { font-size:20px; }
             .header-left, .header-home-link { gap:8px; }
             .header-right { gap:6px; }
+            .refresh-btn { width:32px !important; height:32px !important; }
             .search-btn { width:32px !important; height:32px !important; }
             .search-svg { width:18px !important; height:18px !important; }
             .hamburger { width:32px !important; height:32px !important; gap:3.5px !important; padding:4px !important; }
@@ -158,6 +185,15 @@
             </a>
         </div>
         <div class="header-right">
+            <!-- ===== রিফ্রেশ বাটন (নতুন) ===== -->
+            <button class="refresh-btn" id="refreshBtn" onclick="refreshNews()" aria-label="Refresh News" title="নতুন খবর লোড করুন">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                </svg>
+            </button>
+            <!-- ===== রিফ্রেশ বাটন শেষ ===== -->
+            
             <button class="notif-btn" id="notifyBtn" onclick="toggleNotification()" aria-label="Notifications">🔔</button>
             <button class="search-btn" onclick="openSearchModal()" aria-label="Search">
                 <svg class="search-svg" viewBox="0 0 28 28" aria-hidden="true">
@@ -252,7 +288,7 @@
         let isLoadingNews = false;
         let currentOffset = 0;
         const PAGE_SIZE = 10;
-        let hasMoreNews = false; // ✅ নতুন ভেরিয়েবল
+        let hasMoreNews = false;
 
         // Personal Ads data
         const PERSONAL_ADS = [
@@ -426,7 +462,31 @@
             }
         }
 
-        // ==================== loadNews (ফিক্স) ====================
+        // ==================== REFRESH NEWS (নতুন) ====================
+        async function refreshNews() {
+            const btn = document.getElementById('refreshBtn');
+            if (isLoadingNews) return;
+            
+            btn.classList.add('spinning');
+            btn.disabled = true;
+            
+            try {
+                await loadNews(currentCategory || 'top', currentSearchQuery || '', {
+                    showLoading: true,
+                    keepExisting: false
+                });
+                console.log('News refreshed successfully');
+            } catch (error) {
+                console.error('Refresh error:', error);
+                alert('খবর রিফ্রেশ করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।');
+            } finally {
+                btn.classList.remove('spinning');
+                btn.disabled = false;
+            }
+        }
+        // ==================== REFRESH NEWS শেষ ====================
+
+        // ==================== loadNews ====================
         async function loadNews(category = 'top', search = '', options = {}) {
             currentOffset = 0;
             const { showLoading = true, keepExisting = false } = options;
@@ -464,7 +524,7 @@
                 const normalizedNews = data.news.map(normalizeNews).filter(Boolean);
                 currentNews = search ? rankSearchResults(normalizedNews, search) : normalizedNews;
                 visibleCount = 10;
-                hasMoreNews = data.has_more || false; // ✅ API থেকে has_more নেওয়া
+                hasMoreNews = data.has_more || false;
                 renderNews(currentNews, hasMoreNews);
             } catch (error) {
                 console.error('News loading error:', error);
@@ -475,7 +535,7 @@
             }
         }
 
-        // ==================== renderNews (ফিক্স) ====================
+        // ==================== renderNews ====================
         function renderNews(newsList, hasMore = false) {
             const container = document.getElementById('newsContainer');
             if (!Array.isArray(newsList) || !newsList.length) {
@@ -550,7 +610,6 @@
 
             container.innerHTML = html;
             const loadMoreBtn = document.getElementById('loadMoreBtn');
-            // ✅ hasMore অনুযায়ী বাটন দেখানো/লুকানো
             if (hasMore) {
                 loadMoreBtn.style.display = 'block';
                 loadMoreBtn.disabled = false;
@@ -567,7 +626,7 @@
             return ad;
         }
 
-        // ==================== loadMoreNews (ফিক্স) ====================
+        // ==================== loadMoreNews ====================
         async function loadMoreNews() {
             if (isLoadingNews) return;
             const loadMoreBtn = document.getElementById('loadMoreBtn');
@@ -591,7 +650,7 @@
                 }
                 const newNews = data.news.map(normalizeNews).filter(Boolean);
                 currentNews = [...currentNews, ...newNews];
-                visibleCount = currentNews.length; // সব দেখানোর জন্য আপডেট
+                visibleCount = currentNews.length;
                 hasMoreNews = data.has_more || false;
                 renderNews(currentNews, hasMoreNews);
                 if (!hasMoreNews) {

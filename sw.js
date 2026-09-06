@@ -1,10 +1,7 @@
-/* Ajker News Service Worker
- * Automatic old-cache cleanup + fast static assets + fresh HTML/API.
- */
+/* Ajker News Service Worker - with Push Support */
 
-const CACHE_VERSION = "ajker-news-v2026-09-05-3";
+const CACHE_VERSION = "ajker-news-v2026-09-06-1";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
-const OFFLINE_CACHE = `${CACHE_VERSION}-offline`;
 
 const APP_SHELL = [
   "/",
@@ -13,6 +10,7 @@ const APP_SHELL = [
   "/assets/logo.png"
 ];
 
+// Install
 self.addEventListener("install", event => {
   event.waitUntil(
     caches.open(STATIC_CACHE)
@@ -21,106 +19,141 @@ self.addEventListener("install", event => {
   );
 });
 
+// Activate
 self.addEventListener("activate", event => {
   event.waitUntil(
     caches.keys()
       .then(keys => Promise.all(
         keys
-          .filter(key =>
-            key.startsWith("ajker-news-") &&
-            key !== STATIC_CACHE &&
-            key !== OFFLINE_CACHE
-          )
+          .filter(key => key.startsWith("ajker-news-") && key !== STATIC_CACHE)
           .map(key => caches.delete(key))
       ))
       .then(() => self.clients.claim())
   );
 });
 
+// Message (for skip waiting)
 self.addEventListener("message", event => {
   if (event.data && event.data.type === "SKIP_WAITING") {
     self.skipWaiting();
   }
 });
 
-async function networkFirst(request, fallbackToCache = true) {
-  try {
-    const response = await fetch(request);
-
-    if (response && response.ok) {
-      const cache = await caches.open(STATIC_CACHE);
-      cache.put(request, response.clone()).catch(() => {});
-    }
-
-    return response;
-  } catch (error) {
-    if (fallbackToCache) {
-      const cached = await caches.match(request);
-      if (cached) return cached;
-    }
-
-    throw error;
-  }
-}
-
-async function cacheFirst(request) {
-  const cached = await caches.match(request);
-
-  if (cached) return cached;
-
-  const response = await fetch(request);
-
-  if (response && response.ok) {
-    const cache = await caches.open(STATIC_CACHE);
-    cache.put(request, response.clone()).catch(() => {});
-  }
-
-  return response;
-}
-
+// Fetch
 self.addEventListener("fetch", event => {
   const request = event.request;
-
   if (request.method !== "GET") return;
 
   const url = new URL(request.url);
 
-  // API/news data: never serve stale service-worker cache.
+  // API calls: network only
   if (url.pathname.startsWith("/api/")) {
     event.respondWith(fetch(request));
     return;
   }
 
-  // Share/OG pages must always reach Cloudflare Worker.
-  if (
-    url.pathname.startsWith("/go/") ||
-    url.pathname === "/news"
-  ) {
+  // Share/OG pages: network only
+  if (url.pathname.startsWith("/go/") || url.pathname === "/news") {
     event.respondWith(fetch(request));
     return;
   }
 
-  // HTML: network first, cache only as offline fallback.
-  if (
-    request.mode === "navigate" ||
-    request.destination === "document"
-  ) {
-    event.respondWith(networkFirst(request, true));
-    return;
-  }
-
-  // Static files: cache first for faster loading.
-  if (
-    ["script", "style", "image", "font"].includes(request.destination) ||
-    url.pathname.startsWith("/assets/")
-  ) {
+  // HTML: network first, fallback to cache
+  if (request.mode === "navigate" || request.destination === "document") {
     event.respondWith(
-      cacheFirst(request).catch(() => caches.match("/"))
+      fetch(request).catch(() => caches.match(request))
     );
     return;
   }
 
+  // Static assets: cache first
+  if (["script", "style", "image", "font"].includes(request.destination) ||
+      url.pathname.startsWith("/assets/")) {
+    event.respondWith(
+      caches.match(request).then(cached => cached || fetch(request))
+    );
+    return;
+  }
+
+  // Default: network, fallback cache
   event.respondWith(
     fetch(request).catch(() => caches.match(request))
+  );
+});
+
+// ========== PUSH NOTIFICATION ==========
+self.addEventListener("push", event => {
+  let data = {
+    title: "Ajker News",
+    body: "নতুন খবর এসেছে!",
+    url: "/",
+    icon: "/assets/logo.png",
+    badge: "/assets/logo.png"
+  };
+
+  if (event.data) {
+    try {
+      const parsed = event.data.json();
+      data = { ...data, ...parsed };
+    } catch (e) {
+      // যদি JSON না হয়, তাহলে text হিসেবে নেব
+      const text = event.data.text();
+      if (text) {
+        data.body = text;
+      }
+    }
+  }
+
+  const options = {
+    body: data.body,
+    icon: data.icon,
+    badge: data.badge,
+    vibrate: [200, 100, 200],
+    data: {
+      url: data.url || "/"
+    },
+    actions: [
+      {
+        action: "open",
+        title: "📰 খবর পড়ুন"
+      },
+      {
+        action: "close",
+        title: "বন্ধ করুন"
+      }
+    ]
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(data.title, options)
+  );
+});
+
+// ========== NOTIFICATION CLICK ==========
+self.addEventListener("notificationclick", event => {
+  event.notification.close();
+
+  if (event.action === "close") {
+    return;
+  }
+
+  const url = event.notification.data?.url || "/";
+  // Ensure full URL if relative
+  const fullUrl = url.startsWith("http") ? url : `https://ajkernews.in${url.startsWith("/") ? url : "/" + url}`;
+
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true })
+      .then(windowClients => {
+        // If a client is already open, focus it
+        for (const client of windowClients) {
+          if (client.url.includes("ajkernews.in") && "focus" in client) {
+            return client.focus();
+          }
+        }
+        // Otherwise open a new window
+        if (clients.openWindow) {
+          return clients.openWindow(fullUrl);
+        }
+      })
   );
 });

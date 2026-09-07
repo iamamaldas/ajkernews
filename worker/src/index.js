@@ -1,7 +1,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL VERSION WITH ALL UPDATES
+ * FINAL VERSION WITH ALL 11 UPDATES
  * =========================================================
  */
 

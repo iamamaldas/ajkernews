@@ -1,6 +1,6 @@
-/* Ajker News Service Worker - with Push Support */
+/* Ajker News Service Worker – with Push Support */
 
-const CACHE_VERSION = "ajker-news-v2026-09-06-1";
+const CACHE_VERSION = "ajker-news-v2026-09-07-1";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
 const APP_SHELL = [
@@ -96,11 +96,8 @@ self.addEventListener("push", event => {
       const parsed = event.data.json();
       data = { ...data, ...parsed };
     } catch (e) {
-      // যদি JSON না হয়, তাহলে text হিসেবে নেব
       const text = event.data.text();
-      if (text) {
-        data.body = text;
-      }
+      if (text) data.body = text;
     }
   }
 
@@ -111,17 +108,8 @@ self.addEventListener("push", event => {
     vibrate: [200, 100, 200],
     data: {
       url: data.url || "/"
-    },
-    actions: [
-      {
-        action: "open",
-        title: "📰 খবর পড়ুন"
-      },
-      {
-        action: "close",
-        title: "বন্ধ করুন"
-      }
-    ]
+    }
+    // No extra actions – only the notification itself
   };
 
   event.waitUntil(
@@ -133,24 +121,17 @@ self.addEventListener("push", event => {
 self.addEventListener("notificationclick", event => {
   event.notification.close();
 
-  if (event.action === "close") {
-    return;
-  }
-
   const url = event.notification.data?.url || "/";
-  // Ensure full URL if relative
   const fullUrl = url.startsWith("http") ? url : `https://ajkernews.in${url.startsWith("/") ? url : "/" + url}`;
 
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true })
       .then(windowClients => {
-        // If a client is already open, focus it
         for (const client of windowClients) {
           if (client.url.includes("ajkernews.in") && "focus" in client) {
             return client.focus();
           }
         }
-        // Otherwise open a new window
         if (clients.openWindow) {
           return clients.openWindow(fullUrl);
         }

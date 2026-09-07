@@ -22,9 +22,3 @@ persist = true
 [observability.traces]
 enabled = true
 persist = true
-
-# Optional: VAPID keys as vars (if you prefer, otherwise keep in code)
-# [vars]
-# VAPID_PUBLIC_KEY = "BNTHm7e-hEeZs-PbEtE4d16zHDswrMLPFhZXtcpSS3Dh0ooav-oQMw29CTNu7CyP0xbDkb0bf8aayUVedVCX3tw"
-# VAPID_PRIVATE_KEY = "your-private-key"
-# VAPID_EMAIL = "info@ajkernews.in"

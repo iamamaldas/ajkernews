@@ -366,78 +366,77 @@ SHARE PAGE -- CLEAN, NO BRANDING
 async function serveSharePage(id, env) {
   const safeId = String(id || "").trim();
   if (!safeId) {
-    return Response.redirect("https://ajkernews.in/", 302);
+    return new Response("Invalid link", {
+      status: 400,
+      headers: {
+        "Content-Type": "text/plain; charset=UTF-8",
+        "Cache-Control": "no-store"
+      }
+    });
   }
 
   const result = await env.DB
     .prepare(`
-    SELECT headline, summary, image_url, published_at, source_name
-    FROM news
-    WHERE id = ? AND status = 'published'
-    LIMIT 1
+      SELECT headline, summary
+      FROM news
+      WHERE id = ? AND status = 'published'
+      LIMIT 1
     `)
     .bind(safeId)
     .first();
 
   if (!result) {
-    return Response.redirect("https://ajkernews.in/", 302);
+    return new Response("News not found", {
+      status: 404,
+      headers: {
+        "Content-Type": "text/plain; charset=UTF-8",
+        "Cache-Control": "no-store"
+      }
+    });
   }
 
-  const title = cleanText(result.headline || "Ajker News");
+  const title = cleanText(result.headline || "সংবাদ");
   const description = cleanText(result.summary || "").slice(0, 200);
-  const image = result.image_url || "";
   const shareUrl = `https://ajkernews.in/go/${encodeURIComponent(safeId)}`;
   const homeUrl = `https://ajkernews.in/?shared=${encodeURIComponent(safeId)}`;
 
-  // OG tags for preview -- still clean, but needed for social sharing
-  const imageTags = image
-    ? `
-    <meta property="og:image" content="${escapeHtml(image)}">
-    <meta property="og:image:alt" content="${escapeHtml(title)}">
-    <meta name="twitter:image" content="${escapeHtml(image)}">
-    `
-    : "";
-
-  // The HTML body contains only the title, a paragraph gap, summary, and link -- NO logo, NO brand name, NO separator
+  // IMPORTANT: This /go/ page intentionally has NO Open Graph/Twitter image,
+  // site_name, favicon, logo, brand tag, or other social-preview branding.
+  // The normal homepage metadata remains untouched.
+  // A small client-side redirect keeps the existing shared-link behaviour for
+  // real users, while social crawlers that do not execute JS only see the
+  // clean headline/summary/link content below.
   const html = `<!DOCTYPE html>
-    <html lang="bn">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width,initial-scale=1">
-      <title>${escapeHtml(title)}</title>
-      <meta name="description" content="${escapeHtml(description)}">
-      <meta property="og:title" content="${escapeHtml(title)}">
-      <meta property="og:description" content="${escapeHtml(description)}">
-      <meta property="og:type" content="article">
-      <meta property="og:url" content="${escapeHtml(shareUrl)}">
-      <meta property="og:locale" content="bn_IN">
-      ${imageTags}
-      <meta name="twitter:card" content="${image ? "summary_large_image" : "summary"}">
-      <meta name="twitter:title" content="${escapeHtml(title)}">
-      <meta name="twitter:description" content="${escapeHtml(description)}">
-      <meta http-equiv="refresh" content="0;url=${escapeHtml(homeUrl)}">
-      <script>window.location.replace(${JSON.stringify(homeUrl)});</script>
-    </head>
-    <body>
-      <main style="font-family:sans-serif;padding:20px;line-height:1.7;max-width:600px;margin:0 auto;">
-        <h1 style="font-size:24px;margin-bottom:0.5em;">${escapeHtml(title)}</h1>
-        <p style="font-size:16px;margin:0 0 1.2em 0;color:#333;">${escapeHtml(description)}</p>
-        <a href="${escapeHtml(homeUrl)}" style="display:inline-block;background:#000;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;">পূর্ণ খবর পড়ুন</a>
-      </main>
-    </body>
-    </html>`;
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noimageindex, nosnippet">
+<meta name="googlebot" content="noindex, nofollow, noimageindex, nosnippet">
+<meta name="referrer" content="no-referrer">
+</head>
+<body style="margin:0;background:#fff;color:#111;font-family:sans-serif;">
+<main style="padding:20px;line-height:1.7;max-width:600px;margin:0 auto;">
+<div style="font-size:24px;font-weight:700;margin:0 0 1em 0;">${escapeHtml(title)}</div>
+${description ? `<div style="font-size:16px;margin:0 0 1em 0;white-space:pre-wrap;">${escapeHtml(description)}</div>` : ""}
+<div style="font-size:16px;margin:0 0 0.2em 0;">পূর্ণ খবর দেখতে এই লিঙ্কে ক্লিক করুন</div>
+<div style="font-size:16px;margin:0;word-break:break-all;">${escapeHtml(shareUrl)}</div>
+</main>
+<script>window.location.replace(${JSON.stringify(homeUrl)});</script>
+</body>
+</html>`;
 
   return new Response(html, {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=UTF-8",
-      "Cache-Control": "public, max-age=300, s-maxage=300",
+      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+      "Pragma": "no-cache",
       "X-Content-Type-Options": "nosniff",
       ...corsHeaders()
     }
   });
 }
-
 
 /* =========================================================
 NEWS META PAGE
@@ -451,10 +450,10 @@ async function serveNewsPage(url, env) {
 
   const result = await env.DB
     .prepare(`
-    SELECT headline, summary, image_url, published_at, source_name
-    FROM news
-    WHERE id = ? AND status = 'published'
-    LIMIT 1
+      SELECT headline, summary, image_url, published_at, source_name
+      FROM news
+      WHERE id = ? AND status = 'published'
+      LIMIT 1
     `)
     .bind(id)
     .first();
@@ -470,34 +469,34 @@ async function serveNewsPage(url, env) {
 
   const imageTags = image
     ? `
-    <meta property="og:image" content="${escapeHtml(image)}">
-    <meta property="og:image:alt" content="${escapeHtml(title)}">
-    <meta name="twitter:image" content="${escapeHtml(image)}">
+      <meta property="og:image" content="${escapeHtml(image)}">
+      <meta property="og:image:alt" content="${escapeHtml(title)}">
+      <meta name="twitter:image" content="${escapeHtml(image)}">
     `
     : "";
 
   let html = `<!DOCTYPE html>
-    <html lang="bn">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width,initial-scale=1">
-      <title>${escapeHtml(title)} - Ajker News</title>
-      <meta name="description" content="${escapeHtml(description)}">
-      <meta property="og:title" content="${escapeHtml(title)}">
-      <meta property="og:description" content="${escapeHtml(description)}">
-      <meta property="og:url" content="${escapeHtml(homeUrl)}">
-      <meta property="og:type" content="article">
-      ${imageTags}
-      <meta name="twitter:card" content="${image ? "summary_large_image" : "summary"}">
-      <meta name="twitter:title" content="${escapeHtml(title)}">
-      <meta name="twitter:description" content="${escapeHtml(description)}">
-      <meta http-equiv="refresh" content="0;url=${escapeHtml(homeUrl)}">
-      <script>window.location.replace(${JSON.stringify(homeUrl)});</script>
-    </head>
-    <body>
-      <p>${escapeHtml(title)}</p>
-    </body>
-    </html>`;
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtml(title)} - Ajker News</title>
+<meta name="description" content="${escapeHtml(description)}">
+<meta property="og:title" content="${escapeHtml(title)}">
+<meta property="og:description" content="${escapeHtml(description)}">
+<meta property="og:url" content="${escapeHtml(homeUrl)}">
+<meta property="og:type" content="article">
+${imageTags}
+<meta name="twitter:card" content="${image ? "summary_large_image" : "summary"}">
+<meta name="twitter:title" content="${escapeHtml(title)}">
+<meta name="twitter:description" content="${escapeHtml(description)}">
+<meta http-equiv="refresh" content="0;url=${escapeHtml(homeUrl)}">
+<script>window.location.replace(${JSON.stringify(homeUrl)});</script>
+</head>
+<body>
+<p>${escapeHtml(title)}</p>
+</body>
+</html>`;
 
   const analyticsScript = `
     <script async src="https://www.googletagmanager.com/gtag/js?id=${escapeHtml(ANALYTICS_CONFIG.gaTrackingId)}"></script>
@@ -509,7 +508,7 @@ async function serveNewsPage(url, env) {
     </script>
     ${ANALYTICS_CONFIG.extraHeadScripts || ""}
     ${ADS_CONFIG.adNetworkScripts || ""}
-    `;
+  `;
   html = html.replace("</head>", analyticsScript + "</head>");
   if (ADS_CONFIG.extraFooterScripts) {
     html = html.replace("</body>", ADS_CONFIG.extraFooterScripts + "</body>");
@@ -545,8 +544,8 @@ async function handleAffiliate(url, env) {
     try {
       await env.DB
         .prepare(`
-        INSERT INTO affiliate_clicks (id, affiliate_name, click_url, device_id, created_at)
-        VALUES (?, ?, ?, ?, ?)
+          INSERT INTO affiliate_clicks (id, affiliate_name, click_url, device_id, created_at)
+          VALUES (?, ?, ?, ?, ?)
         `)
         .bind(crypto.randomUUID(), ref, targetUrl, "unknown", new Date().toISOString())
         .run();
@@ -1028,17 +1027,17 @@ async function insertNews(item, env) {
   const dayKey = createdAt.slice(0, 10);
   const searchText = toTransliterated(
     [item.headline, item.summary, item.main_topic, item.category]
-      .filter(Boolean)
-      .join(" ")
+    .filter(Boolean)
+    .join(" ")
   );
 
   await env.DB
     .prepare(`
-    INSERT INTO news
-    (id, source_url, source_name, source_title, source_description,
-    headline, summary, main_topic, category, image_url,
-    published_at, created_at, day_key, status, score, search_text, indexed_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO news
+      (id, source_url, source_name, source_title, source_description,
+       headline, summary, main_topic, category, image_url,
+       published_at, created_at, day_key, status, score, search_text, indexed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .bind(
       id,
@@ -1090,7 +1089,7 @@ async function handleGetNews(url, env) {
     news.created_at,
     news.score,
     (SELECT COUNT(*) FROM news_loves nl WHERE nl.news_id = news.id) AS love_count
-    `;
+  `;
 
   if (specificId) {
     const result = await env.DB
@@ -1107,12 +1106,12 @@ async function handleGetNews(url, env) {
     const transliterated = toTransliterated(query);
     result = await env.DB
       .prepare(`
-      SELECT ${selectFields}
-      FROM news
-      WHERE news.status = 'published'
-      AND (news.search_text LIKE ? OR news.headline LIKE ? OR news.summary LIKE ? OR news.main_topic LIKE ?)
-      ORDER BY news.published_at DESC
-      LIMIT ? OFFSET ?
+        SELECT ${selectFields}
+        FROM news
+        WHERE news.status = 'published'
+        AND (news.search_text LIKE ? OR news.headline LIKE ? OR news.summary LIKE ? OR news.main_topic LIKE ?)
+        ORDER BY news.published_at DESC
+        LIMIT ? OFFSET ?
       `)
       .bind(`%${transliterated}%`, `%${query}%`, `%${query}%`, `%${query}%`, queryLimit, offset)
       .all();
@@ -1560,22 +1559,22 @@ async function generateSitemap(env) {
   const baseUrl = "https://ajkernews.in";
 
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
-    <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-      <url>
-        <loc>${baseUrl}/</loc>
-        <changefreq>hourly</changefreq>
-        <priority>1.0</priority>
-      </url>`;
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<url>
+<loc>${baseUrl}/</loc>
+<changefreq>hourly</changefreq>
+<priority>1.0</priority>
+</url>`;
 
   for (const item of news) {
     const lastmod = item.created_at ? item.created_at.split("T")[0] : new Date().toISOString().split("T")[0];
     xml += `
-      <url>
-        <loc>${baseUrl}/?id=${encodeURIComponent(item.id)}</loc>
-        <lastmod>${lastmod}</lastmod>
-        <changefreq>daily</changefreq>
-        <priority>0.8</priority>
-      </url>`;
+<url>
+<loc>${baseUrl}/?id=${encodeURIComponent(item.id)}</loc>
+<lastmod>${lastmod}</lastmod>
+<changefreq>daily</changefreq>
+<priority>0.8</priority>
+</url>`;
   }
   xml += "\n</urlset>";
 

@@ -677,51 +677,69 @@
             }
         }
 
-        // ===== SHARE – native only, no alert popup =====
+        // ===== SHARE – native device share only, no custom popup/modal =====
         async function shareNews(id, headline, summary) {
             const cleanHeadline = String(headline || '').replace(/\s+/g, ' ').trim();
             let cleanSummary = String(summary || '').replace(/\s+/g, ' ').trim();
+
             const MAX_SUMMARY = 150;
             if (cleanSummary.length > MAX_SUMMARY) {
                 let cutIndex = cleanSummary.lastIndexOf(' ', MAX_SUMMARY);
                 if (cutIndex === -1) cutIndex = MAX_SUMMARY;
                 cleanSummary = cleanSummary.substring(0, cutIndex) + '...';
             }
+
+            // The /go/ URL identifies this exact news item.
+            // The Worker serves clean OG metadata and redirects to ?id=<newsId>,
+            // so the shared news opens first without changing feed order.
             const shareUrl = 'https://ajkernews.in/go/' + encodeURIComponent(id);
-            // Clean preview: title + gap + summary + link – NO branding
-            const text = `${cleanHeadline}\n\n${cleanSummary}\n\n${shareUrl}`;
+
+            // Clean share content:
+            // title
+            //
+            // summary
+            //
+            // link
+            // No logo, website name, branding tag, or separator is added here.
+            const shareText = cleanSummary
+                ? `${cleanHeadline}\n\n${cleanSummary}`
+                : cleanHeadline;
 
             try {
-                if (navigator.share) {
+                // IMPORTANT: navigator.share opens ONLY the device/browser's
+                // native share sheet. No custom share popup/modal is created.
+                if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
                     await navigator.share({
                         title: cleanHeadline,
-                        text: text,
+                        text: shareText,
                         url: shareUrl
                     });
                     return;
                 }
-                // Fallback: silently copy to clipboard (no alert)
+
+                // Unsupported browser fallback: copy the same clean content.
+                // Still no custom popup/modal and no alert.
+                const copyText = `${shareText}\n\n${shareUrl}`;
                 if (navigator.clipboard && window.isSecureContext) {
-                    await navigator.clipboard.writeText(text);
-                    // Optionally you can show a subtle toast, but no alert as per request.
-                    // We'll just log success.
-                    console.log('Link copied to clipboard');
+                    await navigator.clipboard.writeText(copyText);
+                    console.log('Share is not supported here; link copied.');
                     return;
                 }
-                // Ultra fallback: copy using textarea (still no alert)
+
                 const textarea = document.createElement('textarea');
-                textarea.value = text;
+                textarea.value = copyText;
+                textarea.setAttribute('readonly', '');
                 textarea.style.position = 'fixed';
-                textarea.style.opacity = '0';
+                textarea.style.left = '-9999px';
                 document.body.appendChild(textarea);
                 textarea.select();
                 document.execCommand('copy');
                 textarea.remove();
-                console.log('Link copied to clipboard');
+                console.log('Share is not supported here; link copied.');
             } catch (error) {
+                // User cancelled the native share sheet: do nothing.
                 if (error && error.name === 'AbortError') return;
                 console.error('Share error:', error);
-                // No alert, just log.
             }
         }
 

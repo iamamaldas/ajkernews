@@ -677,38 +677,31 @@
             }
         }
 
-        // ===== SHARE – native device share only, no custom popup/modal =====
+        // ===== FINAL SHARE – native only, no popup/modal, clean preview, NO branding =====
         async function shareNews(id, headline, summary) {
-            const cleanHeadline = String(headline || '').replace(/\s+/g, ' ').trim();
-            let cleanSummary = String(summary || '').replace(/\s+/g, ' ').trim();
-
-            const MAX_SUMMARY = 150;
-            if (cleanSummary.length > MAX_SUMMARY) {
-                let cutIndex = cleanSummary.lastIndexOf(' ', MAX_SUMMARY);
-                if (cutIndex === -1) cutIndex = MAX_SUMMARY;
-                cleanSummary = cleanSummary.substring(0, cutIndex) + '...';
-            }
-
-            // The /go/ URL identifies this exact news item.
-            // The Worker serves clean OG metadata and redirects to ?id=<newsId>,
-            // so the shared news opens first without changing feed order.
-            const shareUrl = 'https://ajkernews.in/go/' + encodeURIComponent(id);
-
-            // Clean share content:
-            // title
-            //
-            // summary
-            //
-            // link
-            // No logo, website name, branding tag, or separator is added here.
-            const shareText = cleanSummary
-                ? `${cleanHeadline}\n\n${cleanSummary}`
-                : cleanHeadline;
-
             try {
-                // IMPORTANT: navigator.share opens ONLY the device/browser's
-                // native share sheet. No custom share popup/modal is created.
-                if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+                const cleanHeadline = String(headline || '').replace(/\s+/g, ' ').trim();
+                let cleanSummary = String(summary || '').replace(/\s+/g, ' ').trim();
+
+                // সংক্ষিপ্ত সারাংশ (max 150 অক্ষর)
+                const MAX_SUMMARY = 150;
+                if (cleanSummary.length > MAX_SUMMARY) {
+                    let cutIndex = cleanSummary.lastIndexOf(' ', MAX_SUMMARY);
+                    if (cutIndex === -1) cutIndex = MAX_SUMMARY;
+                    cleanSummary = cleanSummary.substring(0, cutIndex) + '...';
+                }
+
+                // /go/ লিংক – Worker clean OG মেটাডেটা দেয়
+                const shareUrl = 'https://ajkernews.in/go/' + encodeURIComponent(id);
+
+                // Clean কন্টেন্ট: শিরোনাম + (গ্যাপ) + সারাংশ + (গ্যাপ) + লিংক
+                // কোনো ব্র্যান্ডিং, লোগো, সেপারেটর নেই
+                const shareText = cleanSummary 
+                    ? `${cleanHeadline}\n\n${cleanSummary}\n\n${shareUrl}`
+                    : `${cleanHeadline}\n\n${shareUrl}`;
+
+                // ১. Native Share – শুধু ডিভাইসের শেয়ার শীট ব্যবহার করবে
+                if (typeof navigator.share === 'function') {
                     await navigator.share({
                         title: cleanHeadline,
                         text: shareText,
@@ -717,29 +710,31 @@
                     return;
                 }
 
-                // Unsupported browser fallback: copy the same clean content.
-                // Still no custom popup/modal and no alert.
-                const copyText = `${shareText}\n\n${shareUrl}`;
+                // ২. Native Share সাপোর্ট না করলে – Clipboard-এ কপি (কোনো popup/alert নয়)
                 if (navigator.clipboard && window.isSecureContext) {
-                    await navigator.clipboard.writeText(copyText);
-                    console.log('Share is not supported here; link copied.');
+                    await navigator.clipboard.writeText(shareText);
+                    console.log('✅ লিংক কপি হয়েছে (শেয়ার সাপোর্টেড নয়)');
                     return;
                 }
 
+                // ৩. আলটিমেট ফলব্যাক (textarea) – কোনো alert নয়
                 const textarea = document.createElement('textarea');
-                textarea.value = copyText;
-                textarea.setAttribute('readonly', '');
+                textarea.value = shareText;
                 textarea.style.position = 'fixed';
                 textarea.style.left = '-9999px';
+                textarea.style.top = '0';
                 document.body.appendChild(textarea);
+                textarea.focus();
                 textarea.select();
                 document.execCommand('copy');
                 textarea.remove();
-                console.log('Share is not supported here; link copied.');
+                console.log('✅ লিংক কপি হয়েছে (শেয়ার সাপোর্টেড নয়)');
+
             } catch (error) {
-                // User cancelled the native share sheet: do nothing.
+                // ইউজার যদি native share ক্যান্সেল করে, তাহলে কিছু করবেন না
                 if (error && error.name === 'AbortError') return;
                 console.error('Share error:', error);
+                // কোনো alert দেখাবেন না
             }
         }
 
@@ -939,17 +934,6 @@
                 if (data.news && data.news.length > 0) {
                     const news = normalizeNews(data.news[0]);
                     if (news) {
-                        // Do NOT add to currentNews, just open modal
-                        // We keep a temporary reference for modal display
-                        // We'll store it in a separate variable or just pass to openNewsModal
-                        // But openNewsModal expects news in currentNews.
-                        // We'll temporarily add to currentNews? But that would change feed order.
-                        // Instead, we can open a modal directly with the fetched news without adding to currentNews.
-                        // Let's create a new function or modify openNewsModal to accept a news object.
-                        // For simplicity, we'll add to currentNews at the end (not at beginning) to keep order?
-                        // But if we add at end, feed will show it at bottom, not ideal.
-                        // Better: show modal without modifying currentNews.
-                        // We'll open a modal with the fetched news directly.
                         showNewsModalDirect(news);
                         return;
                     }
@@ -1003,7 +987,6 @@
                 const id = path.split('/')[2];
                 if (id) {
                     window.history.replaceState({}, '', '/');
-                    // Load news first, then open modal – feed order unchanged
                     loadNews('top', '', { showLoading: true, keepExisting: false }).then(() => {
                         openNewsById(id);
                     });

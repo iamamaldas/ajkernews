@@ -221,6 +221,14 @@ export default {
         );
       }
 
+      // Public VAPID configuration for browser push subscription
+      if (url.pathname === "/api/push-config" && request.method === "GET") {
+        return json({
+          success: true,
+          publicKey: env.VAPID_PUBLIC_KEY || ""
+        }, 200, 300);
+      }
+
       // Push subscribe
       if (
         url.pathname === "/api/subscribe" &&
@@ -1516,7 +1524,7 @@ async function sendPushNotifications(env, title, body, url) {
       });
 
       // 410 = Gone, 404 = Not Found – subscription expired
-      if (statusCode === 410 || statusCode === 404) {
+      if (statusCode === 410 || statusCode === 404 || statusCode === 401 || statusCode === 403) {
         await env.DB
           .prepare(`DELETE FROM push_subscriptions WHERE endpoint = ?`)
           .bind(sub.endpoint)

@@ -1,103 +1,253 @@
-/* =========================================================
-   AJKER NEWS SERVICE WORKER
-   Push notification + missed-notification deduplication
-   ========================================================= */
+/**
+ * Ajker News Service Worker -- with Push Support
+ */
 
-const CACHE_NAME = 'ajker-news-push-seen-v1';
+const CACHE_VERSION = "ajker-news-v2026-09-07-1";
 
-self.addEventListener('install', event => {
-  self.skipWaiting();
+const STATIC_CACHE = `${CACHE_VERSION}-static`;
+
+const APP_SHELL = [
+
+"/",
+
+"/index.html",
+
+"/manifest.json",
+
+"/assets/logo.png"
+
+];
+
+// Install
+
+self.addEventListener("install", event => {
+
+event.waitUntil(
+
+caches.open(STATIC_CACHE)
+
+.then(cache => cache.addAll(APP_SHELL).catch(() => {}))
+
+.then(() => self.skipWaiting())
+
+);
+
 });
 
-self.addEventListener('activate', event => {
-  event.waitUntil(self.clients.claim());
+// Activate
+
+self.addEventListener("activate", event => {
+
+event.waitUntil(
+
+caches.keys()
+
+.then(keys => Promise.all(
+
+keys
+
+.filter(key => key.startsWith("ajker-news-") && key !== STATIC_CACHE)
+
+.map(key => caches.delete(key))
+
+))
+
+.then(() => self.clients.claim())
+
+);
+
 });
 
-async function hasSeen(notificationId) {
-  if (!notificationId) return false;
-  const cache = await caches.open(CACHE_NAME);
-  const request = new Request('/__ajker_push_seen__/' + encodeURIComponent(notificationId));
-  const response = await cache.match(request);
-  return !!response;
+// Message (for skip waiting)
+
+self.addEventListener("message", event => {
+
+if (event.data && event.data.type === "SKIP_WAITING") {
+
+self.skipWaiting();
+
 }
 
-async function markSeen(notificationId) {
-  if (!notificationId) return;
-  const cache = await caches.open(CACHE_NAME);
-  const request = new Request('/__ajker_push_seen__/' + encodeURIComponent(notificationId));
-  await cache.put(request, new Response('1', { headers: { 'content-type': 'text/plain' } }));
-}
-
-async function acknowledgePush(data) {
-  if (!data?.ackUrl || !data?.notificationId) return;
-  try {
-    const subscription = await self.registration.pushManager.getSubscription();
-    if (!subscription) return;
-    await fetch(data.ackUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        endpoint: subscription.endpoint,
-        notificationId: data.notificationId
-      })
-    });
-  } catch (error) {
-    console.warn('Push acknowledgement failed:', error);
-  }
-}
-
-self.addEventListener('push', event => {
-  event.waitUntil((async () => {
-    let data = {};
-    try {
-      data = event.data ? event.data.json() : {};
-    } catch (error) {
-      data = { title: '📰 নতুন খবর!', body: event.data?.text() || '' };
-    }
-
-    const alreadySeen = await hasSeen(data.notificationId);
-    if (alreadySeen) {
-      await acknowledgePush(data);
-      return;
-    }
-
-    await markSeen(data.notificationId);
-
-    const title = data.title || '📰 নতুন খবর!';
-    const options = {
-      body: data.body || 'আজকের গুরুত্বপূর্ণ খবর দেখুন।',
-      icon: data.icon || '/assets/logo.png',
-      badge: data.badge || '/assets/logo.png',
-      data: {
-        url: data.url || 'https://ajkernews.in/',
-        notificationId: data.notificationId || ''
-      },
-      tag: data.notificationId || 'ajker-news',
-      renotify: false
-    };
-
-    await self.registration.showNotification(title, options);
-    await acknowledgePush(data);
-  })());
 });
 
-self.addEventListener('notificationclick', event => {
-  event.notification.close();
-  const targetUrl = event.notification?.data?.url || 'https://ajkernews.in/';
-  event.waitUntil((async () => {
-    const windowClients = await clients.matchAll({ type: 'window', includeUncontrolled: true });
-    for (const client of windowClients) {
-      if ('focus' in client) {
-        try {
-          await client.navigate(targetUrl);
-        } catch (_) {}
-        return client.focus();
-      }
-    }
-    if (clients.openWindow) return clients.openWindow(targetUrl);
-  })());
+// Fetch
+
+self.addEventListener("fetch", event => {
+
+const request = event.request;
+
+if (request.method !== "GET") return;
+
+const url = new URL(request.url);
+
+// API calls: network only
+
+if (url.pathname.startsWith("/api/")) {
+
+event.respondWith(fetch(request));
+
+return;
+
+}
+
+// Share/OG pages: network only
+
+if (url.pathname.startsWith("/go/") || url.pathname === "/news") {
+
+event.respondWith(fetch(request));
+
+return;
+
+}
+
+// HTML: network first, fallback to cache
+
+if (request.mode === "navigate" || request.destination === "document") {
+
+event.respondWith(
+
+fetch(request).catch(() => caches.match(request))
+
+);
+
+return;
+
+}
+
+// Static assets: cache first
+
+if (["script", "style", "image", "font"].includes(request.destination) ||
+
+url.pathname.startsWith("/assets/")) {
+
+event.respondWith(
+
+caches.match(request).then(cached => cached || fetch(request))
+
+);
+
+return;
+
+}
+
+// Default: network, fallback cache
+
+event.respondWith(
+
+fetch(request).catch(() => caches.match(request))
+
+);
+
 });
 
-self.addEventListener('message', event => {
-  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+// ========== PUSH NOTIFICATION ==========
+
+self.addEventListener("push", event => {
+
+let data = {
+
+title: "Ajker News",
+
+body: "নতুন খবর এসেছে!",
+
+url: "/",
+
+icon: "/assets/logo.png",
+
+badge: "/assets/logo.png"
+
+};
+
+if (event.data) {
+
+try {
+
+const parsed = event.data.json();
+
+data = { ...data, ...parsed };
+
+} catch (e) {
+
+const text = event.data.text();
+
+if (text) data.body = text;
+
+}
+
+}
+
+const options = {
+
+body: data.body,
+
+icon: data.icon,
+
+badge: data.badge,
+
+vibrate: [200, 100, 200],
+
+tag: data.notificationId || data.url || "ajker-news",
+
+renotify: false,
+
+data: {
+
+url: data.url || "/",
+
+notificationId: data.notificationId || ""
+
+}
+
+// No extra actions -- only the notification itself
+
+};
+
+event.waitUntil(
+
+self.registration.showNotification(data.title, options)
+
+);
+
+});
+
+// ========== NOTIFICATION CLICK ==========
+
+self.addEventListener("notificationclick", event => {
+
+event.notification.close();
+
+const url = event.notification.data?.url || "/";
+
+const fullUrl = url.startsWith("http")
+
+? url
+
+: `https://ajkernews.in${url.startsWith("/") ? url : "/" + url}`;
+
+event.waitUntil((async () => {
+
+const windowClients = await clients.matchAll({ type: "window", includeUncontrolled: true });
+
+for (const client of windowClients) {
+
+if (client.url.includes("ajkernews.in") && "focus" in client) {
+
+try {
+
+if ("navigate" in client) await client.navigate(fullUrl);
+
+} catch (_) {}
+
+await client.focus();
+
+return;
+
+}
+
+}
+
+if (clients.openWindow) return clients.openWindow(fullUrl);
+
+})());
+
 });

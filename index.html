@@ -1262,7 +1262,7 @@ alert('ভালোবাসা দিতে সমস্যা হয়েছে�
 
 }
 
-// ===== SHARE -- native share first, guaranteed copy fallback =====
+// ===== SHARE -- native share first, copy with alert (icon removed) =====
 
 async function copyShareText(text) {
 
@@ -1368,6 +1368,18 @@ console.warn('Native share failed; using copy fallback:', error);
 
 const copied = await copyShareText(shareText);
 
+if (copied) {
+
+alert('লিংক কপি করুন');   // ✅ চিহ্ন বাদ দেওয়া হয়েছে
+
+} else {
+
+alert('লিংক কপি করা যায়নি। আবার চেষ্টা করুন।');
+
+}
+
+// Toast বার্তা (ঐচ্ছিক)
+
 const toast = document.getElementById('copyToast');
 
 if (toast) {
@@ -1384,7 +1396,7 @@ window.__copyToastTimer = setTimeout(() => toast.classList.remove('show'), 1800)
 
 }
 
-// ===== NOTIFICATION =====
+// ===== NOTIFICATION (improved with background sync) =====
 
 async function toggleNotification() {
 
@@ -1480,6 +1492,24 @@ svg.setAttribute('fill', '#000');
 
 alert('নোটিফিকেশন চালু হয়েছে! নতুন খবর এলে আমরা জানাব।');
 
+// ব্যাকগ্রাউন্ড সিঙ্ক নিবন্ধন
+
+if ('serviceWorker' in navigator && 'SyncManager' in window) {
+
+try {
+
+await registration.sync.register('sync-pending-notifications');
+
+console.log('Background sync registered');
+
+} catch (e) {
+
+console.warn('Background sync registration failed:', e);
+
+}
+
+}
+
 await syncMissedNotifications();
 
 } else {
@@ -1540,7 +1570,7 @@ console.error('Status check error:', e);
 
 }
 
-// ===== MISSED NOTIFICATION SYNC =====
+// ===== MISSED NOTIFICATION SYNC (online & visibility) =====
 
 async function syncMissedNotifications() {
 
@@ -1571,6 +1601,8 @@ console.warn('Missed notification sync failed:', e);
 }
 
 }
+
+// নেটওয়ার্ক অন হলে এবং অ্যাপ ভিজিবল হলে সিঙ্ক করবে
 
 window.addEventListener('online', () => { syncMissedNotifications(); });
 
@@ -1993,6 +2025,24 @@ if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
 reg.update().catch(() => {});
 
 console.log('Service Worker registered');
+
+// 🔥 অ্যাপ চালু হওয়ার সময় ব্যাকগ্রাউন্ড সিঙ্ক নিবন্ধন করুন
+
+if ('SyncManager' in window) {
+
+try {
+
+await reg.sync.register('sync-pending-notifications');
+
+console.log('Background sync registered on init.');
+
+} catch (syncErr) {
+
+console.warn('Background sync registration failed:', syncErr);
+
+}
+
+}
 
 } catch (err) {
 

@@ -1,14 +1,14 @@
 /**
-* Ajker News Service Worker -- with Enhanced Background Sync
-*/
+ * Ajker News Service Worker -- with Enhanced Background Sync
+ */
 
 const CACHE_VERSION = "ajker-news-v2026-09-08-2";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const APP_SHELL = [
-"/",
-"/index.html",
-"/manifest.json",
-"/assets/logo.png"
+  "/",
+  "/index.html",
+  "/manifest.json",
+  "/assets/logo.png"
 ];
 
 // Install
@@ -43,19 +43,23 @@ self.addEventListener("message", event => {
 self.addEventListener("fetch", event => {
   const request = event.request;
   if (request.method !== "GET") return;
+
   const url = new URL(request.url);
+
   if (url.pathname.startsWith("/api/") ||
       url.pathname.startsWith("/go/") ||
       url.pathname === "/news") {
     event.respondWith(fetch(request));
     return;
   }
+
   if (request.mode === "navigate" || request.destination === "document") {
     event.respondWith(
       fetch(request).catch(() => caches.match(request))
     );
     return;
   }
+
   if (["script", "style", "image", "font"].includes(request.destination) ||
       url.pathname.startsWith("/assets/")) {
     event.respondWith(
@@ -63,6 +67,7 @@ self.addEventListener("fetch", event => {
     );
     return;
   }
+
   event.respondWith(
     fetch(request).catch(() => caches.match(request))
   );
@@ -71,13 +76,14 @@ self.addEventListener("fetch", event => {
 // ========== PUSH NOTIFICATION ==========
 self.addEventListener("push", event => {
   let data = {
-    title: "📰 Ajker News",
+    title: "Ajker News",
     body: "নতুন খবর এসেছে!",
     url: "/",
     icon: "/assets/logo.png",
     badge: "/assets/logo.png",
     notificationId: Date.now().toString()
   };
+
   if (event.data) {
     try {
       const parsed = event.data.json();
@@ -87,6 +93,7 @@ self.addEventListener("push", event => {
       if (text) data.body = text;
     }
   }
+
   const options = {
     body: data.body,
     icon: data.icon,
@@ -102,6 +109,7 @@ self.addEventListener("push", event => {
       timestamp: Date.now()
     }
   };
+
   event.waitUntil(
     self.registration.showNotification(data.title, options)
   );
@@ -110,15 +118,18 @@ self.addEventListener("push", event => {
 // ========== NOTIFICATION CLICK ==========
 self.addEventListener("notificationclick", event => {
   event.notification.close();
+
   const url = event.notification.data?.url || "/";
   const fullUrl = url.startsWith("http")
     ? url
     : `https://ajkernews.in${url.startsWith("/") ? url : "/" + url}`;
+
   event.waitUntil((async () => {
     const windowClients = await clients.matchAll({
       type: "window",
       includeUncontrolled: true
     });
+
     for (const client of windowClients) {
       if (client.url.includes("ajkernews.in") && "focus" in client) {
         try {
@@ -128,6 +139,7 @@ self.addEventListener("notificationclick", event => {
         return;
       }
     }
+
     if (clients.openWindow) return clients.openWindow(fullUrl);
   })());
 });
@@ -147,11 +159,13 @@ async function syncMissedNotifications() {
       console.warn('No push subscription found for sync.');
       return;
     }
+
     const response = await fetch('https://ajkernews.ajkernews-1c0.workers.dev/api/push-sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(subscription)
     });
+
     if (response.ok) {
       console.log('✅ Background sync: missed notifications delivered.');
     } else {

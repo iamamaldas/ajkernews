@@ -1,6 +1,6 @@
 /**
- * Ajker News Service Worker -- with Enhanced Background Sync
- */
+* Ajker News Service Worker -- with Enhanced Background Sync
+*/
 
 const CACHE_VERSION = "ajker-news-v2026-09-08-2";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
@@ -43,7 +43,6 @@ self.addEventListener("message", event => {
 self.addEventListener("fetch", event => {
   const request = event.request;
   if (request.method !== "GET") return;
-
   const url = new URL(request.url);
 
   if (url.pathname.startsWith("/api/") ||
@@ -118,7 +117,6 @@ self.addEventListener("push", event => {
 // ========== NOTIFICATION CLICK ==========
 self.addEventListener("notificationclick", event => {
   event.notification.close();
-
   const url = event.notification.data?.url || "/";
   const fullUrl = url.startsWith("http")
     ? url
@@ -129,7 +127,6 @@ self.addEventListener("notificationclick", event => {
       type: "window",
       includeUncontrolled: true
     });
-
     for (const client of windowClients) {
       if (client.url.includes("ajkernews.in") && "focus" in client) {
         try {
@@ -139,7 +136,6 @@ self.addEventListener("notificationclick", event => {
         return;
       }
     }
-
     if (clients.openWindow) return clients.openWindow(fullUrl);
   })());
 });
@@ -159,13 +155,11 @@ async function syncMissedNotifications() {
       console.warn('No push subscription found for sync.');
       return;
     }
-
     const response = await fetch('https://ajkernews.ajkernews-1c0.workers.dev/api/push-sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(subscription)
     });
-
     if (response.ok) {
       console.log('✅ Background sync: missed notifications delivered.');
     } else {

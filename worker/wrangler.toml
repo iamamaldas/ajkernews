@@ -1,37 +1,24 @@
 name = "ajkernews"
-
 main = "src/index.js"
-
 compatibility_date = "2026-09-03"
-
 compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
-
 binding = "DB"
-
 database_name = "ajkernews-db"
-
 database_id = "f10f96b7-8bed-4c7c-a580-483d2a77e5ae"
 
 [triggers]
-
 crons = ["0 */2 * * *"]
 
 [observability]
-
 enabled = true
 
 [observability.logs]
-
 enabled = true
-
 invocation_logs = true
-
 persist = true
 
 [observability.traces]
-
 enabled = true
-
 persist = true

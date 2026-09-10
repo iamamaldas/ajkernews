@@ -13,31 +13,31 @@
 <meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="apple-touch-icon" href="/assets/logo.png">
-<link rel="icon" type="image/png" sizes="512x512" href="/assets/logo.png">
-<link rel="shortcut icon" type="image/png" href="/assets/logo.png">
+<link rel="apple-touch-icon" href="/logo.png">
+<link rel="icon" type="image/png" sizes="512x512" href="/logo.png">
+<link rel="shortcut icon" type="image/png" href="/logo.png">
 <meta property="og:title" content="Ajker News | আজকের নিউজ - কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর">
 <meta property="og:description" content="ajkernews.in-এ পড়ুন কলকাতা, পশ্চিমবঙ্গের সমস্ত জেলা ও ব্লকের খবর, ভারতের রাজনীতি, অর্থনীতি, খেলা, বিনোদন, এবং দেশ-বিদেশের গুরুত্বপূর্ণ সংবাদ।">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://ajkernews.in/">
-<meta property="og:image" content="https://ajkernews.in/assets/logo.png">
+<meta property="og:image" content="https://ajkernews.in/logo.png">
 <meta property="og:image:width" content="512">
 <meta property="og:image:height" content="512">
 <meta property="og:site_name" content="Ajker News">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Ajker News | আজকের নিউজ - কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর">
 <meta name="twitter:description" content="ajkernews.in-এ পড়ুন কলকাতা, পশ্চিমবঙ্গের সমস্ত জেলা ও ব্লকের খবর, ভারতের রাজনীতি, অর্থনীতি, খেলা, বিনোদন, এবং দেশ-বিদেশের গুরুত্বপূর্ণ সংবাদ।">
-<meta name="twitter:image" content="https://ajkernews.in/assets/logo.png">
+<meta name="twitter:image" content="https://ajkernews.in/logo.png">
 <script type="application/ld+json">
-{ "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in/assets/logo.png", "description": "কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর বাংলায়。" }
+{ "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in/logo.png", "description": "কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর বাংলায়।" }
 </script>
 <script type="application/ld+json">
 {
-  "@context": "https://schema.org",
-  "@type": "WebSite",
-  "name": "আজকের নিউজ",
-  "alternateName": ["Ajker News", "ajkernews.in"],
-  "url": "https://ajkernews.in/"
+"@context": "https://schema.org",
+"@type": "WebSite",
+"name": "আজকের নিউজ",
+"alternateName": ["Ajker News", "ajkernews.in"],
+"url": "https://ajkernews.in/"
 }
 </script>
 <style>
@@ -175,7 +175,7 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
 <div class="header">
   <div class="header-left">
     <a href="/" class="header-home-link" aria-label="Ajker News Home">
-      <img src="/assets/logo.png" class="header-logo" alt="Ajker News Logo">
+      <img src="/logo.png" class="header-logo" alt="Ajker News Logo">
       <h1>আজকের নিউজ</h1>
     </a>
   </div>
@@ -296,7 +296,6 @@ function getDeviceId() {
   return id;
 }
 
-// ---- Love local state ----
 function isNewsLoved(id) {
   return localStorage.getItem('loved:' + String(id)) === '1';
 }
@@ -335,7 +334,7 @@ function normalizeNews(news) {
     summary: news.summary || news.description || '',
     main_topic: news.main_topic || news.headline || '',
     category: news.category || 'general',
-    image_url: news.image_url || news.image || news.thumbnail || '/assets/logo.png',
+    image_url: news.image_url || news.image || news.thumbnail || '/logo.png',
     published_at: news.published_at || news.created_at || '',
     source_name: news.source_name || news.source || 'Ajker News',
     source_url: news.source_url || news.url || '',
@@ -500,7 +499,7 @@ function renderNews(newsList, hasMore = false) {
   let adCounter = 0;
   for (let i = 0; i < limitedNews.length; i++) {
     const news = limitedNews[i];
-    const image = news.image_url || '/assets/logo.png';
+    const image = news.image_url || '/logo.png';
     const headline = news.headline || news.main_topic || 'সংবাদ';
     const summary = news.summary || '';
     const category = getCategoryLabel(news.category);
@@ -515,7 +514,7 @@ function renderNews(newsList, hasMore = false) {
     const loved = isNewsLoved(news.id);
     const fill = loved ? '#e74c3c' : 'none';
     html += `<article class="news-card" data-news-id="${escapeHtml(news.id)}">
-      <img class="news-image" src="${escapeHtml(image)}" alt="${escapeHtml(headline)}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='/assets/logo.png';">
+      <img class="news-image" src="${escapeHtml(image)}" alt="${escapeHtml(headline)}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='/logo.png';">
       <div class="news-body">
         <div class="news-category">${escapeHtml(category)}</div>
         <h2 class="news-title">${escapeHtml(headline)}</h2>
@@ -615,7 +614,7 @@ async function loadMoreNews() {
   }
 }
 
-// ===== LOVE (Optimistic UI with localStorage) =====
+// ===== LOVE =====
 async function toggleLove(id) {
   const deviceId = getDeviceId();
   const currentlyLoved = isNewsLoved(id);
@@ -650,7 +649,7 @@ async function toggleLove(id) {
   }
 }
 
-// ===== SHARE -- native share first, copy with alert (icon removed) =====
+// ===== SHARE =====
 async function copyShareText(text) {
   try {
     if (navigator.clipboard && window.isSecureContext) {
@@ -717,7 +716,7 @@ async function shareNews(id, headline, summary) {
   }
 }
 
-// ===== NOTIFICATION (improved with background sync) =====
+// ===== NOTIFICATION =====
 let notificationSetupInProgress = false;
 async function toggleNotification() {
   const btn = document.getElementById('notifyBtn');
@@ -801,7 +800,7 @@ async function toggleNotification() {
   }
 }
 
-// ===== CHECK NOTIFICATION STATUS ON LOAD =====
+// ===== CHECK NOTIFICATION STATUS — OS-level aware =====
 async function checkNotificationStatus() {
   if (!('Notification' in window) || !('PushManager' in window)) return;
   try {
@@ -809,7 +808,12 @@ async function checkNotificationStatus() {
     const subscription = await registration.pushManager.getSubscription();
     const btn = document.getElementById('notifyBtn');
     const svg = btn.querySelector('svg');
-    if (subscription) {
+    let osGranted = Notification.permission === 'granted';
+    try {
+      const perm = await navigator.permissions.query({ name: 'notifications' });
+      osGranted = perm.state === 'granted';
+    } catch (_) {}
+    if (subscription && osGranted) {
       btn.classList.add('subscribed');
       svg.setAttribute('stroke', '#000');
       svg.setAttribute('fill', '#000');
@@ -823,7 +827,7 @@ async function checkNotificationStatus() {
   }
 }
 
-// ===== MISSED NOTIFICATION SYNC (online & visibility) =====
+// ===== MISSED NOTIFICATION SYNC =====
 async function syncMissedNotifications() {
   if (!navigator.onLine || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
   try {
@@ -912,7 +916,7 @@ function openNewsModal(id) {
   const fill = loved ? '#e74c3c' : 'none';
   const html = `
     <div style="padding:4px 0 8px 0;">
-      <img src="${escapeHtml(news.image_url || '/assets/logo.png')}" style="width:100%; border-radius:8px; margin-bottom:14px;" alt="${escapeHtml(news.headline)}" loading="eager" decoding="async" onerror="this.onerror=null;this.src='/assets/logo.png';">
+      <img src="${escapeHtml(news.image_url || '/logo.png')}" style="width:100%; border-radius:8px; margin-bottom:14px;" alt="${escapeHtml(news.headline)}" loading="eager" decoding="async" onerror="this.onerror=null;this.src='/logo.png';">
       <h2 style="font-size:22px; line-height:1.4; margin-bottom:10px;">${escapeHtml(news.headline)}</h2>
       <p style="font-size:15px; line-height:1.7; color:#444; margin-bottom:12px;">${escapeHtml(news.summary)}</p>
       <div style="font-size:12px; color:#888; margin-bottom:14px;">${escapeHtml(formattedTime)}</div>
@@ -937,7 +941,7 @@ function openNewsModal(id) {
   modal.style.display = 'block';
 }
 
-// ===== SHARED NEWS -- show the shared story first, without changing server feed order =====
+// ===== SHARED NEWS =====
 async function showSharedNewsFirst(id) {
   if (!id) return;
   try {

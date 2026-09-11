@@ -1,7 +1,8 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL — Free Tier Optimized + 180+ Word Bengali + 2h Cron
+ * FINAL v2 — Bug Fixed + Google News Structured Data
+ * 2-Hour Cron Kept
  * =========================================================
  */
 
@@ -10,20 +11,16 @@ import ANALYTICS_CONFIG from "./config-analytics.js";
 import ADS_CONFIG from "./config-ads.js";
 import AFFILIATE_CONFIG from "./config-affiliate.js";
 
-/* =========================================================
-CONFIG
-========================================================= */
 const MAX_NEWS = 1000;
 const MAX_SELECTED_NEWS = 5;
 const API_PAGE_SIZE = 10;
 const GNEWS_MAX_RESULTS = 8;
 const GNEWS_LANGUAGES = ["bn", "en"];
-const GEMINI_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash-lite"];
+const GEMINI_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
+const MIN_SUMMARY_WORDS = 150;
+const TARGET_SUMMARY_WORDS = 180;
 let tablesReadyPromise = null;
 
-/* =========================================================
-BENGALI TRANSLITERATION
-========================================================= */
 const BN_TO_EN_MAP = {
   "অ":"o","আ":"a","ই":"i","ঈ":"i","উ":"u","ঊ":"u",
   "ঋ":"ri","এ":"e","ঐ":"oi","ও":"o","ঔ":"ou",
@@ -49,9 +46,6 @@ function toTransliterated(text) {
   return result.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 }
 
-/* =========================================================
-FETCH HANDLER
-========================================================= */
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -146,14 +140,8 @@ export default {
     }
   },
 
-  /* =====================================================
-  SCHEDULED TASK — 2 hour cron only
-  ===================================================== */
   async scheduled(event, env, ctx) {
-    console.log(
-      "2-hour scheduled task started:",
-      new Date(event.scheduledTime).toISOString()
-    );
+    console.log("2-hour scheduled task started:", new Date(event.scheduledTime).toISOString());
 
     try {
       const result = await updateNews(env);
@@ -178,9 +166,6 @@ export default {
   }
 };
 
-/* =========================================================
-DATABASE
-========================================================= */
 async function ensureTables(env) {
   const queries = [
     `CREATE TABLE IF NOT EXISTS news (id TEXT PRIMARY KEY, source_url TEXT UNIQUE, source_name TEXT, source_title TEXT, source_description TEXT, headline TEXT, summary TEXT, main_topic TEXT, category TEXT, image_url TEXT, published_at TEXT, created_at TEXT, day_key TEXT, status TEXT DEFAULT 'published', score INTEGER DEFAULT 0, search_text TEXT, indexed_at TEXT)`,
@@ -216,9 +201,6 @@ async function ensureTablesOnce(env) {
   }
 }
 
-/* =========================================================
-SHARE PAGE
-========================================================= */
 async function serveSharePage(id, env, requestUserAgentFromContext = "") {
   const safeId = String(id || "").trim();
   if (!safeId) return Response.redirect("https://ajkernews.in/", 302);
@@ -255,9 +237,6 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "") {
   });
 }
 
-/* =========================================================
-NEWS META PAGE
-========================================================= */
 async function serveNewsPage(url, env) {
   const id = url.searchParams.get("id");
   if (!id) return Response.redirect("https://ajkernews.in/", 302);
@@ -267,14 +246,28 @@ async function serveNewsPage(url, env) {
 
   const title = cleanText(result.headline) || "Ajker News";
   const description = cleanText(result.summary || "").slice(0, 160);
-  const image = result.image_url || "";
+  const image = result.image_url || "https://ajkernews.in/logo.png";
+  const publishedAt = result.published_at || new Date().toISOString();
   const homeUrl = `https://ajkernews.in/?shared=${encodeURIComponent(id)}`;
 
-  const imageTags = image
-    ? `<meta property="og:image" content="${escapeHtml(image)}"><meta property="og:image:alt" content="${escapeHtml(title)}"><meta name="twitter:image" content="${escapeHtml(image)}">`
-    : "";
+  const newsArticleLd = JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "NewsArticle",
+    "headline": title,
+    "description": description,
+    "image": [image],
+    "datePublished": publishedAt,
+    "dateModified": publishedAt,
+    "author": { "@type": "Organization", "name": "Ajker News" },
+    "publisher": {
+      "@type": "Organization",
+      "name": "Ajker News",
+      "logo": { "@type": "ImageObject", "url": "https://ajkernews.in/logo.png" }
+    },
+    "mainEntityOfPage": { "@type": "WebPage", "@id": `https://ajkernews.in/?id=${encodeURIComponent(id)}` }
+  });
 
-  let html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} - Ajker News</title><meta name="description" content="${escapeHtml(description)}"><meta property="og:title" content="${escapeHtml(title)}"><meta property="og:description" content="${escapeHtml(description)}"><meta property="og:url" content="${escapeHtml(homeUrl)}"><meta property="og:type" content="article">${imageTags}<meta name="twitter:card" content="${image ? "summary_large_image" : "summary"}"><meta name="twitter:title" content="${escapeHtml(title)}"><meta name="twitter:description" content="${escapeHtml(description)}"><meta http-equiv="refresh" content="0;url=${escapeHtml(homeUrl)}"><script>window.location.replace(${JSON.stringify(homeUrl)});</script></head><body><p>${escapeHtml(title)}</p></body></html>`;
+  let html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} - Ajker News</title><meta name="description" content="${escapeHtml(description)}"><meta property="og:title" content="${escapeHtml(title)}"><meta property="og:description" content="${escapeHtml(description)}"><meta property="og:url" content="${escapeHtml(homeUrl)}"><meta property="og:type" content="article"><meta property="og:image" content="${escapeHtml(image)}"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${escapeHtml(title)}"><meta name="twitter:description" content="${escapeHtml(description)}"><meta name="twitter:image" content="${escapeHtml(image)}"><script type="application/ld+json">${newsArticleLd}</script><meta http-equiv="refresh" content="0;url=${escapeHtml(homeUrl)}"><script>window.location.replace(${JSON.stringify(homeUrl)});</script></head><body><p>${escapeHtml(title)}</p></body></html>`;
 
   const analyticsScript = `<script async src="https://www.googletagmanager.com/gtag/js?id=${escapeHtml(ANALYTICS_CONFIG.gaTrackingId)}"></script><script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag("js",new Date());gtag("config",${JSON.stringify(ANALYTICS_CONFIG.gaTrackingId)});</script>${ANALYTICS_CONFIG.extraHeadScripts || ""}${ADS_CONFIG.adNetworkScripts || ""}`;
 
@@ -293,9 +286,6 @@ async function serveNewsPage(url, env) {
   });
 }
 
-/* =========================================================
-AFFILIATE
-========================================================= */
 async function handleAffiliate(url, env) {
   const ref = url.searchParams.get("ref") || "direct";
   let targetUrl = url.searchParams.get("url");
@@ -316,9 +306,6 @@ async function handleAffiliate(url, env) {
   return Response.redirect(targetUrl, 302);
 }
 
-/* =========================================================
-NEWS UPDATE
-========================================================= */
 async function updateNews(env) {
   if (!env.DB) throw new Error("D1 binding DB is missing");
   if (!env.GNEWS_API_KEY) throw new Error("GNEWS_API_KEY secret is missing");
@@ -372,7 +359,7 @@ async function updateNews(env) {
       .map(c => ({
         ...c,
         headline: c.source_title,
-        summary: c.source_description || `${c.source_title} সম্পর্কে সর্বশেষ তথ্য।`,
+        summary: c.source_description || "",
         main_topic: detectFallbackCategory(c.source_title + ' ' + c.source_description),
         category: detectFallbackCategory(c.source_title + ' ' + c.source_description),
         score: fallbackScore(c.source_title + ' ' + c.source_description, detectFallbackCategory(c.source_title + ' ' + c.source_description))
@@ -389,7 +376,7 @@ async function updateNews(env) {
       .map(c => ({
         ...c,
         headline: c.source_title,
-        summary: c.source_description || `${c.source_title} সম্পর্কে সর্বশেষ তথ্য।`,
+        summary: c.source_description || "",
         main_topic: fallbackTopic('west_bengal'),
         category: 'west_bengal',
         score: fallbackScore(c.source_title + ' ' + c.source_description, 'west_bengal')
@@ -432,7 +419,6 @@ async function updateNews(env) {
         await sleep(1500 * attempt);
       }
     }
-    await pingSearchEngines();
   }
 
   return {
@@ -449,9 +435,6 @@ async function updateNews(env) {
   };
 }
 
-/* =========================================================
-GNEWS
-========================================================= */
 async function fetchGNews(env) {
   const results = [];
   for (const language of GNEWS_LANGUAGES) {
@@ -507,9 +490,6 @@ async function fetchGNewsFeed(env, language) {
     .filter(article => article.source_url && article.source_title);
 }
 
-/* =========================================================
-EXISTING NEWS FILTER
-========================================================= */
 async function removeExistingNews(candidates, env) {
   const unique = [];
   const checked = new Set();
@@ -538,9 +518,6 @@ function selectBalancedLanguageCandidates(candidates, bnCount, enCount) {
   return [...bn, ...en];
 }
 
-/* =========================================================
-GEMINI
-========================================================= */
 async function processWithGemini(candidates, env) {
   const input = candidates.map((item, index) => ({
     candidate_id: index + 1,
@@ -551,8 +528,7 @@ async function processWithGemini(candidates, env) {
     published_at: item.published_at
   }));
 
-  const prompt = `\
-You are the senior editor of Ajker News, an Indian Bengali news website.
+  const prompt = `You are the senior editor of Ajker News, an Indian Bengali news website.
 Your job is to select the ${MAX_SELECTED_NEWS} most important and useful NEW Indian news stories from the provided candidates.
 
 PRIMARY AUDIENCE: Bengali readers in India.
@@ -562,7 +538,7 @@ LANGUAGE: Write the final headline and summary in natural professional Bengali.
 COVERAGE PRIORITY:
 1. West Bengal: Kolkata, West Bengal government, Mamata Banerjee, TMC, BJP Bengal, Bengal politics, Bengal crime, Bengal development, Bengal education, Bengal jobs, Bengal weather, Bengal public-interest news.
 2. India: Indian government, Delhi, Parliament, Prime Minister, Supreme Court, national politics, economy, jobs, education, public-interest events.
-3. Other Indian states: Important events from Maharashtra, Tamil Nadu, Karnataka, Telangana, Kerala, Gujarat, Rajasthan, Uttar Pradesh, Bihar, Assam, Odisha, and other Indian states.
+3. Other Indian states: Important events from Maharashtra, Tamil Nadu, Karnataka, Telangana, Kerala, Gujarat, Rajasthan, Uttar Pradesh, Bihar, Assam, Odisha.
 4. Major world news affecting India.
 5. Business.
 6. Technology.
@@ -570,9 +546,10 @@ COVERAGE PRIORITY:
 8. Entertainment.
 
 CRITICAL LENGTH REQUIREMENT:
-- Each summary MUST be AT LEAST 180 Bengali words. This is mandatory.
-- Aim for 180-220 Bengali words per summary.
-- Do NOT write short summaries. If a summary is under 180 words, it will be rejected.
+- Each summary MUST be AT LEAST ${MIN_SUMMARY_WORDS} Bengali words.
+- AIM for ${TARGET_SUMMARY_WORDS}-220 Bengali words per summary.
+- Only if ${TARGET_SUMMARY_WORDS} is impossible, accept ${MIN_SUMMARY_WORDS}-${TARGET_SUMMARY_WORDS - 1}.
+- Do NOT write summaries under ${MIN_SUMMARY_WORDS} words.
 - Cover WHAT happened, WHO was involved, WHERE, WHEN, WHY it matters, and BACKGROUND context.
 - Add relevant context, implications, and public interest angle.
 
@@ -586,13 +563,13 @@ IMPORTANT RULES:
 - Prefer West Bengal when the story is genuinely important.
 - Do not select duplicate stories.
 - Return ONLY valid JSON.
-- Return EXACTLY ${MAX_SELECTED_NEWS} objects (no less, no more).
+- Return EXACTLY ${MAX_SELECTED_NEWS} objects.
 
 Each object MUST be:
 {
   "candidate_id": 1,
   "headline": "concise Bengali headline",
-  "summary": "180-220 Bengali words detailed summary with context and background",
+  "summary": "detailed Bengali summary",
   "main_topic": "...",
   "category": "west_bengal",
   "score": 95
@@ -632,7 +609,7 @@ async function callGeminiModel(model, prompt, env) {
         generationConfig: {
           temperature: 0.2,
           responseMimeType: "application/json",
-          maxOutputTokens: 6000
+          maxOutputTokens: 8000
         }
       })
     });
@@ -690,14 +667,12 @@ function validateGeminiResults(parsed, candidates) {
     const topic = cleanText(item.main_topic);
     if (!headline || !summary) continue;
 
-    // ✅ Minimum 180 words enforcement
     const wordCount = summary.split(/\s+/).filter(Boolean).length;
-    if (wordCount < 180) {
+    if (wordCount < MIN_SUMMARY_WORDS) {
       console.warn(`Summary too short (${wordCount} words), skipping candidate ${candidateId}`);
       continue;
     }
 
-    // Limit max 3 per language for 5-item selection
     if (original.language === "bn") {
       if (bnCount >= 3) continue;
       bnCount++;
@@ -722,9 +697,6 @@ function validateGeminiResults(parsed, candidates) {
   return results.slice(0, MAX_SELECTED_NEWS);
 }
 
-/* =========================================================
-FALLBACK
-========================================================= */
 function buildFallbackNews(candidates) {
   return candidates
     .map(item => {
@@ -734,8 +706,8 @@ function buildFallbackNews(candidates) {
       const score = fallbackScore(`${title} ${description}`, category);
 
       let summary = description;
-      if (summary.split(/\s+/).filter(Boolean).length < 80) {
-        summary = `${description} এই ঘটনা সম্পর্কে বিস্তারিত তথ্য এবং সর্বশেষ আপডেট জানতে Ajker News এর সাথে থাকুন। আমাদের প্রতিবেদক এই বিষয়ে আরও অনুসন্ধান চালিয়ে যাচ্ছেন এবং নতুন তথ্য পাওয়া মাত্রই আপডেট করা হবে। এই ধরনের গুরুত্বপূর্ণ সংবাদ সবার আগে পেতে আমাদের নোটিফিকেশন চালু রাখুন।`;
+      if (!summary || summary.trim() === '') {
+        summary = title;
       }
 
       return {
@@ -781,9 +753,6 @@ function fallbackScore(text, category) {
   return clampScore(score);
 }
 
-/* =========================================================
-INSERT NEWS
-========================================================= */
 async function insertNews(item, env) {
   const id = crypto.randomUUID();
   const createdAt = new Date().toISOString();
@@ -798,9 +767,6 @@ async function insertNews(item, env) {
   item.id = id;
 }
 
-/* =========================================================
-GET NEWS API
-========================================================= */
 async function handleGetNews(url, env) {
   const category = url.searchParams.get("category") || "top";
   const query = (url.searchParams.get("q") || "").trim();
@@ -836,9 +802,6 @@ async function handleGetNews(url, env) {
   return json({ success: true, count: news.length, offset, limit: API_PAGE_SIZE, has_more: hasMore, news }, 200, 30);
 }
 
-/* =========================================================
-ENFORCE MAX NEWS
-========================================================= */
 async function enforceMaximumNews(env) {
   const result = await env.DB.prepare(`SELECT COUNT(*) AS total FROM news`).first();
   const total = Number(result?.total || 0);
@@ -860,9 +823,6 @@ async function enforceMaximumNews(env) {
   return ids.length;
 }
 
-/* =========================================================
-PUSH SUBSCRIBE / UNSUBSCRIBE
-========================================================= */
 async function handleSubscribe(request, env) {
   try {
     const subscription = await request.json();
@@ -906,9 +866,6 @@ async function handleUnsubscribe(request, env) {
   }
 }
 
-/* =========================================================
-PUSH NOTIFICATIONS
-========================================================= */
 async function cleanExpiredPushNotifications(env) {
   const now = new Date().toISOString();
   try {
@@ -986,7 +943,6 @@ async function sendPendingPushNotifications(env, endpointFilter = null) {
   const list = rows.results || [];
   if (!list.length) return;
 
-  // ✅ Parallel push sending to avoid 30s timeout
   await Promise.allSettled(
     list.map(async (row) => {
       try {
@@ -1002,7 +958,14 @@ async function sendPendingPushNotifications(env, endpointFilter = null) {
         await webPush.sendNotification(
           { endpoint: row.endpoint, keys: JSON.parse(row.keys_json) },
           payload,
-          { TTL: 86400 }
+          {
+            TTL: 86400,
+            urgency: "high",
+            headers: {
+              "Topic": "ajker-news-" + row.notification_id,
+              "Urgency": "high"
+            }
+          }
         );
 
         await env.DB.prepare(`UPDATE push_notification_deliveries SET last_sent_at = ?, status = 'sent' WHERE id = ?`)
@@ -1013,7 +976,6 @@ async function sendPendingPushNotifications(env, endpointFilter = null) {
           await env.DB.prepare(`DELETE FROM push_subscriptions WHERE endpoint = ?`).bind(row.endpoint).run();
           await env.DB.prepare(`DELETE FROM push_notification_deliveries WHERE endpoint = ?`).bind(row.endpoint).run();
         } else if (statusCode === 429) {
-          // Rate limited - will retry on next cron
         } else {
           console.error("Push send failed:", statusCode, error?.message || error);
         }
@@ -1043,9 +1005,6 @@ async function handlePushSync(request, env) {
   }
 }
 
-/* =========================================================
-LOVE
-========================================================= */
 async function toggleLove(request, env) {
   try {
     const { id, deviceId } = await request.json();
@@ -1069,9 +1028,6 @@ async function toggleLove(request, env) {
   }
 }
 
-/* =========================================================
-COMMENTS
-========================================================= */
 async function getComments(url, env) {
   const id = url.searchParams.get("id");
   if (!id) return json({ error: "Missing id" }, 400, 0);
@@ -1095,9 +1051,6 @@ async function addComment(request, env) {
   }
 }
 
-/* =========================================================
-GOOGLE INDEXING
-========================================================= */
 async function requestGoogleIndexing(url, env) {
   try {
     const token = await getGoogleAccessToken(env);
@@ -1136,9 +1089,6 @@ function getIdFromNewsUrl(url) {
   }
 }
 
-/* =========================================================
-GOOGLE TOKEN
-========================================================= */
 async function getGoogleAccessToken(env) {
   try {
     if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) return null;
@@ -1189,24 +1139,12 @@ async function getGoogleAccessToken(env) {
   }
 }
 
-/* =========================================================
-SEARCH ENGINE PING
-========================================================= */
-async function pingSearchEngines() {
-  const sitemapUrl = encodeURIComponent("https://ajkernews.in/sitemap.xml");
-  try { await fetch(`https://www.google.com/ping?sitemap=${sitemapUrl}`); } catch {}
-  try { await fetch(`https://www.bing.com/ping?sitemap=${sitemapUrl}`); } catch {}
-}
-
-/* =========================================================
-SITEMAP
-========================================================= */
 async function generateSitemap(env) {
   const result = await env.DB.prepare(`SELECT id, created_at FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT ?`).bind(MAX_NEWS).all();
   const news = result.results || [];
   const baseUrl = "https://ajkernews.in";
 
-  let xml = `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${baseUrl}/</loc><changefreq>hourly</changefreq><priority>1.0</priority></url>`;
+  let xml = `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9"><url><loc>${baseUrl}/</loc><changefreq>hourly</changefreq><priority>1.0</priority></url>`;
 
   for (const item of news) {
     const lastmod = item.created_at ? item.created_at.split("T")[0] : new Date().toISOString().split("T")[0];
@@ -1225,9 +1163,6 @@ async function generateSitemap(env) {
   });
 }
 
-/* =========================================================
-UTILITIES
-========================================================= */
 function normalizeUrl(url) {
   try {
     const parsed = new URL(url);

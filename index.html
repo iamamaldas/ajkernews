@@ -1048,6 +1048,28 @@ function closeModal() {
 }
 document.getElementById('currentYear').textContent = new Date().getFullYear();
 
+// ===== NOTIFICATION CLICK → SPECIFIC NEWS OPEN (NEW) =====
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'OPEN_NEWS_URL') {
+      const url = event.data.url;
+      try {
+        const parsed = new URL(url);
+        const id = parsed.searchParams.get('id') || parsed.pathname.split('/').pop();
+        if (id) {
+          setTimeout(() => {
+            if (typeof openNewsModal === 'function') {
+              openNewsModal(id);
+            }
+          }, 800);
+        }
+      } catch (e) {
+        console.warn('Failed to parse notification URL:', e);
+      }
+    }
+  });
+}
+
 // ===== INIT =====
 (async function initApp() {
   if ('serviceWorker' in navigator) {

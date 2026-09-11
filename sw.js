@@ -1,9 +1,9 @@
 /**
  * Ajker News Service Worker
- * FINAL — Push notification works when app is closed
+ * FINAL v2 — High Priority Push + Specific News on Click
  */
 
-const CACHE_VERSION = "ajker-news-v2026-09-10-1";
+const CACHE_VERSION = "ajker-news-v2026-09-11-1";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const LOGO_URL = "/logo.png";
 
@@ -57,7 +57,6 @@ self.addEventListener("fetch", event => {
   event.respondWith(fetch(request).catch(() => caches.match(request)));
 });
 
-/* ========== PUSH NOTIFICATION ========== */
 self.addEventListener("push", event => {
   let data = {
     title: "আজকের নিউজ",
@@ -88,6 +87,9 @@ self.addEventListener("push", event => {
     tag: data.notificationId || data.url || "ajker-news",
     renotify: true,
     silent: false,
+    requireInteraction: true,
+    priority: 2,
+    timestamp: Date.now(),
     data: {
       url: data.url || "/",
       notificationId: data.notificationId || "",
@@ -98,7 +100,6 @@ self.addEventListener("push", event => {
   event.waitUntil(self.registration.showNotification(data.title, options));
 });
 
-/* ========== NOTIFICATION CLICK ========== */
 self.addEventListener("notificationclick", event => {
   event.notification.close();
   const url = event.notification.data?.url || "/";
@@ -111,6 +112,7 @@ self.addEventListener("notificationclick", event => {
     for (const client of windowClients) {
       if (client.url.includes("ajkernews.in") && "focus" in client) {
         try {
+          client.postMessage({ type: "OPEN_NEWS_URL", url: fullUrl });
           if ("navigate" in client) await client.navigate(fullUrl);
         } catch (_) {}
         await client.focus();
@@ -121,7 +123,6 @@ self.addEventListener("notificationclick", event => {
   })());
 });
 
-/* ========== SUBSCRIPTION CHANGE — CRITICAL ========== */
 self.addEventListener("pushsubscriptionchange", event => {
   event.waitUntil((async () => {
     try {
@@ -150,7 +151,6 @@ self.addEventListener("pushsubscriptionchange", event => {
   })());
 });
 
-/* ========== BACKGROUND SYNC ========== */
 self.addEventListener("sync", event => {
   if (event.tag === "sync-pending-notifications") {
     event.waitUntil(syncMissedNotifications());

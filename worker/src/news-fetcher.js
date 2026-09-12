@@ -1,252 +1,116 @@
-import {
-  insertCandidate
-} from "./database.js";
-
-import {
-  makeId,
-  getDayKey
-} from "./utils.js";
-
-
 /*
- * GNews configuration
+ * GNews fetcher — free-tier optimized
  *
- * We use English source news from India.
- * Gemini will later convert the selected news
- * into natural Bengali short news.
+ * Strategy:
+ * - 2 languages: bn + en
+ * - 10 articles per request (free-tier max)
+ * - Keyword search: West Bengal / Kolkata / politics / scheme
+ * - 1 second delay between bn and en calls (rate limit safe)
  */
 
-const GNEWS_BASE_URL =
-  "https://gnews.io/api/v4/top-headlines";
+import { insertCandidate } from "./database.js";
+import { makeId, getDayKey } from "./utils.js";
 
+const GNEWS_BASE_URL = "https://gnews.io/api/v4/search";
 
-/*
- * One Cron run = ONE GNews request = 10 articles.
- *
- * Over 24 hours:
- *
- * 24 requests × 10 articles
- * = maximum 240 candidate articles/day
- *
- * The selector will later choose the best 5 from each batch.
- */
+const MAX_PER_LANGUAGE = 10;
+const GNEWS_LANGUAGES = ["bn", "en"];
+const DELAY_BETWEEN_CALLS_MS = 1000;
 
-const NEWS_CATEGORIES = [
-  "politics",    // 🔥 NEW: West Bengal politics priority
-  "general",
-  "world",
-  "nation",
-  "business",
-  "technology",
-  "entertainment",
-  "sports",
-  "science"
-];
+const SEARCH_QUERY =
+  "West Bengal OR Kolkata OR Mamata OR TMC OR Bengal government OR West Bengal scheme";
 
-
-/*
- * Fetch one batch from GNews.
- */
-export async function fetchGNewsBatch(
-  apiKey,
-  category = "general"
-) {
-
+export async function fetchGNewsBatch(apiKey, language = "en") {
   if (!apiKey) {
-    throw new Error(
-      "GNEWS_API_KEY is not configured."
-    );
+    throw new Error("GNEWS_API_KEY is not configured.");
   }
 
   const params = new URLSearchParams({
-    category,
-    lang: "en",
+    q: SEARCH_QUERY,
+    lang: language,
     country: "in",
-    max: "10",
+    max: String(MAX_PER_LANGUAGE),
+    sortby: "publishedAt",
     apikey: apiKey
   });
 
-  const url =
-    `${GNEWS_BASE_URL}?${params.toString()}`;
+  const url = `${GNEWS_BASE_URL}?${params.toString()}`;
 
   const response = await fetch(url, {
     method: "GET",
-    headers: {
-      "Accept": "application/json"
-    }
+    headers: { Accept: "application/json" }
   });
 
-  /*
-   * Always check the HTTP status.
-   */
   if (!response.ok) {
-
-    let errorMessage =
-      `GNews request failed: HTTP ${response.status}`;
-
+    let errorMessage = `GNews ${language} request failed: HTTP ${response.status}`;
     try {
-
-      const errorData =
-        await response.json();
-
+      const errorData = await response.json();
       if (errorData?.errors) {
-
-        if (Array.isArray(errorData.errors)) {
-          errorMessage +=
-            ` - ${errorData.errors.join(", ")}`;
-        } else {
-          errorMessage +=
-            ` - ${JSON.stringify(errorData.errors)}`;
-        }
+        errorMessage += ` - ${
+          Array.isArray(errorData.errors)
+            ? errorData.errors.join(", ")
+            : JSON.stringify(errorData.errors)
+        }`;
       }
-
     } catch {
-      // Ignore JSON parsing failure.
+      // ignore
     }
-
     throw new Error(errorMessage);
   }
 
-  const data =
-    await response.json();
+  const data = await response.json();
 
   if (!Array.isArray(data.articles)) {
-    throw new Error(
-      "GNews returned an invalid articles response."
-    );
+    throw new Error("GNews returned an invalid articles response.");
   }
 
   return data.articles;
 }
 
+export function normalizeGNewsArticle(article, language) {
+  const sourceUrl = String(article?.url || "").trim();
+  const title = String(article?.title || "").trim();
+  const description = String(article?.description || "").trim();
+  const image = String(article?.image || "").trim();
+  const sourceName = String(article?.source?.name || "Unknown source").trim();
 
-/*
- * Convert a GNews article into our internal
- * database candidate format.
- */
-export function normalizeGNewsArticle(
-  article,
-  category
-) {
+  const publishedAt = article?.publishedAt
+    ? new Date(article.publishedAt).toISOString()
+    : new Date().toISOString();
 
-  const sourceUrl =
-    String(article?.url || "").trim();
+  const id = String(article?.id || "").trim() || makeId();
 
-  const title =
-    String(article?.title || "").trim();
-
-  const description =
-    String(article?.description || "").trim();
-
-  const image =
-    String(article?.image || "").trim();
-
-  const sourceName =
-    String(
-      article?.source?.name || "Unknown source"
-    ).trim();
-
-  const publishedAt =
-    article?.publishedAt
-      ? new Date(article.publishedAt).toISOString()
-      : new Date().toISOString();
-
-  /*
-   * GNews provides its own article ID.
-   * If it is unavailable, create our own ID.
-   */
-  const id =
-    String(article?.id || "").trim() ||
-    makeId();
-
-  /*
-   * A source URL is essential.
-   * Articles without a valid URL are ignored.
-   */
   if (!sourceUrl || !title) {
     return null;
   }
 
-  /*
-   * Initial score only.
-   *
-   * The real quality/importance scoring will be
-   * performed by news-selector.js later.
-   */
-  const score =
-    calculateInitialScore(
-      category,
-      publishedAt
-    );
+  const score = calculateInitialScore(language, publishedAt);
 
   return {
-
     id,
-
-    source_url:
-      sourceUrl,
-
-    source_name:
-      sourceName,
-
-    source_title:
-      title,
-
-    source_description:
-      description,
-
-    headline:
-      null,
-
-    summary:
-      null,
-
-    main_topic:
-      null,
-
-    category,
-
-    image_url:
-      image || null,
-
-    published_at:
-      publishedAt,
-
-    created_at:
-      Date.now(),
-
-    day_key:
-      getDayKey(
-        new Date(publishedAt)
-      ),
-
+    source_url: sourceUrl,
+    source_name: sourceName,
+    source_title: title,
+    source_description: description,
+    headline: null,
+    summary: null,
+    main_topic: null,
+    category: "general",
+    language,
+    image_url: image || null,
+    published_at: publishedAt,
+    created_at: new Date().toISOString(),
+    day_key: getDayKey(new Date(publishedAt)),
     score
   };
 }
 
-
-/*
- * Insert one batch into D1 as candidates.
- *
- * INSERT OR IGNORE in database.js prevents
- * the same source URL from being inserted again.
- */
-export async function storeGNewsCandidates(
-  db,
-  articles,
-  category
-) {
-
+export async function storeGNewsCandidates(db, articles, language) {
   let inserted = 0;
   let skipped = 0;
 
   for (const article of articles) {
-
-    const normalized =
-      normalizeGNewsArticle(
-        article,
-        category
-      );
+    const normalized = normalizeGNewsArticle(article, language);
 
     if (!normalized) {
       skipped++;
@@ -254,21 +118,10 @@ export async function storeGNewsCandidates(
     }
 
     try {
-
-      await insertCandidate(
-        db,
-        normalized
-      );
-
+      await insertCandidate(db, normalized);
       inserted++;
-
     } catch (error) {
-
-      console.error(
-        "Failed to store GNews candidate:",
-        error
-      );
-
+      console.error("Failed to store GNews candidate:", error?.message || String(error));
       skipped++;
     }
   }
@@ -280,141 +133,42 @@ export async function storeGNewsCandidates(
   };
 }
 
+export async function runGNewsBatch(db, apiKey) {
+  const results = [];
 
-/*
- * Complete one scheduled GNews run.
- *
- * Example:
- *
- * 03:00 → general
- * 06:00 → world
- * 09:00 → nation
- * 12:00 → business
- * 15:00 → technology
- * 18:00 → entertainment
- * 21:00 → sports
- * 00:00 → science
- *
- * The exact UTC schedule will be handled by
- * the Cloudflare Cron trigger.
- */
-export async function runGNewsBatch(
-  db,
-  apiKey,
-  category
-) {
-
-  console.log(
-    `GNews batch started: ${category}`
-  );
-
-  const articles =
-    await fetchGNewsBatch(
-      apiKey,
-      category
-    );
-
-  const result =
-    await storeGNewsCandidates(
-      db,
-      articles,
-      category
-    );
-
-  console.log(
-    "GNews batch completed:",
-    {
-      category,
-      ...result
+  for (const language of GNEWS_LANGUAGES) {
+    try {
+      console.log(`[FETCH] Fetching GNews lang=${language}`);
+      const articles = await fetchGNewsBatch(apiKey, language);
+      const result = await storeGNewsCandidates(db, articles, language);
+      console.log(
+        `[FETCH] lang=${language} received=${result.received} inserted=${result.inserted} skipped=${result.skipped}`
+      );
+      results.push({ language, ...result });
+    } catch (error) {
+      console.error(`[FETCH] GNews ${language} failed:`, error?.message || String(error));
+      results.push({ language, received: 0, inserted: 0, skipped: 0, error: error?.message });
     }
-  );
+
+    // 1 second delay between languages (rate limit safety)
+    if (GNEWS_LANGUAGES.indexOf(language) < GNEWS_LANGUAGES.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_CALLS_MS));
+    }
+  }
 
   return {
-    category,
-    ...result
+    batches: results,
+    totalReceived: results.reduce((sum, r) => sum + (r.received || 0), 0),
+    totalInserted: results.reduce((sum, r) => sum + (r.inserted || 0), 0)
   };
 }
 
+function calculateInitialScore(language, publishedAt) {
+  const base = language === "bn" ? 12 : 10;
 
-/*
- * Select the category for the current Cron slot.
- *
- * There are 8 categories because we have
- * 8 scheduled runs in 24 hours.
- */
-export function getCategoryForCronSlot(
-  scheduledTime
-) {
+  const published = new Date(publishedAt).getTime();
+  const ageHours = Math.max(0, (Date.now() - published) / (1000 * 60 * 60));
+  const freshness = Math.max(0, 10 - Math.min(ageHours, 10));
 
-  const date =
-    new Date(scheduledTime);
-
-  const hour =
-    date.getUTCHours();
-
-  const slot =
-    Math.floor(hour / 3);
-
-  return NEWS_CATEGORIES[
-    slot % NEWS_CATEGORIES.length
-  ];
-}
-
-
-/*
- * Small preliminary score.
- *
- * This is NOT the final selection score.
- *
- * news-selector.js will later consider:
- * - freshness
- * - importance
- * - duplicate stories
- * - source quality
- * - category balance
- * - relevance
- */
-function calculateInitialScore(
-  category,
-  publishedAt
-) {
-
-  const categoryWeight = {
-    general: 10,
-    world: 9,
-    nation: 10,
-    business: 8,
-    technology: 8,
-    entertainment: 5,
-    sports: 6,
-    science: 8,
-    politics: 10   // 🔥 NEW: politics category gets high priority
-  };
-
-  const base =
-    categoryWeight[category] || 5;
-
-  const published =
-    new Date(publishedAt).getTime();
-
-  const ageHours =
-    Math.max(
-      0,
-      (Date.now() - published) /
-      (1000 * 60 * 60)
-    );
-
-  /*
-   * Newer news receives a slightly higher
-   * preliminary score.
-   */
-  const freshness =
-    Math.max(
-      0,
-      10 - Math.min(ageHours, 10)
-    );
-
-  return Number(
-    (base + freshness).toFixed(2)
-  );
+  return Number((base + freshness).toFixed(2));
 }

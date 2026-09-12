@@ -1,8 +1,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v2 — Bug Fixed + Google News Structured Data
- * 2-Hour Cron Kept
+ * FINAL v3 — SEO Bot Support + Notification Link Fix
  * =========================================================
  */
 
@@ -56,6 +55,14 @@ export default {
     try {
       await ensureTablesOnce(env);
 
+      // ✅ SEO Fix: Bot Detection for Homepage
+      const userAgent = request.headers.get("User-Agent") || "";
+      const isBot = /googlebot|bingbot|yandex|baiduspider|twitterbot|facebookexternalhit|whatsapp|slurp|duckduckbot|applebot/i.test(userAgent);
+      
+      if (url.pathname === "/" && isBot) {
+        return await serveBotHomepage(env);
+      }
+
       if (ANALYTICS_CONFIG.searchConsole && url.pathname === ANALYTICS_CONFIG.searchConsole.filePath) {
         return new Response(ANALYTICS_CONFIG.searchConsole.content, {
           status: 200,
@@ -73,7 +80,8 @@ export default {
       if (url.pathname.startsWith("/go/")) {
         const id = url.pathname.split("/")[2];
         if (!id) return new Response("Invalid link", { status: 400 });
-        return await serveSharePage(id, env, request.headers.get("User-Agent") || "");
+        // ✅ openModal প্যারামিটারটি serveSharePage এ পাঠানো হচ্ছে
+        return await serveSharePage(id, env, request.headers.get("User-Agent") || "", url);
       }
 
       if (url.pathname === "/api/affiliate" && request.method === "GET") {
@@ -166,6 +174,60 @@ export default {
   }
 };
 
+// ✅ নতুন ফাংশন: বটদের জন্য রেডি-মেড HTML পেজ
+async function serveBotHomepage(env) {
+  try {
+    const result = await env.DB.prepare(
+      `SELECT id, headline, summary, published_at, category, image_url FROM news WHERE status = 'published' ORDER BY published_at DESC LIMIT 20`
+    ).all();
+    
+    const news = result.results || [];
+    let newsHtml = "";
+    
+    for (const item of news) {
+      const link = `https://ajkernews.in/?id=${encodeURIComponent(item.id)}`;
+      newsHtml += `
+        <article style="margin-bottom: 20px;">
+          <h2><a href="${link}">${escapeHtml(item.headline)}</a></h2>
+          <p>${escapeHtml((item.summary || "").substring(0, 300))}...</p>
+          <small>প্রকাশিত: ${escapeHtml(item.published_at || "")}</small>
+        </article>
+      `;
+    }
+
+    const html = `<!DOCTYPE html>
+    <html lang="bn">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>আজকের নিউজ | কলকাতা, পশ্চিমবঙ্গ ও ভারতের সর্বশেষ খবর</title>
+      <meta name="description" content="কলকাতা, পশ্চিমবঙ্গ এবং ভারতের সর্বশেষ খবর পড়ুন আজকের নিউজে। প্রতিদিনের আপডেট বাংলায়।">
+      <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        "name": "আজকের নিউজ",
+        "url": "https://ajkernews.in/"
+      }
+      </script>
+    </head>
+    <body>
+      <header><h1>আজকের নিউজ</h1></header>
+      <main>${newsHtml}</main>
+      <footer><p>&copy; 2026 Ajker News</p></footer>
+    </body>
+    </html>`;
+
+    return new Response(html, {
+      status: 200,
+      headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": "public, max-age=300" }
+    });
+  } catch (error) {
+    console.error("Bot homepage error:", error);
+    return new Response("Error loading content", { status: 500 });
+  }
+}
+
 async function ensureTables(env) {
   const queries = [
     `CREATE TABLE IF NOT EXISTS news (id TEXT PRIMARY KEY, source_url TEXT UNIQUE, source_name TEXT, source_title TEXT, source_description TEXT, headline TEXT, summary TEXT, main_topic TEXT, category TEXT, image_url TEXT, published_at TEXT, created_at TEXT, day_key TEXT, status TEXT DEFAULT 'published', score INTEGER DEFAULT 0, search_text TEXT, indexed_at TEXT)`,
@@ -201,7 +263,8 @@ async function ensureTablesOnce(env) {
   }
 }
 
-async function serveSharePage(id, env, requestUserAgentFromContext = "") {
+// ✅ আপডেট: requestUrl প্যারামিটার যোগ করা হয়েছে openModal ফ্ল্যাগ ধরার জন্য
+async function serveSharePage(id, env, requestUserAgentFromContext = "", requestUrl = null) {
   const safeId = String(id || "").trim();
   if (!safeId) return Response.redirect("https://ajkernews.in/", 302);
 
@@ -221,7 +284,9 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "") {
   const result = await env.DB.prepare(`SELECT headline, summary FROM news WHERE id = ? AND status = 'published' LIMIT 1`).bind(safeId).first();
   if (!result) return Response.redirect("https://ajkernews.in/", 302);
 
-  const homeUrl = `https://ajkernews.in/?shared=${encodeURIComponent(safeId)}`;
+  // ✅ openModal প্যারামিটারটি রিডাইরেক্ট URL-এ যুক্ত করা হচ্ছে
+  const openModalParam = (requestUrl && requestUrl.searchParams.get("openModal") === "true") ? "&openModal=true" : "";
+  const homeUrl = `https://ajkernews.in/?shared=${encodeURIComponent(safeId)}${openModalParam}`;
 
   const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><script>window.location.replace(${JSON.stringify(homeUrl)});</script></head><body><noscript><a href="${escapeHtml(homeUrl)}">পূর্ণ খবর দেখতে এই লিঙ্কে ক্লিক করুন</a></noscript></body></html>`;
 

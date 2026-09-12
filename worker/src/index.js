@@ -2,6 +2,7 @@
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
  * FINAL v4 — Gemini.js integration + Fallback filter
+ * + Error message logging fix
  * =========================================================
  */
 
@@ -144,7 +145,7 @@ export default {
         headers: { "content-type": "text/plain; charset=UTF-8" }
       });
     } catch (error) {
-      console.error("Worker error:", error);
+      console.error("Worker error:", error?.message || error?.stack || String(error));
       return json({ success: false, error: error?.message || "Internal server error" }, 500, 0);
     }
   },
@@ -159,18 +160,18 @@ export default {
       if (result.stored > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
         ctx.waitUntil(
           queueAndSendPushNotifications(env, result.newNewsIds).catch(error => {
-            console.error("Push queue error:", error);
+            console.error("Push queue error:", error?.message || error?.stack || String(error));
           })
         );
       }
 
       ctx.waitUntil(
         cleanExpiredPushNotifications(env).catch(error => {
-          console.error("Push cleanup error:", error);
+          console.error("Push cleanup error:", error?.message || error?.stack || String(error));
         })
       );
     } catch (error) {
-      console.error("Scheduled task failed:", error);
+      console.error("Scheduled task failed:", error?.message || error?.stack || String(error));
     }
   }
 };
@@ -223,7 +224,7 @@ async function serveBotHomepage(env) {
       headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": "public, max-age=300" }
     });
   } catch (error) {
-    console.error("Bot homepage error:", error);
+    console.error("Bot homepage error:", error?.message || error?.stack || String(error));
     return new Response("Error loading content", { status: 500 });
   }
 }
@@ -363,7 +364,7 @@ async function handleAffiliate(url, env) {
       await env.DB.prepare(`INSERT INTO affiliate_clicks (id, affiliate_name, click_url, device_id, created_at) VALUES (?, ?, ?, ?, ?)`)
         .bind(crypto.randomUUID(), ref, targetUrl, "unknown", new Date().toISOString()).run();
     } catch (error) {
-      console.error("Affiliate log error:", error);
+      console.error("Affiliate log error:", error?.message || error?.stack || String(error));
     }
   }
   return Response.redirect(targetUrl, 302);
@@ -377,7 +378,7 @@ async function updateNews(env) {
   try {
     candidates = await fetchGNews(env);
   } catch (error) {
-    console.error("GNews fetch failed:", error);
+    console.error("GNews fetch failed:", error?.message || error?.stack || String(error));
     return { fetched: 0, unique: 0, selected: 0, stored: 0, deleted: 0, indexed: 0, newNewsIds: [], gemini: false, fallback: false, message: "GNews fetch failed" };
   }
 
@@ -427,7 +428,7 @@ async function updateNews(env) {
 
       usedGemini = selected.length > 0;
     } catch (error) {
-      console.error("Gemini failed:", error);
+      console.error("Gemini failed:", error?.message || error?.stack || String(error));
     }
   }
 
@@ -507,7 +508,7 @@ async function updateNews(env) {
       if (news.id) newNewsIds.push(news.id);
       indexedUrls.push(`https://ajkernews.in/?id=${encodeURIComponent(news.id)}`);
     } catch (error) {
-      console.error("News insert failed:", error);
+      console.error("News insert failed:", error?.message || error?.stack || String(error));
     }
   }
 
@@ -546,7 +547,7 @@ async function fetchGNews(env) {
       const feed = await fetchGNewsFeed(env, language);
       results.push(...feed);
     } catch (error) {
-      console.error(`GNews ${language} failed:`, error);
+      console.error(`GNews ${language} failed:`, error?.message || error?.stack || String(error));
     }
   }
 
@@ -785,7 +786,7 @@ async function handleSubscribe(request, env) {
 
     return json({ success: true }, 200, 0);
   } catch (error) {
-    console.error("Subscribe error:", error);
+    console.error("Subscribe error:", error?.message || error?.stack || String(error));
     return json({ success: false, error: error?.message || "Subscribe error" }, 500, 0);
   }
 }
@@ -802,7 +803,7 @@ async function handleUnsubscribe(request, env) {
       return json({ success: false, message: "Subscription not found" }, 404, 0);
     }
   } catch (error) {
-    console.error("Unsubscribe error:", error);
+    console.error("Unsubscribe error:", error?.message || error?.stack || String(error));
     return json({ success: false, error: error?.message || "Unsubscribe error" }, 500, 0);
   }
 }
@@ -813,7 +814,7 @@ async function cleanExpiredPushNotifications(env) {
     await env.DB.prepare(`DELETE FROM push_notification_deliveries WHERE notification_id IN (SELECT id FROM push_notifications WHERE expires_at <= ?)`).bind(now).run();
     await env.DB.prepare(`DELETE FROM push_notifications WHERE expires_at <= ?`).bind(now).run();
   } catch (error) {
-    console.error("Push expiry cleanup failed:", error);
+    console.error("Push expiry cleanup failed:", error?.message || error?.stack || String(error));
   }
 }
 
@@ -918,7 +919,7 @@ async function sendPendingPushNotifications(env, endpointFilter = null) {
           await env.DB.prepare(`DELETE FROM push_notification_deliveries WHERE endpoint = ?`).bind(row.endpoint).run();
         } else if (statusCode === 429) {
         } else {
-          console.error("Push send failed:", statusCode, error?.message || error);
+          console.error("Push send failed:", statusCode, error?.message || String(error));
         }
       }
     })
@@ -941,7 +942,7 @@ async function handlePushSync(request, env) {
 
     return json({ success: true, synced: true }, 200, 0);
   } catch (error) {
-    console.error("Push sync error:", error);
+    console.error("Push sync error:", error?.message || error?.stack || String(error));
     return json({ success: false, error: error?.message || "Push sync error" }, 500, 0);
   }
 }
@@ -1012,12 +1013,12 @@ async function requestGoogleIndexing(url, env) {
       await env.DB.prepare(`INSERT INTO indexing_log (id, news_id, url, status, response, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
         .bind(crypto.randomUUID(), getIdFromNewsUrl(url), url, response.ok ? "success" : "failed", responseText, new Date().toISOString()).run();
     } catch (error) {
-      console.error("Indexing log error:", error);
+      console.error("Indexing log error:", error?.message || error?.stack || String(error));
     }
 
     return response.ok;
   } catch (error) {
-    console.error("Indexing error:", error);
+    console.error("Indexing error:", error?.message || error?.stack || String(error));
     return false;
   }
 }
@@ -1075,7 +1076,7 @@ async function getGoogleAccessToken(env) {
     const data = await response.json();
     return data.access_token || null;
   } catch (error) {
-    console.error("Token generation error:", error);
+    console.error("Token generation error:", error?.message || error?.stack || String(error));
     return null;
   }
 }

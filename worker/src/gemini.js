@@ -1,12 +1,11 @@
 /*
- * Gemini news writer — auto-discovery + quota-aware rotation
+ * Gemini news writer — FULLY AUTOMATIC
  *
- * Strategy:
- * 1. Discover all available Flash models
- * 2. Order: high-quota models first, then newest
- * 3. Try each model in order
- * 4. On 429 (quota) → try next model
- * 5. On 5xx (server) → retry same model, then move on
+ * - Auto-discovers all available Flash models
+ * - Handles 404 (retired models)
+ * - Handles 429 (quota exceeded)
+ * - Handles 5xx (server overload)
+ * - Future-proof: new models auto-added, old models auto-removed
  */
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -16,20 +15,6 @@ const TARGET_SUMMARY_WORDS = 180;
 
 const MAX_RETRIES_5XX = 3;
 const RETRY_DELAY_5XX_MS = 3000;
-
-/*
- * High-quota models — preferred order.
- * These have RPD 500-1500 on free tier.
- */
-const HIGH_QUOTA_MODELS = [
-  "gemini-2.5-flash-lite",
-  "gemini-2.5-flash",
-  "gemini-2.0-flash",
-  "gemini-3.1-flash-lite",
-  "gemini-3.5-flash-lite",
-  "gemini-3.5-flash",
-  "gemini-3.6-flash"
-];
 
 const RESPONSE_SCHEMA = {
   type: "ARRAY",
@@ -46,7 +31,12 @@ const RESPONSE_SCHEMA = {
 };
 
 /*
- * Discover all available Flash models, ordered by priority.
+ * Discover all available Flash models from Google.
+ * Sorted newest first.
+ *
+ * No hardcoded list — Google decides which models exist.
+ * Retired models auto-disappear from the list.
+ * New models auto-appear.
  */
 async function discoverModels(apiKey) {
   const listUrl = `${GEMINI_API_BASE}?key=${encodeURIComponent(apiKey)}`;
@@ -80,11 +70,11 @@ async function discoverModels(apiKey) {
       }
 
       const data = await response.json();
-      const models = Array.isArray(data?.models) ? data.models : [];
+      const allModels = Array.isArray(data?.models) ? data.models : [];
 
-      if (!models.length) throw new Error("ListModels returned no models.");
+      if (!allModels.length) throw new Error("ListModels returned no models.");
 
-      const availableModels = models
+      const availableModels = allModels
         .map(m => {
           const name = String(m?.name || "").replace(/^models\//, "");
           const methods = Array.isArray(m?.supportedGenerationMethods)
@@ -103,33 +93,21 @@ async function discoverModels(apiKey) {
 
       console.log(`[AUTO] Available Flash models: ${availableModels.join(", ")}`);
 
-      // Build priority order
-      const ordered = [];
-
-      // 1. High-quota first
-      for (const preferred of HIGH_QUOTA_MODELS) {
-        if (availableModels.includes(preferred) && !ordered.includes(preferred)) {
-          ordered.push(preferred);
-        }
-      }
-
-      // 2. Remaining models, newest first
-      const remaining = availableModels.filter(m => !ordered.includes(m));
-      remaining.sort((a, b) => {
-        const ma = a.match(/^gemini-(\d+)\.(\d+)/);
-        const mb = b.match(/^gemini-(\d+)\.(\d+)/);
+      // Sort newest first
+      const versionRegex = /^gemini-(\d+)(?:\.(\d+))?/;
+      availableModels.sort((a, b) => {
+        const ma = a.match(versionRegex);
+        const mb = b.match(versionRegex);
         const aMaj = ma ? Number(ma[1]) : 0;
         const bMaj = mb ? Number(mb[1]) : 0;
-        const aMin = ma ? Number(ma[2]) : 0;
-        const bMin = mb ? Number(mb[2]) : 0;
+        const aMin = ma && ma[2] ? Number(ma[2]) : 0;
+        const bMin = mb && mb[2] ? Number(mb[2]) : 0;
         if (aMaj !== bMaj) return bMaj - aMaj;
         return bMin - aMin;
       });
 
-      ordered.push(...remaining);
-
-      console.log(`[AUTO] Model priority: ${ordered.join(" → ")}`);
-      return ordered;
+      console.log(`[AUTO] Priority order: ${availableModels.join(" → ")}`);
+      return availableModels;
 
     } catch (error) {
       lastError = error;
@@ -208,12 +186,6 @@ ${JSON.stringify(sourceArticles, null, 2)}
 
   let lastError = null;
 
-  /*
-   * Try each model in priority order.
-   * - 429 (quota) → move to next model immediately
-   * - 5xx (server) → retry same model, then move on
-   * - success → return results
-   */
   for (const model of models) {
     try {
       console.log(`[MODEL] Trying ${model}...`);
@@ -234,6 +206,11 @@ ${JSON.stringify(sourceArticles, null, 2)}
         continue;
       }
 
+      if (msg.includes("404") || msg.includes("NOT_FOUND")) {
+        console.warn(`[MODEL] ${model} not available (retired) — trying next model`);
+        continue;
+      }
+
       if (msg.includes("503") || msg.includes("500") || msg.includes("502") || msg.includes("504")) {
         console.warn(`[MODEL] ${model} server error — trying next model`);
         continue;
@@ -247,11 +224,6 @@ ${JSON.stringify(sourceArticles, null, 2)}
   throw lastError || new Error("All models exhausted");
 }
 
-/*
- * Call a specific Gemini model.
- * Retries on 5xx (server overload).
- * Does NOT retry 429 (quota).
- */
 async function callGeminiAPI(model, prompt, apiKey) {
   const endpoint = `${GEMINI_API_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
@@ -293,7 +265,6 @@ async function callGeminiAPI(model, prompt, apiKey) {
         return results;
       }
 
-      // 5xx → retry
       if ([500, 502, 503, 504].includes(response.status)) {
         const errText = await response.text().catch(() => "");
         lastError = new Error(`Gemini API ${response.status}: ${errText}`);
@@ -307,7 +278,6 @@ async function callGeminiAPI(model, prompt, apiKey) {
         throw lastError;
       }
 
-      // 429 or other → no retry (throw immediately)
       const errText = await response.text().catch(() => "");
       throw new Error(`Gemini API ${response.status}: ${errText}`);
 
@@ -317,6 +287,8 @@ async function callGeminiAPI(model, prompt, apiKey) {
       if (
         attempt < MAX_RETRIES_5XX &&
         !msg.includes("429") &&
+        !msg.includes("404") &&
+        !msg.includes("NOT_FOUND") &&
         !msg.includes("Gemini API") &&
         !msg.includes("invalid JSON") &&
         !msg.includes("not an array")
@@ -389,7 +361,7 @@ export async function processSelectedNews(articles, apiKey) {
 export function geminiStatus(apiKey) {
   return {
     configured: Boolean(apiKey),
-    mode: "auto-discovery + quota-aware rotation",
+    mode: "fully-automatic-discovery-and-rotation",
     minWords: MIN_SUMMARY_WORDS,
     targetWords: TARGET_SUMMARY_WORDS
   };

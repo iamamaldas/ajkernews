@@ -1,6 +1,7 @@
 /*
  * Gemini news writer — auto-discovery version
  * No hardcoded model list.
+ * + Retry for 5xx (503 server overload)
  */
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -9,7 +10,7 @@ const MIN_SUMMARY_WORDS = 150;
 const TARGET_SUMMARY_WORDS = 180;
 
 /*
- * ✅ FIXED: Gemini API expects UPPERCASE types
+ * ✅ Gemini API expects UPPERCASE types
  * (OpenAPI 3.0 schema format)
  */
 const RESPONSE_SCHEMA = {
@@ -25,6 +26,12 @@ const RESPONSE_SCHEMA = {
     required: ["id", "headline", "summary", "main_topic"]
   }
 };
+
+/*
+ * ✅ Retry configuration for 5xx errors
+ */
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 2000;
 
 async function discoverLatestFlashModel(apiKey) {
   const listUrl = `${GEMINI_API_BASE}?key=${encodeURIComponent(apiKey)}`;
@@ -149,52 +156,105 @@ ${JSON.stringify(sourceArticles, null, 2)}
   return validateAndCleanResults(results, articles);
 }
 
+/*
+ * ✅ Updated: retry logic for 5xx errors (503 server overload)
+ * 429 (rate limit) → no retry (saves quota)
+ */
 async function callGeminiAPI(model, prompt, apiKey) {
   const endpoint = `${GEMINI_API_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.2,
-        responseMimeType: "application/json",
-        responseSchema: RESPONSE_SCHEMA,
-        maxOutputTokens: 16000
-      }
-    })
-  });
+  let lastError = null;
 
-  if (!response.ok) {
-    let details = "";
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const errorData = await response.json();
-      details = JSON.stringify(errorData);
-    } catch {
-      try {
-        details = await response.text();
-      } catch {
-        details = "Unknown error";
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.2,
+            responseMimeType: "application/json",
+            responseSchema: RESPONSE_SCHEMA,
+            maxOutputTokens: 16000
+          }
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!text) throw new Error("Gemini returned no text output.");
+
+        let results;
+        try {
+          results = JSON.parse(text);
+        } catch {
+          throw new Error("Gemini returned invalid JSON.");
+        }
+
+        if (!Array.isArray(results)) {
+          throw new Error("Gemini response is not an array.");
+        }
+
+        return results;
       }
+
+      // ✅ 5xx errors — retry
+      if ([500, 502, 503, 504].includes(response.status)) {
+        const errText = await response.text().catch(() => "");
+        lastError = new Error(`Gemini API ${response.status}: ${errText}`);
+
+        console.warn(`[RETRY ${attempt}/${MAX_RETRIES}] Gemini ${response.status} — waiting ${RETRY_DELAY_MS}ms`);
+
+        if (attempt < MAX_RETRIES) {
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+          continue;
+        }
+
+        throw lastError;
+      }
+
+      // ❌ 429 rate limit — no retry (saves quota)
+      if (response.status === 429) {
+        const errText = await response.text().catch(() => "");
+        throw new Error(`Gemini API 429: ${errText}`);
+      }
+
+      // Other errors — no retry
+      let details = "";
+      try {
+        const errorData = await response.json();
+        details = JSON.stringify(errorData);
+      } catch {
+        try {
+          details = await response.text();
+        } catch {
+          details = "Unknown error";
+        }
+      }
+      throw new Error(`Gemini API ${response.status}: ${details}`);
+
+    } catch (error) {
+      // Network error → retry
+      if (
+        attempt < MAX_RETRIES &&
+        !error.message?.includes("429") &&
+        !error.message?.includes("Gemini API") &&
+        !error.message?.includes("invalid JSON") &&
+        !error.message?.includes("not an array")
+      ) {
+        console.warn(`[RETRY ${attempt}/${MAX_RETRIES}] Network error: ${error.message}`);
+        lastError = error;
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+        continue;
+      }
+      throw error;
     }
-    throw new Error(`Gemini API ${response.status}: ${details}`);
   }
 
-  const data = await response.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!text) throw new Error("Gemini returned no text output.");
-
-  let results;
-  try {
-    results = JSON.parse(text);
-  } catch {
-    throw new Error("Gemini returned invalid JSON.");
-  }
-
-  if (!Array.isArray(results)) throw new Error("Gemini response is not an array.");
-  return results;
+  throw lastError || new Error("Gemini call failed after retries");
 }
 
 function validateAndCleanResults(results, originalArticles) {

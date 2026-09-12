@@ -705,7 +705,7 @@ async function shareNews(id, headline, summary) {
   if (copied) {
     alert('লিংক কপি হয়েছে');
   } else {
-    alert('লিংক কপি করা যায়নি। আবার চেষ্টা করুন।');
+    alert('লিংক কপি করা যায়নি। আবার চেষ্টা করুন।');
   }
   const toast = document.getElementById('copyToast');
   if (toast) {
@@ -723,7 +723,7 @@ async function toggleNotification() {
   const svg = btn.querySelector('svg');
   if (notificationSetupInProgress) return;
   if (!('Notification' in window) || !('PushManager' in window)) {
-    alert('এই ব্রাউজারে নোটিফিকেশন সাপোর্টেড নয়।');
+    alert('এই ব্রাউজারে নোটিফিকেশন সাপোর্টেড নয়।');
     return;
   }
   const registration = await navigator.serviceWorker.ready;
@@ -739,7 +739,7 @@ async function toggleNotification() {
       btn.classList.remove('subscribed');
       svg.setAttribute('stroke', '#222');
       svg.setAttribute('fill', 'none');
-      alert('নোটিফিকেশন বন্ধ করা হয়েছে।');
+      alert('নোটিফিকেশন বন্ধ করা হয়েছে।');
     }
     return;
   }
@@ -777,7 +777,7 @@ async function toggleNotification() {
         btn.classList.add('subscribed');
         svg.setAttribute('stroke', '#000');
         svg.setAttribute('fill', '#000');
-        alert('নোটিফিকেশন চালু হয়েছে! নতুন খবর এলে আমরা জানাব।');
+        alert('নোটিফিকেশন চালু হয়েছে! নতুন খবর এলে আমরা জানাব।');
         if ('serviceWorker' in navigator && 'SyncManager' in window) {
           try {
             await registration.sync.register('sync-pending-notifications');
@@ -793,14 +793,14 @@ async function toggleNotification() {
       }
     }
     console.error('Notification setup failed after retry:', lastError);
-    alert('নোটিফিকেশন চালু করা যায়নি। আবার পরে চেষ্টা করুন।');
+    alert('নোটিফিকেশন চালু করা যায়নি। আবার পরে চেষ্টা করুন।');
   } finally {
     notificationSetupInProgress = false;
     btn.disabled = false;
   }
 }
 
-// ===== CHECK NOTIFICATION STATUS — OS-level aware =====
+// ===== CHECK NOTIFICATION STATUS =====
 async function checkNotificationStatus() {
   if (!('Notification' in window) || !('PushManager' in window)) return;
   try {
@@ -907,7 +907,16 @@ function openNewsModal(id) {
   body.dataset.currentNewsId = id;
   const news = currentNews.find(n => n.id === id);
   if (!news) {
-    openNewsById(id);
+    // যদি লিস্টে না থাকে, তবে সরাসরি ফেচ করার চেষ্টা করুন
+    fetch(`${API_URL}?id=${encodeURIComponent(id)}`)
+      .then(res => res.json())
+      .then(data => {
+         if (data.news && data.news.length) {
+            const fetchedNews = normalizeNews(data.news[0]);
+            currentNews = [fetchedNews, ...currentNews];
+            openNewsModal(id); // আবার কল করুন
+         }
+      }).catch(err => console.error("Error fetching news for modal:", err));
     return;
   }
   const displayDate = news.created_at || news.published_at || '';
@@ -967,10 +976,9 @@ async function showSharedNewsFirst(id) {
     ];
     visibleCount = 10;
     renderNews(currentNews, hasMoreNews);
-    if (window.location.pathname !== '/' || window.location.search) {
-      window.history.replaceState({}, '', '/');
-    }
-    window.scrollTo({ top: 0, behavior: 'auto' });
+    
+    // ✅ ফিক্স: শুধু লিস্টের উপরে দেখাবে, মোডাল অটো ওপেন করবে না
+    // মোডাল ওপেন করার কাজটি initApp() এ openModal ফ্ল্যাগ চেক করে করা হবে
   } catch (error) {
     console.error('showSharedNewsFirst error:', error);
   }
@@ -982,7 +990,7 @@ function handleGoLink() {
     if (id) {
       window.history.replaceState({}, '', '/');
       loadNews('top', '', { showLoading: true, keepExisting: false }).then(() => {
-        openNewsById(id);
+        openNewsModal(id);
       });
     }
   }
@@ -1048,7 +1056,7 @@ function closeModal() {
 }
 document.getElementById('currentYear').textContent = new Date().getFullYear();
 
-// ===== NOTIFICATION CLICK → SPECIFIC NEWS OPEN (NEW) =====
+// ===== NOTIFICATION CLICK → SPECIFIC NEWS OPEN =====
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'OPEN_NEWS_URL') {
@@ -1091,6 +1099,7 @@ if ('serviceWorker' in navigator) {
     }
   }
   await checkNotificationStatus();
+  
   const urlParams = new URLSearchParams(window.location.search);
   const sharedQueryId = urlParams.get('shared');
   const legacyNewsId = urlParams.get('id');
@@ -1099,9 +1108,21 @@ if ('serviceWorker' in navigator) {
     ? decodeURIComponent(goPath.split('/')[2] || '')
     : null;
   const sharedId = sharedQueryId || legacyNewsId || goId;
+  
+  // ✅ ফিক্স: নোটিফিকেশন থেকে আসা ফ্ল্যাগ চেক করুন
+  const shouldOpenModal = urlParams.get('openModal') === 'true';
+
   await loadNews('top', '', { showLoading: true, keepExisting: false });
+  
   if (sharedId) {
     await showSharedNewsFirst(sharedId);
+    
+    // ✅ ফিক্স: যদি নোটিফিকেশন থেকে আসে, তবেই অটো মোডাল ওপেন করুন
+    if (shouldOpenModal && typeof openNewsModal === 'function') {
+      setTimeout(() => {
+        openNewsModal(sharedId);
+      }, 500);
+    }
   }
 })();
 </script>

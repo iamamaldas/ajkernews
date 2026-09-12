@@ -8,15 +8,19 @@ const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models
 const MIN_SUMMARY_WORDS = 150;
 const TARGET_SUMMARY_WORDS = 180;
 
+/*
+ * ✅ FIXED: Gemini API expects UPPERCASE types
+ * (OpenAPI 3.0 schema format)
+ */
 const RESPONSE_SCHEMA = {
-  type: "array",
+  type: "ARRAY",
   items: {
-    type: "object",
+    type: "OBJECT",
     properties: {
-      id: { type: "string" },
-      headline: { type: "string" },
-      summary: { type: "string" },
-      main_topic: { type: "string" }
+      id: { type: "STRING" },
+      headline: { type: "STRING" },
+      summary: { type: "STRING" },
+      main_topic: { type: "STRING" }
     },
     required: ["id", "headline", "summary", "main_topic"]
   }
@@ -168,7 +172,11 @@ async function callGeminiAPI(model, prompt, apiKey) {
       const errorData = await response.json();
       details = JSON.stringify(errorData);
     } catch {
-      try { details = await response.text(); } catch { details = "Unknown error"; }
+      try {
+        details = await response.text();
+      } catch {
+        details = "Unknown error";
+      }
     }
     throw new Error(`Gemini API ${response.status}: ${details}`);
   }
@@ -190,7 +198,9 @@ async function callGeminiAPI(model, prompt, apiKey) {
 }
 
 function validateAndCleanResults(results, originalArticles) {
-  return results.map(result => validateGeminiResult(result, originalArticles)).filter(Boolean);
+  return results
+    .map(result => validateGeminiResult(result, originalArticles))
+    .filter(Boolean);
 }
 
 function validateGeminiResult(result, originalArticles) {
@@ -222,7 +232,12 @@ function validateGeminiResult(result, originalArticles) {
   if (headline.length > 180) return null;
   if (summary.length > 2500) return null;
 
-  return { id, headline, summary, main_topic: mainTopic };
+  return {
+    id,
+    headline,
+    summary,
+    main_topic: mainTopic
+  };
 }
 
 function cleanText(value) {

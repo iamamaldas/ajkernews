@@ -1,6 +1,6 @@
 /**
  * Ajker News Service Worker
- * FINAL v2 — High Priority Push + Specific News on Click
+ * FINAL FIX: Notification Click without Reload + Specific News on Click
  */
 
 const CACHE_VERSION = "ajker-news-v2026-09-11-1";
@@ -100,25 +100,32 @@ self.addEventListener("push", event => {
   event.waitUntil(self.registration.showNotification(data.title, options));
 });
 
+// ✅ FIXED: Notification Click (No navigate, only postMessage + openModal flag)
 self.addEventListener("notificationclick", event => {
   event.notification.close();
-  const url = event.notification.data?.url || "/";
-  const fullUrl = url.startsWith("http")
-    ? url
-    : `https://ajkernews.in${url.startsWith("/") ? url : "/" + url}`;
+  let url = event.notification.data?.url || "/";
+  
+  if (!url.startsWith("http")) {
+    url = `https://ajkernews.in${url.startsWith("/") ? url : "/" + url}`;
+  }
+  
+  // ✅ openModal=true ফ্ল্যাগ যোগ করা হচ্ছে, যাতে শুধু নোটিফিকেশন থেকেই মোডাল ওপেন হয়
+  const separator = url.includes("?") ? "&" : "?";
+  const fullUrl = `${url}${separator}openModal=true`;
 
   event.waitUntil((async () => {
     const windowClients = await clients.matchAll({ type: "window", includeUncontrolled: true });
     for (const client of windowClients) {
       if (client.url.includes("ajkernews.in") && "focus" in client) {
         try {
+          // শুধু মেসেজ পাঠান, navigate করবেন না (এতে পেজ রিলোড হবে না)
           client.postMessage({ type: "OPEN_NEWS_URL", url: fullUrl });
-          if ("navigate" in client) await client.navigate(fullUrl);
         } catch (_) {}
         await client.focus();
-        return;
+        return; 
       }
     }
+    // কোনো ট্যাব খোলা না থাকলে নতুন ট্যাব খুলুন
     if (clients.openWindow) return clients.openWindow(fullUrl);
   })());
 });

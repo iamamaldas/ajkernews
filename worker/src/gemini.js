@@ -1,13 +1,21 @@
 /*
  * Gemini news writer — auto-discovery version
  * No hardcoded model list.
- * + Retry for 5xx (503 server overload)
+ * + Retry for 5xx (503 server overload) on both ListModels and generateContent
  */
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
 const MIN_SUMMARY_WORDS = 150;
 const TARGET_SUMMARY_WORDS = 180;
+
+/*
+ * ✅ Retry configuration
+ * 5xx errors don't consume quota, so retrying is safe
+ * 429 (rate limit) is NOT retried
+ */
+const MAX_RETRIES = 5;
+const RETRY_DELAY_MS = 3000;
 
 /*
  * ✅ Gemini API expects UPPERCASE types
@@ -28,62 +36,90 @@ const RESPONSE_SCHEMA = {
 };
 
 /*
- * ✅ Retry configuration for 5xx errors
+ * Discover the latest free-tier Flash model.
+ * Retries on 5xx errors (server overload).
  */
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 2000;
-
 async function discoverLatestFlashModel(apiKey) {
   const listUrl = `${GEMINI_API_BASE}?key=${encodeURIComponent(apiKey)}`;
 
   console.log("[AUTO] Discovering latest Gemini Flash model...");
 
-  const response = await fetch(listUrl, {
-    method: "GET",
-    headers: { accept: "application/json" }
-  });
+  let lastError = null;
 
-  if (!response.ok) {
-    const errText = await response.text().catch(() => "Unknown error");
-    throw new Error(`ListModels API ${response.status}: ${errText}`);
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetch(listUrl, {
+        method: "GET",
+        headers: { accept: "application/json" }
+      });
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => "Unknown error");
+
+        // 5xx → retry
+        if ([500, 502, 503, 504].includes(response.status)) {
+          lastError = new Error(`ListModels API ${response.status}: ${errText}`);
+          console.warn(`[RETRY ${attempt}/${MAX_RETRIES}] ListModels ${response.status}`);
+
+          if (attempt < MAX_RETRIES) {
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+            continue;
+          }
+          throw lastError;
+        }
+
+        throw new Error(`ListModels API ${response.status}: ${errText}`);
+      }
+
+      const data = await response.json();
+      const models = Array.isArray(data?.models) ? data.models : [];
+
+      if (!models.length) throw new Error("ListModels returned no models.");
+
+      const flashModels = models
+        .map(m => {
+          const name = String(m?.name || "").replace(/^models\//, "");
+          const methods = Array.isArray(m?.supportedGenerationMethods)
+            ? m.supportedGenerationMethods
+            : [];
+          return { name, methods };
+        })
+        .filter(m => m.name.includes("flash"))
+        .filter(m => m.methods.includes("generateContent"))
+        .filter(m => /^gemini-\d/.test(m.name));
+
+      if (!flashModels.length) {
+        throw new Error("No free-tier Flash models found in ListModels response.");
+      }
+
+      const versionRegex = /^gemini-(\d+)\.(\d+)/;
+      flashModels.sort((a, b) => {
+        const ma = a.name.match(versionRegex);
+        const mb = b.name.match(versionRegex);
+        const aMajor = ma ? Number(ma[1]) : 0;
+        const bMajor = mb ? Number(mb[1]) : 0;
+        const aMinor = ma ? Number(ma[2]) : 0;
+        const bMinor = mb ? Number(mb[2]) : 0;
+        if (aMajor !== bMajor) return bMajor - aMajor;
+        return bMinor - aMinor;
+      });
+
+      const chosen = flashModels[0].name;
+      console.log(`[AUTO] Selected latest free-tier Flash model: ${chosen}`);
+      return chosen;
+
+    } catch (error) {
+      lastError = error;
+      if (attempt < MAX_RETRIES) {
+        console.warn(`[RETRY ${attempt}/${MAX_RETRIES}] ListModels failed: ${error.message}`);
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+        continue;
+      }
+      throw error;
+    }
   }
 
-  const data = await response.json();
-  const models = Array.isArray(data?.models) ? data.models : [];
-
-  if (!models.length) throw new Error("ListModels returned no models.");
-
-  const flashModels = models
-    .map(m => {
-      const name = String(m?.name || "").replace(/^models\//, "");
-      const methods = Array.isArray(m?.supportedGenerationMethods)
-        ? m.supportedGenerationMethods
-        : [];
-      return { name, methods };
-    })
-    .filter(m => m.name.includes("flash"))
-    .filter(m => m.methods.includes("generateContent"))
-    .filter(m => /^gemini-\d/.test(m.name));
-
-  if (!flashModels.length) {
-    throw new Error("No free-tier Flash models found in ListModels response.");
-  }
-
-  const versionRegex = /^gemini-(\d+)\.(\d+)/;
-  flashModels.sort((a, b) => {
-    const ma = a.name.match(versionRegex);
-    const mb = b.name.match(versionRegex);
-    const aMajor = ma ? Number(ma[1]) : 0;
-    const bMajor = mb ? Number(mb[1]) : 0;
-    const aMinor = ma ? Number(ma[2]) : 0;
-    const bMinor = mb ? Number(mb[2]) : 0;
-    if (aMajor !== bMajor) return bMajor - aMajor;
-    return bMinor - aMinor;
-  });
-
-  const chosen = flashModels[0].name;
-  console.log(`[AUTO] Selected latest free-tier Flash model: ${chosen}`);
-  return chosen;
+  throw lastError || new Error("ListModels call failed after retries");
 }
 
 export async function generateNewsWithGemini(articles, apiKey) {
@@ -157,8 +193,8 @@ ${JSON.stringify(sourceArticles, null, 2)}
 }
 
 /*
- * ✅ Updated: retry logic for 5xx errors (503 server overload)
- * 429 (rate limit) → no retry (saves quota)
+ * Call Gemini API with retry for 5xx errors.
+ * 429 (rate limit) → no retry (saves quota).
  */
 async function callGeminiAPI(model, prompt, apiKey) {
   const endpoint = `${GEMINI_API_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;

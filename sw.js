@@ -1,9 +1,9 @@
 /**
  * Ajker News Service Worker
- * FINAL FIX: Notification Click without Reload + Specific News on Click
+ * Notification Click behaves like Share Link (no popup modal)
  */
 
-const CACHE_VERSION = "ajker-news-v2026-09-11-1";
+const CACHE_VERSION = "ajker-news-v2026-09-12-1";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const LOGO_URL = "/logo.png";
 
@@ -100,7 +100,12 @@ self.addEventListener("push", event => {
   event.waitUntil(self.registration.showNotification(data.title, options));
 });
 
-// ✅ FIXED: Notification Click (No navigate, only postMessage + openModal flag)
+/*
+ * Notification click handler — behaves like share link
+ *
+ * No openModal flag.
+ * News appears at top of list (same as share link behavior).
+ */
 self.addEventListener("notificationclick", event => {
   event.notification.close();
   let url = event.notification.data?.url || "/";
@@ -108,24 +113,21 @@ self.addEventListener("notificationclick", event => {
   if (!url.startsWith("http")) {
     url = `https://ajkernews.in${url.startsWith("/") ? url : "/" + url}`;
   }
-  
-  // ✅ openModal=true ফ্ল্যাগ যোগ করা হচ্ছে, যাতে শুধু নোটিফিকেশন থেকেই মোডাল ওপেন হয়
-  const separator = url.includes("?") ? "&" : "?";
-  const fullUrl = `${url}${separator}openModal=true`;
+
+  // ✅ openModal ফ্ল্যাগ সরানো — share link-এর মতো আচরণ হবে
+  const fullUrl = url;
 
   event.waitUntil((async () => {
     const windowClients = await clients.matchAll({ type: "window", includeUncontrolled: true });
     for (const client of windowClients) {
       if (client.url.includes("ajkernews.in") && "focus" in client) {
         try {
-          // শুধু মেসেজ পাঠান, navigate করবেন না (এতে পেজ রিলোড হবে না)
           client.postMessage({ type: "OPEN_NEWS_URL", url: fullUrl });
         } catch (_) {}
         await client.focus();
-        return; 
+        return;
       }
     }
-    // কোনো ট্যাব খোলা না থাকলে নতুন ট্যাব খুলুন
     if (clients.openWindow) return clients.openWindow(fullUrl);
   })());
 });

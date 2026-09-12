@@ -1,7 +1,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v3 — SEO Bot Support + Notification Link Fix
+ * FINAL v4 — Gemini.js integration + Fallback filter
  * =========================================================
  */
 
@@ -9,15 +9,18 @@ import webPush from "web-push";
 import ANALYTICS_CONFIG from "./config-analytics.js";
 import ADS_CONFIG from "./config-ads.js";
 import AFFILIATE_CONFIG from "./config-affiliate.js";
+import { processSelectedNews } from "./gemini.js";
 
 const MAX_NEWS = 1000;
 const MAX_SELECTED_NEWS = 5;
 const API_PAGE_SIZE = 10;
 const GNEWS_MAX_RESULTS = 8;
 const GNEWS_LANGUAGES = ["bn", "en"];
-const GEMINI_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
+
+// ✅ gemini.js থেকে আসা মানদণ্ড অনুযায়ী
 const MIN_SUMMARY_WORDS = 150;
 const TARGET_SUMMARY_WORDS = 180;
+
 let tablesReadyPromise = null;
 
 const BN_TO_EN_MAP = {
@@ -55,7 +58,6 @@ export default {
     try {
       await ensureTablesOnce(env);
 
-      // ✅ SEO Fix: Bot Detection for Homepage
       const userAgent = request.headers.get("User-Agent") || "";
       const isBot = /googlebot|bingbot|yandex|baiduspider|twitterbot|facebookexternalhit|whatsapp|slurp|duckduckbot|applebot/i.test(userAgent);
       
@@ -80,7 +82,6 @@ export default {
       if (url.pathname.startsWith("/go/")) {
         const id = url.pathname.split("/")[2];
         if (!id) return new Response("Invalid link", { status: 400 });
-        // ✅ openModal প্যারামিটারটি serveSharePage এ পাঠানো হচ্ছে
         return await serveSharePage(id, env, request.headers.get("User-Agent") || "", url);
       }
 
@@ -174,7 +175,6 @@ export default {
   }
 };
 
-// ✅ নতুন ফাংশন: বটদের জন্য রেডি-মেড HTML পেজ
 async function serveBotHomepage(env) {
   try {
     const result = await env.DB.prepare(
@@ -263,7 +263,6 @@ async function ensureTablesOnce(env) {
   }
 }
 
-// ✅ আপডেট: requestUrl প্যারামিটার যোগ করা হয়েছে openModal ফ্ল্যাগ ধরার জন্য
 async function serveSharePage(id, env, requestUserAgentFromContext = "", requestUrl = null) {
   const safeId = String(id || "").trim();
   if (!safeId) return Response.redirect("https://ajkernews.in/", 302);
@@ -284,7 +283,6 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
   const result = await env.DB.prepare(`SELECT headline, summary FROM news WHERE id = ? AND status = 'published' LIMIT 1`).bind(safeId).first();
   if (!result) return Response.redirect("https://ajkernews.in/", 302);
 
-  // ✅ openModal প্যারামিটারটি রিডাইরেক্ট URL-এ যুক্ত করা হচ্ছে
   const openModalParam = (requestUrl && requestUrl.searchParams.get("openModal") === "true") ? "&openModal=true" : "";
   const homeUrl = `https://ajkernews.in/?shared=${encodeURIComponent(safeId)}${openModalParam}`;
 
@@ -398,15 +396,42 @@ async function updateNews(env) {
 
   const balancedCandidates = selectBalancedLanguageCandidates(uniqueCandidates, 4, 4);
 
+  // ✅ gemini.js ব্যবহার করে Gemini কল করা হচ্ছে
   if (env.GEMINI_API_KEY) {
     try {
-      selected = await processWithGemini(balancedCandidates, env);
+      const geminiInput = balancedCandidates.map((c, i) => ({
+        id: String(i + 1),
+        source_title: c.source_title,
+        source_description: c.source_description,
+        source_name: c.source_name,
+        published_at: c.published_at,
+        category: c.category || "general",
+        language: c.language || "en",
+        _original: c
+      }));
+
+      const geminiResults = await processSelectedNews(geminiInput, env.GEMINI_API_KEY);
+
+      selected = geminiResults.map(r => {
+        const original = balancedCandidates[Number(r.id) - 1];
+        if (!original) return null;
+        return {
+          ...original,
+          headline: r.headline,
+          summary: r.summary,
+          main_topic: r.main_topic,
+          category: normalizeCategory(original.category),
+          score: 90
+        };
+      }).filter(Boolean);
+
       usedGemini = selected.length > 0;
     } catch (error) {
       console.error("Gemini failed:", error);
     }
   }
 
+  // ✅ Fallback ১: ১৫০ শব্দের ফিল্টার সহ
   if (selected.length < MAX_SELECTED_NEWS) {
     const fallbackNews = buildFallbackNews(balancedCandidates);
     const existingIds = new Set(selected.map(n => n.source_url));
@@ -417,35 +442,49 @@ async function updateNews(env) {
 
   let finalNews = selected.slice(0, MAX_SELECTED_NEWS);
 
+  // ✅ Fallback ২: ১৫০ শব্দের ফিল্টার সহ
   if (finalNews.length < MAX_SELECTED_NEWS) {
     const existingIds = new Set(finalNews.map(n => n.source_url));
     const available = uniqueCandidates
       .filter(c => !existingIds.has(c.source_url))
-      .map(c => ({
-        ...c,
-        headline: c.source_title,
-        summary: c.source_description || "",
-        main_topic: detectFallbackCategory(c.source_title + ' ' + c.source_description),
-        category: detectFallbackCategory(c.source_title + ' ' + c.source_description),
-        score: fallbackScore(c.source_title + ' ' + c.source_description, detectFallbackCategory(c.source_title + ' ' + c.source_description))
-      }))
+      .map(c => {
+        const summary = c.source_description || c.source_title || "";
+        const wordCount = summary.split(/\s+/).filter(Boolean).length;
+        if (wordCount < MIN_SUMMARY_WORDS) return null;
+        return {
+          ...c,
+          headline: c.source_title,
+          summary,
+          main_topic: detectFallbackCategory(c.source_title + ' ' + c.source_description),
+          category: detectFallbackCategory(c.source_title + ' ' + c.source_description),
+          score: fallbackScore(c.source_title + ' ' + c.source_description, detectFallbackCategory(c.source_title + ' ' + c.source_description))
+        };
+      })
+      .filter(Boolean)
       .sort((a, b) => b.score - a.score);
     const needed = MAX_SELECTED_NEWS - finalNews.length;
     finalNews = [...finalNews, ...available.slice(0, needed)];
   }
 
+  // ✅ West Bengal replacement: ১৫০ শব্দের ফিল্টার সহ
   const hasWestBengal = finalNews.some(n => n.category === 'west_bengal');
   if (!hasWestBengal && uniqueCandidates.length > 0) {
     const wbCandidates = uniqueCandidates
       .filter(c => detectFallbackCategory(c.source_title + ' ' + c.source_description) === 'west_bengal')
-      .map(c => ({
-        ...c,
-        headline: c.source_title,
-        summary: c.source_description || "",
-        main_topic: fallbackTopic('west_bengal'),
-        category: 'west_bengal',
-        score: fallbackScore(c.source_title + ' ' + c.source_description, 'west_bengal')
-      }))
+      .map(c => {
+        const summary = c.source_description || "";
+        const wordCount = summary.split(/\s+/).filter(Boolean).length;
+        if (wordCount < MIN_SUMMARY_WORDS) return null;
+        return {
+          ...c,
+          headline: c.source_title,
+          summary,
+          main_topic: fallbackTopic('west_bengal'),
+          category: 'west_bengal',
+          score: fallbackScore(c.source_title + ' ' + c.source_description, 'west_bengal')
+        };
+      })
+      .filter(Boolean)
       .sort((a, b) => b.score - a.score);
 
     if (wbCandidates.length > 0) {
@@ -583,185 +622,6 @@ function selectBalancedLanguageCandidates(candidates, bnCount, enCount) {
   return [...bn, ...en];
 }
 
-async function processWithGemini(candidates, env) {
-  const input = candidates.map((item, index) => ({
-    candidate_id: index + 1,
-    language: item.language || "en",
-    source: item.source_name,
-    title: item.source_title,
-    description: item.source_description,
-    published_at: item.published_at
-  }));
-
-  const prompt = `You are the senior editor of Ajker News, an Indian Bengali news website.
-Your job is to select the ${MAX_SELECTED_NEWS} most important and useful NEW Indian news stories from the provided candidates.
-
-PRIMARY AUDIENCE: Bengali readers in India.
-
-LANGUAGE: Write the final headline and summary in natural professional Bengali.
-
-COVERAGE PRIORITY:
-1. West Bengal: Kolkata, West Bengal government, Mamata Banerjee, TMC, BJP Bengal, Bengal politics, Bengal crime, Bengal development, Bengal education, Bengal jobs, Bengal weather, Bengal public-interest news.
-2. India: Indian government, Delhi, Parliament, Prime Minister, Supreme Court, national politics, economy, jobs, education, public-interest events.
-3. Other Indian states: Important events from Maharashtra, Tamil Nadu, Karnataka, Telangana, Kerala, Gujarat, Rajasthan, Uttar Pradesh, Bihar, Assam, Odisha.
-4. Major world news affecting India.
-5. Business.
-6. Technology.
-7. Sports.
-8. Entertainment.
-
-CRITICAL LENGTH REQUIREMENT:
-- Each summary MUST be AT LEAST ${MIN_SUMMARY_WORDS} Bengali words.
-- AIM for ${TARGET_SUMMARY_WORDS}-220 Bengali words per summary.
-- Only if ${TARGET_SUMMARY_WORDS} is impossible, accept ${MIN_SUMMARY_WORDS}-${TARGET_SUMMARY_WORDS - 1}.
-- Do NOT write summaries under ${MIN_SUMMARY_WORDS} words.
-- Cover WHAT happened, WHO was involved, WHERE, WHEN, WHY it matters, and BACKGROUND context.
-- Add relevant context, implications, and public interest angle.
-
-IMPORTANT RULES:
-- Select ONLY from supplied candidates.
-- Try to include a good mix of Bengali and English source stories.
-- Never invent facts, statistics, quotes, or claims.
-- Do not copy the source title word-for-word. Rewrite naturally in Bengali.
-- Do not create clickbait. Headline should be concise.
-- Prefer important Indian news over minor international news.
-- Prefer West Bengal when the story is genuinely important.
-- Do not select duplicate stories.
-- Return ONLY valid JSON.
-- Return EXACTLY ${MAX_SELECTED_NEWS} objects.
-
-Each object MUST be:
-{
-  "candidate_id": 1,
-  "headline": "concise Bengali headline",
-  "summary": "detailed Bengali summary",
-  "main_topic": "...",
-  "category": "west_bengal",
-  "score": 95
-}
-Allowed categories: west_bengal, india, world, politics, business, sports, technology, entertainment, general
-
-Candidates:
-${JSON.stringify(input)}
-`;
-
-  let lastError = null;
-  for (const model of GEMINI_MODELS) {
-    try {
-      const result = await callGeminiModel(model, prompt, env);
-      if (Array.isArray(result) && result.length) {
-        return validateGeminiResults(result, candidates);
-      }
-    } catch (error) {
-      lastError = error;
-      console.error(`Gemini model ${model} failed:`, error);
-      await sleep(1000);
-    }
-  }
-  throw (lastError || new Error("All Gemini models failed"));
-}
-
-async function callGeminiModel(model, prompt, env) {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`;
-  let lastResponseText = "";
-
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.2,
-          responseMimeType: "application/json",
-          maxOutputTokens: 8000
-        }
-      })
-    });
-
-    lastResponseText = await response.text();
-
-    if (response.ok) {
-      let data;
-      try {
-        data = JSON.parse(lastResponseText);
-      } catch {
-        throw new Error("Gemini returned invalid JSON body");
-      }
-
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!text) throw new Error("Gemini returned empty response");
-
-      let parsed;
-      try {
-        parsed = JSON.parse(cleanJson(text));
-      } catch {
-        throw new Error("Gemini returned invalid JSON content");
-      }
-
-      if (!Array.isArray(parsed)) throw new Error("Gemini response is not an array");
-      return parsed;
-    }
-
-    if ([429, 500, 502, 503, 504].includes(response.status)) {
-      if (attempt < 2) { await sleep(1500); continue; }
-    }
-    throw new Error(`Gemini API ${response.status}: ${lastResponseText}`);
-  }
-  throw new Error(`Gemini request failed: ${lastResponseText}`);
-}
-
-function validateGeminiResults(parsed, candidates) {
-  const results = [];
-  const usedIds = new Set();
-  let bnCount = 0;
-  let enCount = 0;
-
-  for (const item of parsed) {
-    const candidateId = Number(item?.candidate_id);
-    if (!Number.isInteger(candidateId)) continue;
-    if (candidateId < 1 || candidateId > candidates.length) continue;
-    if (usedIds.has(candidateId)) continue;
-    usedIds.add(candidateId);
-
-    const original = candidates[candidateId - 1];
-    if (!original) continue;
-
-    const headline = cleanText(item.headline);
-    const summary = cleanText(item.summary);
-    const topic = cleanText(item.main_topic);
-    if (!headline || !summary) continue;
-
-    const wordCount = summary.split(/\s+/).filter(Boolean).length;
-    if (wordCount < MIN_SUMMARY_WORDS) {
-      console.warn(`Summary too short (${wordCount} words), skipping candidate ${candidateId}`);
-      continue;
-    }
-
-    if (original.language === "bn") {
-      if (bnCount >= 3) continue;
-      bnCount++;
-    } else if (original.language === "en") {
-      if (enCount >= 3) continue;
-      enCount++;
-    } else {
-      continue;
-    }
-
-    results.push({
-      ...original,
-      headline,
-      summary,
-      main_topic: topic || "সর্বশেষ খবর",
-      category: normalizeCategory(item.category),
-      score: clampScore(item.score)
-    });
-  }
-
-  results.sort((a, b) => b.score - a.score);
-  return results.slice(0, MAX_SELECTED_NEWS);
-}
-
 function buildFallbackNews(candidates) {
   return candidates
     .map(item => {
@@ -775,6 +635,14 @@ function buildFallbackNews(candidates) {
         summary = title;
       }
 
+      const wordCount = summary.split(/\s+/).filter(Boolean).length;
+
+      // ✅ Fallback পাথেও ১৫০ শব্দের ফিল্টার
+      if (wordCount < MIN_SUMMARY_WORDS) {
+        console.warn(`[FALLBACK REJECT] ${wordCount} words < ${MIN_SUMMARY_WORDS} — "${title.slice(0, 50)}"`);
+        return null;
+      }
+
       return {
         ...item,
         headline: title,
@@ -784,6 +652,7 @@ function buildFallbackNews(candidates) {
         score
       };
     })
+    .filter(Boolean)
     .sort((a, b) => b.score - a.score)
     .slice(0, MAX_SELECTED_NEWS);
 }
@@ -819,6 +688,13 @@ function fallbackScore(text, category) {
 }
 
 async function insertNews(item, env) {
+  // ✅ শেষ প্রতিরক্ষা: ১৫০ শব্দের নিচে হলে সেভ হবে না
+  const wordCount = (item.summary || "").split(/\s+/).filter(Boolean).length;
+  if (wordCount < MIN_SUMMARY_WORDS) {
+    console.warn(`[INSERT BLOCKED] ${wordCount} words < ${MIN_SUMMARY_WORDS} — "${(item.headline || "").slice(0, 50)}"`);
+    throw new Error(`Summary too short: ${wordCount} words`);
+  }
+
   const id = crypto.randomUUID();
   const createdAt = new Date().toISOString();
   const dayKey = createdAt.slice(0, 10);
@@ -1240,14 +1116,6 @@ function normalizeUrl(url) {
 
 function cleanText(value) {
   return String(value || "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
-}
-
-function cleanJson(text) {
-  let value = String(text || "").trim();
-  if (value.startsWith("```")) {
-    value = value.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
-  }
-  return value;
 }
 
 function normalizeCategory(category) {

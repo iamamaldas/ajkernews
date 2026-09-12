@@ -1,31 +1,21 @@
 /*
- * Gemini news writer
+ * Gemini news writer — AUTO VERSION
  *
  * Purpose:
- * - Take selected source articles
+ * - Automatically discover the latest free-tier Gemini Flash model
  * - Create Bengali news with proper length
- * - Keep the facts grounded in the supplied source
+ * - Keep facts grounded in the supplied source
  * - Return predictable JSON
  *
- * One Gemini request can process multiple selected articles.
+ * No hardcoded model list. No fallback.
+ * If Gemini fails, the caller (index.js) handles it.
  */
-
-/*
- * ✅ FIXED: সঠিক Gemini model নাম
- * আগে "gemini-3.7-flash" ছিল যা Google-এর কাছে নেই
- * এখন múltiple model with fallback
- */
-const GEMINI_MODELS = [
-  "gemini-2.0-flash",
-  "gemini-1.5-flash",
-  "gemini-1.5-pro"
-];
 
 const GEMINI_API_BASE =
   "https://generativelanguage.googleapis.com/v1beta/models";
 
 /*
- * ✅ NEW: Bengali summary length (আপনার মূল চাহিদা)
+ * Bengali summary length
  * Target ১৮০ শব্দ, minimum ১৫০ শব্দ
  */
 const MIN_SUMMARY_WORDS = 150;
@@ -49,8 +39,80 @@ const RESPONSE_SCHEMA = {
 };
 
 /*
+ * ✅ AUTO: Discover the latest free-tier Flash model from Google.
+ *
+ * Strategy:
+ * 1. Call ListModels API
+ * 2. Filter models whose name contains "flash"
+ * 3. Filter models that support "generateContent"
+ * 4. Sort by version number (descending)
+ * 5. Return the newest one
+ *
+ * No fallback. If discovery fails, throws error.
+ */
+async function discoverLatestFlashModel(apiKey) {
+  const listUrl = `${GEMINI_API_BASE}?key=${encodeURIComponent(apiKey)}`;
+
+  console.log("[AUTO] Discovering latest Gemini Flash model...");
+
+  const response = await fetch(listUrl, {
+    method: "GET",
+    headers: { accept: "application/json" }
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "Unknown error");
+    throw new Error(`ListModels API ${response.status}: ${errText}`);
+  }
+
+  const data = await response.json();
+  const models = Array.isArray(data?.models) ? data.models : [];
+
+  if (!models.length) {
+    throw new Error("ListModels returned no models.");
+  }
+
+  // ✅ Filter: only "flash" models that support generateContent
+  const flashModels = models
+    .map(m => {
+      const name = String(m?.name || "").replace(/^models\//, "");
+      const methods = Array.isArray(m?.supportedGenerationMethods)
+        ? m.supportedGenerationMethods
+        : [];
+      return { name, methods };
+    })
+    .filter(m => m.name.includes("flash"))
+    .filter(m => m.methods.includes("generateContent"))
+    .filter(m => /^gemini-\d/.test(m.name)); // must start with gemini-<number>
+
+  if (!flashModels.length) {
+    throw new Error("No free-tier Flash models found in ListModels response.");
+  }
+
+  // ✅ Sort by version number, descending
+  const versionRegex = /^gemini-(\d+)\.(\d+)/;
+  flashModels.sort((a, b) => {
+    const ma = a.name.match(versionRegex);
+    const mb = b.name.match(versionRegex);
+    const aMajor = ma ? Number(ma[1]) : 0;
+    const bMajor = mb ? Number(mb[1]) : 0;
+    const aMinor = ma ? Number(ma[2]) : 0;
+    const bMinor = mb ? Number(mb[2]) : 0;
+    if (aMajor !== bMajor) return bMajor - aMajor;
+    return bMinor - aMinor;
+  });
+
+  const chosen = flashModels[0].name;
+
+  console.log(`[AUTO] Selected latest free-tier Flash model: ${chosen}`);
+  console.log(`[AUTO] All eligible Flash models: ${flashModels.map(m => m.name).join(", ")}`);
+
+  return chosen;
+}
+
+/*
  * Generate Bengali news with Gemini.
- * Automatically tries multiple models on failure.
+ * Auto-discovers the latest free-tier Flash model.
  */
 export async function generateNewsWithGemini(articles, apiKey) {
   if (!apiKey) {
@@ -60,6 +122,9 @@ export async function generateNewsWithGemini(articles, apiKey) {
   if (!Array.isArray(articles) || articles.length === 0) {
     return [];
   }
+
+  // ✅ Auto-discover the newest free-tier Flash model
+  const model = await discoverLatestFlashModel(apiKey);
 
   const sourceArticles = articles.map(article => ({
     id: String(article.id),
@@ -87,8 +152,9 @@ COVERAGE PRIORITY:
 CRITICAL LENGTH REQUIREMENT:
 - Each summary MUST be AT LEAST ${MIN_SUMMARY_WORDS} Bengali words.
 - AIM for ${TARGET_SUMMARY_WORDS}-220 Bengali words per summary. Try hard to reach ${TARGET_SUMMARY_WORDS}.
-- Only if ${TARGET_SUMMARY_WORDS} is impossible, accept ${MIN_SUMMARY_WORDS}-${TARGET_SUMMARY_WORDS - 1}.
-- Do NOT write summaries under ${MIN_SUMMARY_WORDS} words. They will be rejected.
+- If a summary is UNDER ${MIN_SUMMARY_WORDS} words, it will be REJECTED.
+- 180 Bengali words ≈ 900-1100 characters. Count carefully.
+- Write full, detailed paragraphs. Do NOT stop early.
 - Cover WHAT happened, WHO was involved, WHERE, WHEN, WHY it matters, and BACKGROUND context.
 - Add relevant context, implications, and public interest angle.
 
@@ -113,42 +179,13 @@ SOURCE ARTICLES:
 ${JSON.stringify(sourceArticles, null, 2)}
 `;
 
-  /*
-   * ✅ FIXED: Multiple model fallback loop
-   * আগে শুধু একটা model try করত
-   */
-  let lastError = null;
+  const results = await callGeminiAPI(model, prompt, apiKey);
 
-  for (const model of GEMINI_MODELS) {
-    try {
-      console.log(`Trying Gemini model: ${model}`);
-
-      const results = await callGeminiAPI(
-        model,
-        prompt,
-        apiKey
-      );
-
-      if (Array.isArray(results) && results.length > 0) {
-        console.log(`✅ Gemini model ${model} succeeded`);
-        return validateAndCleanResults(results, articles);
-      }
-
-      console.warn(`Gemini model ${model} returned empty results`);
-    } catch (error) {
-      lastError = error;
-      console.error(`❌ Gemini model ${model} failed:`, error.message);
-
-      // Rate limit হলে ২ সেকেন্ড অপেক্ষা করুন
-      if (error.message && error.message.includes("429")) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
-    }
+  if (!Array.isArray(results) || results.length === 0) {
+    throw new Error("Gemini returned empty results.");
   }
 
-  throw new Error(
-    `All Gemini models failed. Last error: ${lastError ? lastError.message : "Unknown"}`
-  );
+  return validateAndCleanResults(results, articles);
 }
 
 /*
@@ -173,7 +210,7 @@ async function callGeminiAPI(model, prompt, apiKey) {
         temperature: 0.2,
         responseMimeType: "application/json",
         responseSchema: RESPONSE_SCHEMA,
-        maxOutputTokens: 8000
+        maxOutputTokens: 16000
       }
     })
   });
@@ -190,7 +227,7 @@ async function callGeminiAPI(model, prompt, apiKey) {
         details = "Unknown error";
       }
     }
-    throw new Error(`HTTP ${response.status}: ${details}`);
+    throw new Error(`Gemini API ${response.status}: ${details}`);
   }
 
   const data = await response.json();
@@ -249,19 +286,23 @@ function validateGeminiResult(result, originalArticles) {
     return null;
   }
 
-  // ✅ FIXED: Word count validation
+  // ✅ Word count validation
   const wordCount = summary.split(/\s+/).filter(Boolean).length;
+
   if (wordCount < MIN_SUMMARY_WORDS) {
-    console.warn(`Summary too short (${wordCount} words) for ID ${id}, skipping`);
+    console.warn(`[REJECT] Summary too short (${wordCount} words < ${MIN_SUMMARY_WORDS}) for ID ${id}`);
     return null;
+  }
+
+  if (wordCount < TARGET_SUMMARY_WORDS) {
+    console.warn(`[BELOW TARGET] ${wordCount} words (target ${TARGET_SUMMARY_WORDS}) for ID ${id}`);
   }
 
   if (headline.length > 180) {
     return null;
   }
 
-  // ✅ FIXED: Summary length limit বাড়ানো (150-220 words => ~1500 chars)
-  if (summary.length > 2000) {
+  if (summary.length > 2500) {
     return null;
   }
 
@@ -301,7 +342,7 @@ export async function processSelectedNews(articles, apiKey) {
 export function geminiStatus(apiKey) {
   return {
     configured: Boolean(apiKey),
-    models: GEMINI_MODELS,
+    mode: "auto-discover-latest-flash",
     minWords: MIN_SUMMARY_WORDS,
     targetWords: TARGET_SUMMARY_WORDS
   };

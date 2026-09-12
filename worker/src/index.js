@@ -1,8 +1,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v4 — Gemini.js integration + Fallback filter
- * + Error message logging fix
+ * FINAL v6 — Modular pipeline (3 bn + 3 en per slot)
  * =========================================================
  */
 
@@ -11,16 +10,12 @@ import ANALYTICS_CONFIG from "./config-analytics.js";
 import ADS_CONFIG from "./config-ads.js";
 import AFFILIATE_CONFIG from "./config-affiliate.js";
 import { processSelectedNews } from "./gemini.js";
+import { runGNewsBatch } from "./news-fetcher.js";
+import { selectBestCandidates, publishSelectedNews } from "./news-selector.js";
+import { enforceNewsLimit } from "./cleanup.js";
 
 const MAX_NEWS = 1000;
-const MAX_SELECTED_NEWS = 5;
 const API_PAGE_SIZE = 10;
-const GNEWS_MAX_RESULTS = 8;
-const GNEWS_LANGUAGES = ["bn", "en"];
-
-// ✅ gemini.js থেকে আসা মানদণ্ড অনুযায়ী
-const MIN_SUMMARY_WORDS = 150;
-const TARGET_SUMMARY_WORDS = 180;
 
 let tablesReadyPromise = null;
 
@@ -61,7 +56,7 @@ export default {
 
       const userAgent = request.headers.get("User-Agent") || "";
       const isBot = /googlebot|bingbot|yandex|baiduspider|twitterbot|facebookexternalhit|whatsapp|slurp|duckduckbot|applebot/i.test(userAgent);
-      
+
       if (url.pathname === "/" && isBot) {
         return await serveBotHomepage(env);
       }
@@ -107,10 +102,14 @@ export default {
           return json({ success: false, error: "POST method required" }, 405, 0);
         }
         const result = await updateNews(env);
-        if (result.stored > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
-          ctx.waitUntil(queueAndSendPushNotifications(env, result.newNewsIds).catch(error => console.error("Push queue error:", error)));
+        if (result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
+          ctx.waitUntil(
+            queueAndSendPushNotifications(env, result.newNewsIds).catch(error =>
+              console.error("Push queue error:", error?.message || String(error))
+            )
+          );
         }
-        return json({ success: true, ...result }, 200, 0);
+        return json(result, 200, 0);
       }
 
       if (url.pathname === "/api/love") {
@@ -151,23 +150,23 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    console.log("2-hour scheduled task started:", new Date(event.scheduledTime).toISOString());
+    console.log("Scheduled task started:", new Date(event.scheduledTime).toISOString());
 
     try {
       const result = await updateNews(env);
-      console.log("2-hour update completed:", JSON.stringify(result));
+      console.log("Scheduled task completed:", JSON.stringify(result));
 
-      if (result.stored > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
+      if (result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
         ctx.waitUntil(
           queueAndSendPushNotifications(env, result.newNewsIds).catch(error => {
-            console.error("Push queue error:", error?.message || error?.stack || String(error));
+            console.error("Push queue error:", error?.message || String(error));
           })
         );
       }
 
       ctx.waitUntil(
         cleanExpiredPushNotifications(env).catch(error => {
-          console.error("Push cleanup error:", error?.message || error?.stack || String(error));
+          console.error("Push cleanup error:", error?.message || String(error));
         })
       );
     } catch (error) {
@@ -176,15 +175,178 @@ export default {
   }
 };
 
+/* =========================================================
+ * NEW MODULAR PIPELINE
+ * ========================================================= */
+
+async function updateNews(env) {
+  if (!env.DB) throw new Error("D1 binding DB is missing");
+  if (!env.GNEWS_API_KEY) throw new Error("GNEWS_API_KEY secret is missing");
+
+  // 1. Fetch GNews bn + en → store as candidates
+  let batchResult = { batches: [], totalReceived: 0, totalInserted: 0 };
+  try {
+    batchResult = await runGNewsBatch(env.DB, env.GNEWS_API_KEY);
+    console.log(`[NEWS] GNews batches:`, JSON.stringify(batchResult));
+  } catch (error) {
+    console.error("[NEWS] GNews batch failed:", error?.message || String(error));
+    return {
+      success: false,
+      fetched: 0,
+      inserted: 0,
+      candidates: 0,
+      selected: 0,
+      published: 0,
+      deleted: 0,
+      gemini: false,
+      newNewsIds: [],
+      message: "GNews fetch failed: " + (error?.message || String(error))
+    };
+  }
+
+  // 2. Fetch all candidates
+  const candidatesResult = await env.DB.prepare(
+    `SELECT * FROM news WHERE status = 'candidate' ORDER BY published_at DESC LIMIT 200`
+  ).all();
+  const candidates = candidatesResult.results || [];
+
+  if (candidates.length === 0) {
+    return {
+      success: true,
+      fetched: batchResult.totalReceived,
+      inserted: batchResult.totalInserted,
+      candidates: 0,
+      selected: 0,
+      published: 0,
+      deleted: 0,
+      gemini: false,
+      newNewsIds: [],
+      message: "No candidates available"
+    };
+  }
+
+  // 3. Existing published for similarity check
+  const publishedResult = await env.DB.prepare(
+    `SELECT source_title, headline FROM news WHERE status = 'published' ORDER BY published_at DESC LIMIT 50`
+  ).all();
+  const existingPublished = publishedResult.results || [];
+
+  // 4. Select best: 3 bn + 3 en
+  const selected = selectBestCandidates(candidates, existingPublished);
+
+  if (selected.length === 0) {
+    return {
+      success: true,
+      fetched: batchResult.totalReceived,
+      inserted: batchResult.totalInserted,
+      candidates: candidates.length,
+      selected: 0,
+      published: 0,
+      deleted: 0,
+      gemini: false,
+      newNewsIds: [],
+      message: "No selectable news"
+    };
+  }
+
+  // 5. Gemini
+  let geminiResults = [];
+  let usedGemini = false;
+  if (env.GEMINI_API_KEY) {
+    try {
+      const geminiInput = selected.map(c => ({
+        id: String(c.id),
+        source_title: c.source_title,
+        source_description: c.source_description,
+        source_name: c.source_name,
+        published_at: c.published_at,
+        category: c.category || "general",
+        language: c.language || "en"
+      }));
+
+      geminiResults = await processSelectedNews(geminiInput, env.GEMINI_API_KEY);
+      usedGemini = Array.isArray(geminiResults) && geminiResults.length > 0;
+      console.log(`[NEWS] Gemini returned ${geminiResults.length} results`);
+    } catch (error) {
+      console.error("[NEWS] Gemini failed:", error?.message || String(error));
+    }
+  }
+
+  if (!geminiResults.length) {
+    return {
+      success: true,
+      fetched: batchResult.totalReceived,
+      inserted: batchResult.totalInserted,
+      candidates: candidates.length,
+      selected: selected.length,
+      published: 0,
+      deleted: 0,
+      gemini: false,
+      newNewsIds: [],
+      message: "Gemini returned no valid results"
+    };
+  }
+
+  // 6. Publish selected
+  const publishResult = await publishSelectedNews(env.DB, selected, geminiResults);
+  console.log(`[NEWS] Published ${publishResult.published} news`);
+
+  // 7. Update search_text for published articles
+  const publishedIds = geminiResults.map(r => r.id).filter(Boolean);
+  for (const id of publishedIds) {
+    const row = await env.DB.prepare(
+      `SELECT headline, summary, main_topic, category FROM news WHERE id = ? AND status = 'published'`
+    ).bind(id).first();
+
+    if (!row) continue;
+
+    const searchText = toTransliterated(
+      [row.headline, row.summary, row.main_topic, row.category].filter(Boolean).join(" ")
+    );
+
+    await env.DB.prepare(`UPDATE news SET search_text = ? WHERE id = ?`)
+      .bind(searchText, id).run();
+  }
+
+  // 8. Enforce storage limit 1000
+  const cleanupResult = await enforceNewsLimit(env.DB);
+  console.log(`[NEWS] Cleanup: deleted ${cleanupResult.deleted}, total ${cleanupResult.total}`);
+
+  // 9. Clean orphan loves/comments
+  for (const id of cleanupResult.deletedIds || []) {
+    try {
+      await env.DB.prepare(`DELETE FROM news_loves WHERE news_id = ?`).bind(id).run();
+      await env.DB.prepare(`DELETE FROM news_comments WHERE news_id = ?`).bind(id).run();
+    } catch (e) { /* ignore */ }
+  }
+
+  return {
+    success: true,
+    fetched: batchResult.totalReceived,
+    inserted: batchResult.totalInserted,
+    candidates: candidates.length,
+    selected: selected.length,
+    published: publishResult.published,
+    deleted: cleanupResult.deleted,
+    gemini: usedGemini,
+    newNewsIds: publishedIds,
+    message: `Update completed. ${publishResult.published} published, ${cleanupResult.deleted} cleaned.`
+  };
+}
+
+/* =========================================================
+ * SEO / PUBLIC PAGES
+ * ========================================================= */
+
 async function serveBotHomepage(env) {
   try {
     const result = await env.DB.prepare(
       `SELECT id, headline, summary, published_at, category, image_url FROM news WHERE status = 'published' ORDER BY published_at DESC LIMIT 20`
     ).all();
-    
+
     const news = result.results || [];
     let newsHtml = "";
-    
+
     for (const item of news) {
       const link = `https://ajkernews.in/?id=${encodeURIComponent(item.id)}`;
       newsHtml += `
@@ -247,8 +409,25 @@ async function ensureTables(env) {
     `CREATE INDEX IF NOT EXISTS idx_news_loves_news_id ON news_loves(news_id)`,
     `CREATE INDEX IF NOT EXISTS idx_news_comments_news_created ON news_comments(news_id, created_at ASC)`
   ];
+
   for (const sql of queries) {
-    await env.DB.prepare(sql).run();
+    try {
+      await env.DB.prepare(sql).run();
+    } catch (error) {
+      console.error("Table setup error:", error?.message || String(error));
+    }
+  }
+
+  // Migration: add "language" column if missing
+  try {
+    const columns = await env.DB.prepare(`PRAGMA table_info(news)`).all();
+    const hasLanguage = (columns.results || []).some(c => c.name === "language");
+    if (!hasLanguage) {
+      console.log("[MIGRATION] Adding language column to news table");
+      await env.DB.prepare(`ALTER TABLE news ADD COLUMN language TEXT DEFAULT 'bn'`).run();
+    }
+  } catch (error) {
+    console.error("Language column migration failed:", error?.message || String(error));
   }
 }
 
@@ -364,350 +543,15 @@ async function handleAffiliate(url, env) {
       await env.DB.prepare(`INSERT INTO affiliate_clicks (id, affiliate_name, click_url, device_id, created_at) VALUES (?, ?, ?, ?, ?)`)
         .bind(crypto.randomUUID(), ref, targetUrl, "unknown", new Date().toISOString()).run();
     } catch (error) {
-      console.error("Affiliate log error:", error?.message || error?.stack || String(error));
+      console.error("Affiliate log error:", error?.message || String(error));
     }
   }
   return Response.redirect(targetUrl, 302);
 }
 
-async function updateNews(env) {
-  if (!env.DB) throw new Error("D1 binding DB is missing");
-  if (!env.GNEWS_API_KEY) throw new Error("GNEWS_API_KEY secret is missing");
-
-  let candidates = [];
-  try {
-    candidates = await fetchGNews(env);
-  } catch (error) {
-    console.error("GNews fetch failed:", error?.message || error?.stack || String(error));
-    return { fetched: 0, unique: 0, selected: 0, stored: 0, deleted: 0, indexed: 0, newNewsIds: [], gemini: false, fallback: false, message: "GNews fetch failed" };
-  }
-
-  if (!candidates.length) {
-    return { fetched: 0, unique: 0, selected: 0, stored: 0, deleted: 0, indexed: 0, newNewsIds: [], gemini: false, fallback: false, message: "No news found" };
-  }
-
-  const uniqueCandidates = await removeExistingNews(candidates, env);
-  if (!uniqueCandidates.length) {
-    return { fetched: candidates.length, unique: 0, selected: 0, stored: 0, deleted: 0, indexed: 0, newNewsIds: [], gemini: false, fallback: false, message: "No new news available" };
-  }
-
-  let selected = [];
-  let usedGemini = false;
-  let usedFallback = false;
-
-  const balancedCandidates = selectBalancedLanguageCandidates(uniqueCandidates, 4, 4);
-
-  // ✅ gemini.js ব্যবহার করে Gemini কল করা হচ্ছে
-  if (env.GEMINI_API_KEY) {
-    try {
-      const geminiInput = balancedCandidates.map((c, i) => ({
-        id: String(i + 1),
-        source_title: c.source_title,
-        source_description: c.source_description,
-        source_name: c.source_name,
-        published_at: c.published_at,
-        category: c.category || "general",
-        language: c.language || "en",
-        _original: c
-      }));
-
-      const geminiResults = await processSelectedNews(geminiInput, env.GEMINI_API_KEY);
-
-      selected = geminiResults.map(r => {
-        const original = balancedCandidates[Number(r.id) - 1];
-        if (!original) return null;
-        return {
-          ...original,
-          headline: r.headline,
-          summary: r.summary,
-          main_topic: r.main_topic,
-          category: normalizeCategory(original.category),
-          score: 90
-        };
-      }).filter(Boolean);
-
-      usedGemini = selected.length > 0;
-    } catch (error) {
-      console.error("Gemini failed:", error?.message || error?.stack || String(error));
-    }
-  }
-
-  // ✅ Fallback ১: ১৫০ শব্দের ফিল্টার সহ
-  if (selected.length < MAX_SELECTED_NEWS) {
-    const fallbackNews = buildFallbackNews(balancedCandidates);
-    const existingIds = new Set(selected.map(n => n.source_url));
-    const additional = fallbackNews.filter(n => !existingIds.has(n.source_url));
-    selected = [...selected, ...additional];
-    usedFallback = true;
-  }
-
-  let finalNews = selected.slice(0, MAX_SELECTED_NEWS);
-
-  // ✅ Fallback ২: ১৫০ শব্দের ফিল্টার সহ
-  if (finalNews.length < MAX_SELECTED_NEWS) {
-    const existingIds = new Set(finalNews.map(n => n.source_url));
-    const available = uniqueCandidates
-      .filter(c => !existingIds.has(c.source_url))
-      .map(c => {
-        const summary = c.source_description || c.source_title || "";
-        const wordCount = summary.split(/\s+/).filter(Boolean).length;
-        if (wordCount < MIN_SUMMARY_WORDS) return null;
-        return {
-          ...c,
-          headline: c.source_title,
-          summary,
-          main_topic: detectFallbackCategory(c.source_title + ' ' + c.source_description),
-          category: detectFallbackCategory(c.source_title + ' ' + c.source_description),
-          score: fallbackScore(c.source_title + ' ' + c.source_description, detectFallbackCategory(c.source_title + ' ' + c.source_description))
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => b.score - a.score);
-    const needed = MAX_SELECTED_NEWS - finalNews.length;
-    finalNews = [...finalNews, ...available.slice(0, needed)];
-  }
-
-  // ✅ West Bengal replacement: ১৫০ শব্দের ফিল্টার সহ
-  const hasWestBengal = finalNews.some(n => n.category === 'west_bengal');
-  if (!hasWestBengal && uniqueCandidates.length > 0) {
-    const wbCandidates = uniqueCandidates
-      .filter(c => detectFallbackCategory(c.source_title + ' ' + c.source_description) === 'west_bengal')
-      .map(c => {
-        const summary = c.source_description || "";
-        const wordCount = summary.split(/\s+/).filter(Boolean).length;
-        if (wordCount < MIN_SUMMARY_WORDS) return null;
-        return {
-          ...c,
-          headline: c.source_title,
-          summary,
-          main_topic: fallbackTopic('west_bengal'),
-          category: 'west_bengal',
-          score: fallbackScore(c.source_title + ' ' + c.source_description, 'west_bengal')
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => b.score - a.score);
-
-    if (wbCandidates.length > 0) {
-      finalNews.sort((a, b) => a.score - b.score);
-      const replacementIndex = finalNews.findIndex(n => n.language === wbCandidates[0].language);
-      if (replacementIndex >= 0) finalNews[replacementIndex] = wbCandidates[0];
-    }
-  }
-
-  finalNews.sort((a, b) => b.score - a.score);
-
-  let stored = 0;
-  const newNewsIds = [];
-  const indexedUrls = [];
-
-  for (const news of finalNews) {
-    try {
-      await insertNews(news, env);
-      stored++;
-      if (news.id) newNewsIds.push(news.id);
-      indexedUrls.push(`https://ajkernews.in/?id=${encodeURIComponent(news.id)}`);
-    } catch (error) {
-      console.error("News insert failed:", error?.message || error?.stack || String(error));
-    }
-  }
-
-  const deleted = await enforceMaximumNews(env);
-
-  let indexed = 0;
-  if (stored > 0 && env.GOOGLE_SERVICE_ACCOUNT_JSON) {
-    for (const newsUrl of indexedUrls) {
-      let success = false;
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        success = await requestGoogleIndexing(newsUrl, env);
-        if (success) { indexed++; break; }
-        await sleep(1500 * attempt);
-      }
-    }
-  }
-
-  return {
-    fetched: candidates.length,
-    unique: uniqueCandidates.length,
-    selected: finalNews.length,
-    stored,
-    newNewsIds,
-    deleted,
-    indexed,
-    gemini: usedGemini,
-    fallback: usedFallback,
-    message: `2-hour update completed. ${stored} stored. Maximum storage: ${MAX_NEWS}.`
-  };
-}
-
-async function fetchGNews(env) {
-  const results = [];
-  for (const language of GNEWS_LANGUAGES) {
-    try {
-      const feed = await fetchGNewsFeed(env, language);
-      results.push(...feed);
-    } catch (error) {
-      console.error(`GNews ${language} failed:`, error?.message || error?.stack || String(error));
-    }
-  }
-
-  const seen = new Set();
-  const unique = [];
-  for (const item of results) {
-    if (!item.source_url) continue;
-    if (seen.has(item.source_url)) continue;
-    seen.add(item.source_url);
-    unique.push(item);
-  }
-  return unique.slice(0, 30);
-}
-
-async function fetchGNewsFeed(env, language) {
-  const apiUrl = new URL("https://gnews.io/api/v4/top-headlines");
-  apiUrl.searchParams.set("lang", language);
-  apiUrl.searchParams.set("country", "in");
-  apiUrl.searchParams.set("max", String(GNEWS_MAX_RESULTS));
-  apiUrl.searchParams.set("apikey", env.GNEWS_API_KEY);
-
-  const response = await fetch(apiUrl.toString(), {
-    method: "GET",
-    headers: { accept: "application/json" }
-  });
-
-  if (!response.ok) {
-    throw new Error(`GNews ${language} API ${response.status}: ${await response.text()}`);
-  }
-
-  const data = await response.json();
-  if (!data || !Array.isArray(data.articles)) return [];
-
-  return data.articles
-    .slice(0, GNEWS_MAX_RESULTS)
-    .map(article => ({
-      source_name: cleanText(article.source?.name || ""),
-      source_url: normalizeUrl(article.url || ""),
-      source_title: cleanText(article.title || ""),
-      source_description: cleanText(article.description || ""),
-      image_url: article.image || "",
-      published_at: article.publishedAt || "",
-      language
-    }))
-    .filter(article => article.source_url && article.source_title);
-}
-
-async function removeExistingNews(candidates, env) {
-  const unique = [];
-  const checked = new Set();
-
-  for (const item of candidates) {
-    const sourceUrl = normalizeUrl(item.source_url);
-    if (!sourceUrl) continue;
-    if (checked.has(sourceUrl)) continue;
-    checked.add(sourceUrl);
-
-    const existing = await env.DB.prepare(`SELECT id FROM news WHERE source_url = ? LIMIT 1`).bind(sourceUrl).first();
-    if (!existing) unique.push({ ...item, source_url: sourceUrl });
-  }
-  return unique;
-}
-
-function selectBalancedLanguageCandidates(candidates, bnCount, enCount) {
-  const bn = candidates
-    .filter(item => item.language === "bn")
-    .sort((a, b) => String(b.published_at || "").localeCompare(String(a.published_at || "")))
-    .slice(0, bnCount);
-  const en = candidates
-    .filter(item => item.language === "en")
-    .sort((a, b) => String(b.published_at || "").localeCompare(String(a.published_at || "")))
-    .slice(0, enCount);
-  return [...bn, ...en];
-}
-
-function buildFallbackNews(candidates) {
-  return candidates
-    .map(item => {
-      const title = cleanText(item.source_title);
-      const description = cleanText(item.source_description);
-      const category = detectFallbackCategory(`${title} ${description}`);
-      const score = fallbackScore(`${title} ${description}`, category);
-
-      let summary = description;
-      if (!summary || summary.trim() === '') {
-        summary = title;
-      }
-
-      const wordCount = summary.split(/\s+/).filter(Boolean).length;
-
-      // ✅ Fallback পাথেও ১৫০ শব্দের ফিল্টার
-      if (wordCount < MIN_SUMMARY_WORDS) {
-        console.warn(`[FALLBACK REJECT] ${wordCount} words < ${MIN_SUMMARY_WORDS} — "${title.slice(0, 50)}"`);
-        return null;
-      }
-
-      return {
-        ...item,
-        headline: title,
-        summary,
-        main_topic: fallbackTopic(category),
-        category,
-        score
-      };
-    })
-    .filter(Boolean)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, MAX_SELECTED_NEWS);
-}
-
-function detectFallbackCategory(text) {
-  const value = String(text || "").toLowerCase();
-  const westBengalWords = ["west bengal", "kolkata", "bengal", "mamata", "banerjee", "tmc", "trinamool", "calcutta", "howrah", "siliguri"];
-  if (westBengalWords.some(word => value.includes(word))) return "west_bengal";
-  if (/india|indian|delhi|modi|parliament|election|supreme court/.test(value)) return "india";
-  if (/business|market|stock|economy|bank|company|finance|rupee/.test(value)) return "business";
-  if (/technology|tech|ai|iphone|google|microsoft|software|internet/.test(value)) return "technology";
-  if (/sport|cricket|football|tennis|olympic/.test(value)) return "sports";
-  if (/movie|film|actor|actress|music|entertainment|bollywood/.test(value)) return "entertainment";
-  if (/world|america|usa|ukraine|russia|china|israel|iran/.test(value)) return "world";
-  return "general";
-}
-
-function fallbackTopic(category) {
-  const topics = {
-    west_bengal: "পশ্চিমবঙ্গ", india: "ভারত", world: "বিশ্ব",
-    politics: "রাজনীতি", business: "ব্যবসা", sports: "খেলা",
-    technology: "প্রযুক্তি", entertainment: "বিনোদন", general: "সর্বশেষ খবর"
-  };
-  return topics[category] || topics.general;
-}
-
-function fallbackScore(text, category) {
-  let score = 50;
-  if (category === "west_bengal") score += 40;
-  if (category === "india") score += 25;
-  if (/breaking|major|latest|election|government|minister/.test(String(text).toLowerCase())) score += 10;
-  return clampScore(score);
-}
-
-async function insertNews(item, env) {
-  // ✅ শেষ প্রতিরক্ষা: ১৫০ শব্দের নিচে হলে সেভ হবে না
-  const wordCount = (item.summary || "").split(/\s+/).filter(Boolean).length;
-  if (wordCount < MIN_SUMMARY_WORDS) {
-    console.warn(`[INSERT BLOCKED] ${wordCount} words < ${MIN_SUMMARY_WORDS} — "${(item.headline || "").slice(0, 50)}"`);
-    throw new Error(`Summary too short: ${wordCount} words`);
-  }
-
-  const id = crypto.randomUUID();
-  const createdAt = new Date().toISOString();
-  const dayKey = createdAt.slice(0, 10);
-  const searchText = toTransliterated([item.headline, item.summary, item.main_topic, item.category].filter(Boolean).join(" "));
-
-  await env.DB
-    .prepare(`INSERT INTO news (id, source_url, source_name, source_title, source_description, headline, summary, main_topic, category, image_url, published_at, created_at, day_key, status, score, search_text, indexed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(id, item.source_url, item.source_name, item.source_title, item.source_description, item.headline, item.summary, item.main_topic, item.category, item.image_url, item.published_at, createdAt, dayKey, "published", item.score, searchText, null)
-    .run();
-
-  item.id = id;
-}
+/* =========================================================
+ * API: GET NEWS
+ * ========================================================= */
 
 async function handleGetNews(url, env) {
   const category = url.searchParams.get("category") || "top";
@@ -744,26 +588,9 @@ async function handleGetNews(url, env) {
   return json({ success: true, count: news.length, offset, limit: API_PAGE_SIZE, has_more: hasMore, news }, 200, 30);
 }
 
-async function enforceMaximumNews(env) {
-  const result = await env.DB.prepare(`SELECT COUNT(*) AS total FROM news`).first();
-  const total = Number(result?.total || 0);
-  if (total <= MAX_NEWS) return 0;
-
-  const deleteCount = total - MAX_NEWS;
-  const old = await env.DB.prepare(`SELECT id FROM news ORDER BY created_at ASC LIMIT ?`).bind(deleteCount).all();
-  const ids = (old.results || []).map(row => row.id);
-
-  for (const id of ids) {
-    await env.DB.prepare(`DELETE FROM news_loves WHERE news_id = ?`).bind(id).run();
-    await env.DB.prepare(`DELETE FROM news_comments WHERE news_id = ?`).bind(id).run();
-  }
-
-  if (ids.length) {
-    const placeholders = ids.map(() => "?").join(",");
-    await env.DB.prepare(`DELETE FROM news WHERE id IN (${placeholders})`).bind(...ids).run();
-  }
-  return ids.length;
-}
+/* =========================================================
+ * PUSH NOTIFICATIONS
+ * ========================================================= */
 
 async function handleSubscribe(request, env) {
   try {
@@ -786,7 +613,7 @@ async function handleSubscribe(request, env) {
 
     return json({ success: true }, 200, 0);
   } catch (error) {
-    console.error("Subscribe error:", error?.message || error?.stack || String(error));
+    console.error("Subscribe error:", error?.message || String(error));
     return json({ success: false, error: error?.message || "Subscribe error" }, 500, 0);
   }
 }
@@ -803,7 +630,7 @@ async function handleUnsubscribe(request, env) {
       return json({ success: false, message: "Subscription not found" }, 404, 0);
     }
   } catch (error) {
-    console.error("Unsubscribe error:", error?.message || error?.stack || String(error));
+    console.error("Unsubscribe error:", error?.message || String(error));
     return json({ success: false, error: error?.message || "Unsubscribe error" }, 500, 0);
   }
 }
@@ -814,7 +641,7 @@ async function cleanExpiredPushNotifications(env) {
     await env.DB.prepare(`DELETE FROM push_notification_deliveries WHERE notification_id IN (SELECT id FROM push_notifications WHERE expires_at <= ?)`).bind(now).run();
     await env.DB.prepare(`DELETE FROM push_notifications WHERE expires_at <= ?`).bind(now).run();
   } catch (error) {
-    console.error("Push expiry cleanup failed:", error?.message || error?.stack || String(error));
+    console.error("Push expiry cleanup failed:", error?.message || String(error));
   }
 }
 
@@ -918,6 +745,7 @@ async function sendPendingPushNotifications(env, endpointFilter = null) {
           await env.DB.prepare(`DELETE FROM push_subscriptions WHERE endpoint = ?`).bind(row.endpoint).run();
           await env.DB.prepare(`DELETE FROM push_notification_deliveries WHERE endpoint = ?`).bind(row.endpoint).run();
         } else if (statusCode === 429) {
+          // rate limited — skip
         } else {
           console.error("Push send failed:", statusCode, error?.message || String(error));
         }
@@ -942,10 +770,14 @@ async function handlePushSync(request, env) {
 
     return json({ success: true, synced: true }, 200, 0);
   } catch (error) {
-    console.error("Push sync error:", error?.message || error?.stack || String(error));
+    console.error("Push sync error:", error?.message || String(error));
     return json({ success: false, error: error?.message || "Push sync error" }, 500, 0);
   }
 }
+
+/* =========================================================
+ * LOVE + COMMENTS
+ * ========================================================= */
 
 async function toggleLove(request, env) {
   try {
@@ -993,6 +825,10 @@ async function addComment(request, env) {
   }
 }
 
+/* =========================================================
+ * GOOGLE INDEXING
+ * ========================================================= */
+
 async function requestGoogleIndexing(url, env) {
   try {
     const token = await getGoogleAccessToken(env);
@@ -1013,12 +849,12 @@ async function requestGoogleIndexing(url, env) {
       await env.DB.prepare(`INSERT INTO indexing_log (id, news_id, url, status, response, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
         .bind(crypto.randomUUID(), getIdFromNewsUrl(url), url, response.ok ? "success" : "failed", responseText, new Date().toISOString()).run();
     } catch (error) {
-      console.error("Indexing log error:", error?.message || error?.stack || String(error));
+      console.error("Indexing log error:", error?.message || String(error));
     }
 
     return response.ok;
   } catch (error) {
-    console.error("Indexing error:", error?.message || error?.stack || String(error));
+    console.error("Indexing error:", error?.message || String(error));
     return false;
   }
 }
@@ -1076,10 +912,14 @@ async function getGoogleAccessToken(env) {
     const data = await response.json();
     return data.access_token || null;
   } catch (error) {
-    console.error("Token generation error:", error?.message || error?.stack || String(error));
+    console.error("Token generation error:", error?.message || String(error));
     return null;
   }
 }
+
+/* =========================================================
+ * SITEMAP
+ * ========================================================= */
 
 async function generateSitemap(env) {
   const result = await env.DB.prepare(`SELECT id, created_at FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT ?`).bind(MAX_NEWS).all();
@@ -1105,30 +945,12 @@ async function generateSitemap(env) {
   });
 }
 
-function normalizeUrl(url) {
-  try {
-    const parsed = new URL(url);
-    parsed.hash = "";
-    return parsed.toString();
-  } catch {
-    return String(url || "").trim();
-  }
-}
+/* =========================================================
+ * HELPERS
+ * ========================================================= */
 
 function cleanText(value) {
   return String(value || "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
-}
-
-function normalizeCategory(category) {
-  const allowed = new Set(["west_bengal", "india", "world", "politics", "business", "sports", "technology", "entertainment", "general"]);
-  const value = String(category || "").trim().toLowerCase();
-  return allowed.has(value) ? value : "general";
-}
-
-function clampScore(score) {
-  const number = Number(score);
-  if (!Number.isFinite(number)) return 0;
-  return Math.max(0, Math.min(100, Math.round(number)));
 }
 
 function base64UrlEncode(str) {
@@ -1176,8 +998,4 @@ function escapeHtml(text) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
-}
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }

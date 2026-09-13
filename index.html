@@ -45,7 +45,7 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
 .header-left h1 { font-size:24px; line-height:1; font-weight:700; color:#111111; white-space:nowrap; letter-spacing:-0.3px; }
 .header-right { display:flex; align-items:center; gap:10px; flex-shrink:0; }
 
-/* ✅ REFRESH — pure black outline, YouTube-style spin */
+/* ✅ REFRESH — pure black, YouTube-style spin */
 .refresh-btn {
   width:36px; height:36px; padding:4px;
   display:flex; align-items:center; justify-content:center;
@@ -65,20 +65,27 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
   to   { transform: rotate(360deg); }
 }
 
-/* ✅ NOTIFICATION BELL — Feather outline, NEVER filled */
+/* ✅ NOTIFICATION BELL — Feather outline. OFF=gray, ON=pure black */
 .notif-btn {
   width:36px; height:36px; padding:4px;
   display:flex; align-items:center; justify-content:center;
   background:transparent; border:none; cursor:pointer;
   -webkit-tap-highlight-color:transparent;
+  color:#888888;                       /* default gray */
+  transition:color 0.25s ease;
 }
 .notif-btn svg {
   width:24px; height:24px;
-  stroke:#000000; fill:none;
+  stroke:currentColor; fill:none;
   stroke-width:2; stroke-linecap:round; stroke-linejoin:round;
-  transition:stroke 0.2s;
+  transition:stroke 0.25s ease, stroke-width 0.25s ease;
 }
-.notif-btn.subscribed svg { stroke:#000000; }
+.notif-btn.subscribed {
+  color:#000000;                       /* ✅ ON = pure black */
+}
+.notif-btn.subscribed svg {
+  stroke-width:2.4;                    /* ✅ সামান্য মোটা */
+}
 
 .search-btn { width:36px; height:36px; padding:4px; display:flex; align-items:center; justify-content:center; background:transparent; border:none; cursor:pointer; -webkit-tap-highlight-color:transparent; }
 .search-svg { width:20px; height:20px; display:block; overflow:visible; }
@@ -261,7 +268,7 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
       </svg>
     </button>
     <button class="notif-btn" id="notifyBtn" onclick="toggleNotification()" aria-label="Notifications">
-      <svg viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
         <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
       </svg>
@@ -386,10 +393,7 @@ function getDeviceId() {
   }
   return id;
 }
-
-function isNewsLoved(id) {
-  return localStorage.getItem('loved:' + String(id)) === '1';
-}
+function isNewsLoved(id) { return localStorage.getItem('loved:' + String(id)) === '1'; }
 function setNewsLoved(id, loved) {
   const key = 'loved:' + String(id);
   if (loved) localStorage.setItem(key, '1');
@@ -510,12 +514,10 @@ function installApp() {
 async function refreshNews() {
   const btn = document.getElementById('refreshBtn');
   if (isLoadingNews || btn.classList.contains('spinning')) return;
-
   btn.classList.add('spinning');
   btn.disabled = true;
   const startedAt = Date.now();
   const MIN_SPIN_MS = 700;
-
   try {
     await loadNews(currentCategory || 'top', currentSearchQuery || '', {
       showLoading: true,
@@ -601,7 +603,6 @@ async function loadNews(category = 'top', search = '', options = {}) {
     console.error('News loading error:', error);
     isLoadingNews = false;
     if (shouldRestoreSpin && refreshBtn) refreshBtn.classList.remove('spinning');
-
     const attempts = options.__retry || 0;
     if (attempts < 3) {
       setTimeout(() => {
@@ -744,10 +745,14 @@ function getNextAd() {
   return ad;
 }
 
-// ===== LOAD MORE =====
+// ===== LOAD MORE (with refresh spin) =====
 async function loadMoreNews() {
   if (isLoadingNews) return;
   const loadMoreBtn = document.getElementById('loadMoreBtn');
+  const refreshBtn = document.getElementById('refreshBtn');
+  const shouldSpin = refreshBtn && !refreshBtn.classList.contains('spinning');
+  if (shouldSpin) refreshBtn.classList.add('spinning');
+
   loadMoreBtn.style.display = 'none';
   loadMoreBtn.disabled = true;
   try {
@@ -764,6 +769,7 @@ async function loadMoreNews() {
       hasMoreNews = false;
       loadMoreBtn.disabled = true;
       loadMoreBtn.style.display = 'none';
+      if (shouldSpin && refreshBtn) refreshBtn.classList.remove('spinning');
       return;
     }
     const newNews = data.news.map(normalizeNews).filter(Boolean);
@@ -780,6 +786,7 @@ async function loadMoreNews() {
       if (!isLoadingNews && hasMoreNews) loadMoreNews();
     }, 2500);
   }
+  if (shouldSpin && refreshBtn) refreshBtn.classList.remove('spinning');
   setTimeout(setupInfiniteScroll, 100);
 }
 
@@ -1204,7 +1211,7 @@ if ('serviceWorker' in navigator) {
         u.searchParams.set('id', id);
         history.replaceState({}, '', u.toString());
       }
-      await loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: false });
+      await loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: true });
       if (id) await showSharedNewsFirst(id);
       const reg = await navigator.serviceWorker.ready;
       if (reg.active) reg.active.postMessage({ type: 'CLEAR_NOTIFICATIONS' });
@@ -1279,7 +1286,7 @@ window.addEventListener('load', () => {
   const goId = goPath.startsWith('/go/') ? decodeURIComponent(goPath.split('/')[2] || '') : null;
   const sharedId = sharedQueryId || legacyNewsId || goId;
 
-  await loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: false });
+  await loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: true });
 
   if (sharedId) await showSharedNewsFirst(sharedId);
 

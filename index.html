@@ -65,26 +65,24 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
   to   { transform: rotate(360deg); }
 }
 
-/* ✅ NOTIFICATION BELL — Feather outline. OFF=gray, ON=pure black */
+/* ✅ NOTIFICATION BELL — always black outline. Subscribed = fully filled black */
 .notif-btn {
   width:36px; height:36px; padding:4px;
   display:flex; align-items:center; justify-content:center;
   background:transparent; border:none; cursor:pointer;
   -webkit-tap-highlight-color:transparent;
-  color:#888888;                       /* default gray */
-  transition:color 0.25s ease;
 }
 .notif-btn svg {
   width:24px; height:24px;
-  stroke:currentColor; fill:none;
+  stroke:#000000; fill:none;
   stroke-width:2; stroke-linecap:round; stroke-linejoin:round;
-  transition:stroke 0.25s ease, stroke-width 0.25s ease;
+  transition:fill 0.25s ease, stroke-width 0.25s ease;
 }
-.notif-btn.subscribed {
-  color:#000000;                       /* ✅ ON = pure black */
-}
+/* ✅ Notification ON → bell fully filled black */
 .notif-btn.subscribed svg {
-  stroke-width:2.4;                    /* ✅ সামান্য মোটা */
+  fill:#000000;
+  stroke:#000000;
+  stroke-width:2.2;
 }
 
 .search-btn { width:36px; height:36px; padding:4px; display:flex; align-items:center; justify-content:center; background:transparent; border:none; cursor:pointer; -webkit-tap-highlight-color:transparent; }
@@ -376,6 +374,10 @@ const PAGE_SIZE = 10;
 let hasMoreNews = false;
 let deferredPrompt = null;
 
+// ===== PREFETCH STATE =====
+let __prefetchData = null;
+let __prefetchOffset = 0;
+
 // ===== ADS =====
 const PERSONAL_ADS = [
   { id: "ad1", title: "আপনার বিজ্ঞাপন দিন", description: "বাংলার সবচেয়ে বড় নিউজ প্ল্যাটফর্মে বিজ্ঞাপন দিন। লাখ লাখ দর্শকের কাছে পৌঁছান।", link: "https://your-ad-page.com/contact", image: "https://your-image-url.com/ad-banner.png", category: "sponsored" },
@@ -519,6 +521,8 @@ async function refreshNews() {
   const startedAt = Date.now();
   const MIN_SPIN_MS = 700;
   try {
+    __prefetchData = null;
+    __prefetchOffset = 0;
     await loadNews(currentCategory || 'top', currentSearchQuery || '', {
       showLoading: true,
       keepExisting: false,
@@ -575,6 +579,7 @@ async function loadNews(category = 'top', search = '', options = {}) {
   try {
     const params = new URLSearchParams();
     params.set('category', category || 'all');
+    params.set('limit', '10');
     if (search) params.set('q', search);
     const url = API_URL + '?' + params.toString();
     const controller = new AbortController();
@@ -621,6 +626,9 @@ async function loadNews(category = 'top', search = '', options = {}) {
   }
   isLoadingNews = false;
   if (shouldRestoreSpin && refreshBtn) refreshBtn.classList.remove('spinning');
+
+  // ✅ First page load এর পরেই next page prefetch
+  if (hasMoreNews) prefetchNextPage();
 }
 
 // ===== BUILD NEWS HTML =====
@@ -683,7 +691,7 @@ function buildAdHtml(ad) {
   </a>`;
 }
 
-// ===== RENDER NEWS =====
+// ===== RENDER NEWS — super fast =====
 function renderNews(newsList, hasMore = false) {
   const container = document.getElementById('newsContainer');
   if (!Array.isArray(newsList) || !newsList.length) {
@@ -708,7 +716,6 @@ function renderNews(newsList, hasMore = false) {
       } else {
         loadMoreBtn.style.display = 'none';
       }
-      setTimeout(setupInfiniteScroll, 100);
       return;
     }
 
@@ -732,7 +739,12 @@ function renderNews(newsList, hasMore = false) {
       adCounter = 0;
     }
 
-    setTimeout(showNext, 80);
+    // ✅ প্রথম ৪টা instant, তারপর 20ms — super fast
+    if (index < 4) {
+      requestAnimationFrame(showNext);
+    } else {
+      setTimeout(showNext, 20);
+    }
   }
 
   showNext();
@@ -745,7 +757,7 @@ function getNextAd() {
   return ad;
 }
 
-// ===== LOAD MORE (with refresh spin) =====
+// ===== LOAD MORE — button click only, with prefetch =====
 async function loadMoreNews() {
   if (isLoadingNews) return;
   const loadMoreBtn = document.getElementById('loadMoreBtn');
@@ -755,10 +767,37 @@ async function loadMoreNews() {
 
   loadMoreBtn.style.display = 'none';
   loadMoreBtn.disabled = true;
+
+  // ✅ Prefetched data থাকলে সাথে সাথে use করি
+  if (__prefetchData && __prefetchOffset === currentOffset + PAGE_SIZE) {
+    const data = __prefetchData;
+    __prefetchData = null;
+    __prefetchOffset = 0;
+    currentOffset += PAGE_SIZE;
+    if (!data.news || !data.news.length) {
+      hasMoreNews = false;
+      loadMoreBtn.disabled = true;
+      loadMoreBtn.style.display = 'none';
+      if (shouldSpin && refreshBtn) refreshBtn.classList.remove('spinning');
+      return;
+    }
+    const newNews = data.news.map(normalizeNews).filter(Boolean);
+    currentNews = [...currentNews, ...newNews];
+    visibleCount = currentNews.length;
+    hasMoreNews = data.has_more || false;
+    renderNews(currentNews, hasMoreNews);
+    loadMoreBtn.disabled = false;
+    if (shouldSpin && refreshBtn) refreshBtn.classList.remove('spinning');
+    // Next prefetch
+    if (hasMoreNews) prefetchNextPage();
+    return;
+  }
+
   try {
     currentOffset += PAGE_SIZE;
     const params = new URLSearchParams();
     params.set('category', currentCategory || 'top');
+    params.set('limit', '10');
     params.set('offset', String(currentOffset));
     if (currentSearchQuery) params.set('q', currentSearchQuery);
     const url = API_URL + '?' + params.toString();
@@ -778,32 +817,40 @@ async function loadMoreNews() {
     hasMoreNews = data.has_more || false;
     renderNews(currentNews, hasMoreNews);
     loadMoreBtn.disabled = false;
+    // ✅ Next page prefetch
+    if (hasMoreNews) prefetchNextPage();
   } catch (error) {
     console.error('Load more error:', error);
     loadMoreBtn.disabled = false;
     loadMoreBtn.style.display = 'none';
-    setTimeout(() => {
-      if (!isLoadingNews && hasMoreNews) loadMoreNews();
-    }, 2500);
   }
   if (shouldSpin && refreshBtn) refreshBtn.classList.remove('spinning');
-  setTimeout(setupInfiniteScroll, 100);
 }
 
-// ===== ✅ YouTube-style infinite scroll =====
+// ===== Prefetch next page (background) =====
+async function prefetchNextPage() {
+  if (!hasMoreNews) return;
+  const nextOffset = currentOffset + PAGE_SIZE;
+  try {
+    const params = new URLSearchParams();
+    params.set('category', currentCategory || 'top');
+    params.set('limit', '10');
+    params.set('offset', String(nextOffset));
+    if (currentSearchQuery) params.set('q', currentSearchQuery);
+    const url = API_URL + '?' + params.toString();
+    const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } });
+    if (!response.ok) return;
+    const data = await response.json();
+    __prefetchData = data;
+    __prefetchOffset = nextOffset;
+  } catch (_) {}
+}
+
+// ===== Infinite scroll DISABLED — button click only =====
 let __infiniteObserver = null;
 function setupInfiniteScroll() {
-  if (__infiniteObserver) __infiniteObserver.disconnect();
-  const sentinel = document.getElementById('scrollSentinel');
-  if (!sentinel || !('IntersectionObserver' in window)) return;
-  __infiniteObserver = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-      if (entry.isIntersecting && !isLoadingNews && hasMoreNews) {
-        loadMoreNews();
-      }
-    });
-  }, { root: null, rootMargin: '800px 0px', threshold: 0 });
-  __infiniteObserver.observe(sentinel);
+  // no-op — button click only
+  return;
 }
 
 // ===== LOVE =====
@@ -1136,6 +1183,8 @@ async function showSharedNewsFirst(id) {
 function setCategory(cat) {
   currentCategory = cat || 'top';
   currentSearchQuery = '';
+  __prefetchData = null;
+  __prefetchOffset = 0;
   const titles = { top: 'সেরা খবর', trending: 'ট্রেন্ডিং', all: 'সব খবর' };
   document.getElementById('categoryTitle').innerText = titles[currentCategory] || 'সেরা খবর';
   toggleSidebar(false);
@@ -1148,6 +1197,8 @@ async function performSearch() {
   closeSearchModal();
   currentCategory = 'all';
   currentSearchQuery = query;
+  __prefetchData = null;
+  __prefetchOffset = 0;
   document.getElementById('categoryTitle').innerText = 'খুঁজছি: ' + query;
   await loadNews('all', query, { showLoading: true, keepExisting: false });
 }
@@ -1265,20 +1316,8 @@ window.addEventListener('load', () => {
   }, NOTIFICATION_PROMPT_DELAY);
 });
 
-// ===== INIT =====
+// ===== INIT — news IMMEDIATELY, SW/notification in background (parallel) =====
 (async function initApp() {
-  if ('serviceWorker' in navigator) {
-    try {
-      const reg = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
-      if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-      reg.update().catch(() => {});
-      if ('SyncManager' in window) {
-        try { await reg.sync.register('sync-pending-notifications'); } catch (_) {}
-      }
-    } catch (err) { console.error('SW registration failed:', err); }
-  }
-  await checkNotificationStatus();
-
   const urlParams = new URLSearchParams(window.location.search);
   const sharedQueryId = urlParams.get('shared');
   const legacyNewsId = urlParams.get('id');
@@ -1286,11 +1325,29 @@ window.addEventListener('load', () => {
   const goId = goPath.startsWith('/go/') ? decodeURIComponent(goPath.split('/')[2] || '') : null;
   const sharedId = sharedQueryId || legacyNewsId || goId;
 
-  await loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: true });
+  // ✅ STEP 1: News IMMEDIATELY (SW registration এর জন্য অপেক্ষা না)
+  if (sharedId) {
+    loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: true })
+      .then(() => showSharedNewsFirst(sharedId))
+      .catch(() => {});
+  } else {
+    loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: true });
+  }
 
-  if (sharedId) await showSharedNewsFirst(sharedId);
-
-  setupInfiniteScroll();
+  // ✅ STEP 2: SW + Notification check — background এ parallel
+  (async () => {
+    if ('serviceWorker' in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
+        if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        reg.update().catch(() => {});
+        if ('SyncManager' in window) {
+          try { await reg.sync.register('sync-pending-notifications'); } catch (_) {}
+        }
+      } catch (err) { console.error('SW registration failed:', err); }
+    }
+    await checkNotificationStatus();
+  })();
 })();
 </script>
 </body>

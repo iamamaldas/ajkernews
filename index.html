@@ -32,13 +32,7 @@
 { "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in/logo.png", "description": "কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর বাংলায়।" }
 </script>
 <script type="application/ld+json">
-{
-"@context": "https://schema.org",
-"@type": "WebSite",
-"name": "আজকের নিউজ",
-"alternateName": ["Ajker News", "ajkernews.in"],
-"url": "https://ajkernews.in/"
-}
+{ "@context": "https://schema.org", "@type": "WebSite", "name": "আজকের নিউজ", "alternateName": ["Ajker News", "ajkernews.in"], "url": "https://ajkernews.in/" }
 </script>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
@@ -50,13 +44,42 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
 .header-logo { height:28px; width:auto; border:none; border-radius:0; object-fit:contain; }
 .header-left h1 { font-size:24px; line-height:1; font-weight:700; color:#111111; white-space:nowrap; letter-spacing:-0.3px; }
 .header-right { display:flex; align-items:center; gap:10px; flex-shrink:0; }
-.refresh-btn { width:36px; height:36px; padding:4px; display:flex; align-items:center; justify-content:center; background:transparent; border:none; cursor:pointer; -webkit-tap-highlight-color:transparent; color:#222; transition:transform 0.3s ease; }
-.refresh-btn:hover { opacity:0.6; }
-.refresh-btn.spinning svg { animation:spin 0.8s linear infinite; }
-@keyframes spin { 0%{transform:rotate(0deg);} 100%{transform:rotate(360deg);} }
-.notif-btn { width:36px; height:36px; padding:4px; display:flex; align-items:center; justify-content:center; background:transparent; border:none; cursor:pointer; -webkit-tap-highlight-color:transparent; }
-.notif-btn svg { width:24px; height:24px; stroke:#222; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; transition:stroke 0.2s, fill 0.2s; }
-.notif-btn.subscribed svg { stroke:#000; fill:#000; }
+
+/* ✅ Refresh — pure black, YouTube-style spin */
+.refresh-btn {
+  width:36px; height:36px; padding:4px;
+  display:flex; align-items:center; justify-content:center;
+  background:transparent; border:none; cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+  color:#000000;
+  transition:opacity 0.2s ease, transform 0.15s ease;
+}
+.refresh-btn:hover { opacity:0.7; }
+.refresh-btn:active { opacity:1; transform:scale(0.92); }
+.refresh-btn.spinning svg {
+  animation: refresh-spin 0.9s linear infinite;
+  transform-origin: 50% 50%;
+}
+@keyframes refresh-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* ✅ Notification — Feather outline, never filled */
+.notif-btn {
+  width:36px; height:36px; padding:4px;
+  display:flex; align-items:center; justify-content:center;
+  background:transparent; border:none; cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.notif-btn svg {
+  width:24px; height:24px;
+  stroke:#222; fill:none;
+  stroke-width:2; stroke-linecap:round; stroke-linejoin:round;
+  transition:stroke 0.2s;
+}
+.notif-btn.subscribed svg { stroke:#000; }
+
 .search-btn { width:36px; height:36px; padding:4px; display:flex; align-items:center; justify-content:center; background:transparent; border:none; cursor:pointer; -webkit-tap-highlight-color:transparent; }
 .search-svg { width:20px; height:20px; display:block; overflow:visible; }
 .search-svg circle, .search-svg line { fill:none; stroke:#222222; stroke-width:2; stroke-linecap:round; }
@@ -102,7 +125,6 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
 .comments-list::-webkit-scrollbar-thumb:hover { background:#aaa; }
 .main-content { padding:16px; background:#ffffff; }
 #newsContainer { min-height:200px; display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start; gap:12px; }
-.empty-news-msg { text-align:center; padding:50px 20px; color:#999999; font-size:18px; background:#fafafa; border-radius:12px; width:100%; border:1px dashed #ddd; }
 
 /* ===== SKELETON LOADER ===== */
 .news-skeleton { display:block; width:100%; padding:0; background:#fff; border:1px solid #e5e5e5; border-radius:12px; overflow:hidden; }
@@ -159,82 +181,19 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
 .modal-like-actions .action-btn:hover { color:#000; }
 
 /* ===== NOTIFICATION PROMPT ===== */
-.notif-prompt-modal {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 2500;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-.notif-prompt-modal.active {
-  display: flex;
-  opacity: 1;
-}
-.notif-prompt-box {
-  background: #fff;
-  border-radius: 16px;
-  padding: 24px 20px 20px;
-  max-width: 360px;
-  width: 100%;
-  text-align: center;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-  transform: translateY(20px);
-  transition: transform 0.3s ease;
-}
-.notif-prompt-modal.active .notif-prompt-box {
-  transform: translateY(0);
-}
-.notif-prompt-icon {
-  font-size: 48px;
-  margin-bottom: 12px;
-  line-height: 1;
-}
-.notif-prompt-title {
-  font-size: 20px;
-  font-weight: 700;
-  color: #111;
-  margin-bottom: 8px;
-}
-.notif-prompt-text {
-  font-size: 15px;
-  line-height: 1.6;
-  color: #555;
-  margin-bottom: 20px;
-}
-.notif-prompt-actions {
-  display: flex;
-  gap: 10px;
-}
-.notif-prompt-btn {
-  flex: 1;
-  padding: 12px 16px;
-  border-radius: 10px;
-  border: none;
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: 0.2s;
-  -webkit-tap-highlight-color: transparent;
-}
-.notif-prompt-btn.later {
-  background: #f0f0f0;
-  color: #333;
-}
-.notif-prompt-btn.later:hover {
-  background: #e0e0e0;
-}
-.notif-prompt-btn.enable {
-  background: #000;
-  color: #fff;
-}
-.notif-prompt-btn.enable:hover {
-  background: #333;
-}
+.notif-prompt-modal { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 2500; align-items: center; justify-content: center; padding: 20px; opacity: 0; transition: opacity 0.3s ease; }
+.notif-prompt-modal.active { display: flex; opacity: 1; }
+.notif-prompt-box { background: #fff; border-radius: 16px; padding: 24px 20px 20px; max-width: 360px; width: 100%; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.2); transform: translateY(20px); transition: transform 0.3s ease; }
+.notif-prompt-modal.active .notif-prompt-box { transform: translateY(0); }
+.notif-prompt-icon { font-size: 48px; margin-bottom: 12px; line-height: 1; }
+.notif-prompt-title { font-size: 20px; font-weight: 700; color: #111; margin-bottom: 8px; }
+.notif-prompt-text { font-size: 15px; line-height: 1.6; color: #555; margin-bottom: 20px; }
+.notif-prompt-actions { display: flex; gap: 10px; }
+.notif-prompt-btn { flex: 1; padding: 12px 16px; border-radius: 10px; border: none; font-size: 15px; font-weight: 600; cursor: pointer; transition: 0.2s; -webkit-tap-highlight-color: transparent; }
+.notif-prompt-btn.later { background: #f0f0f0; color: #333; }
+.notif-prompt-btn.later:hover { background: #e0e0e0; }
+.notif-prompt-btn.enable { background: #000; color: #fff; }
+.notif-prompt-btn.enable:hover { background: #333; }
 
 @media (min-width:768px) {
 .modal-content { width:85%; max-width:900px; padding:32px; }
@@ -245,6 +204,7 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
 .header-left, .header-home-link { gap:8px; }
 .header-right { gap:6px; }
 .refresh-btn { width:32px !important; height:32px !important; }
+.refresh-btn svg { width:20px !important; height:20px !important; }
 .search-btn { width:32px !important; height:32px !important; }
 .search-svg { width:18px !important; height:18px !important; }
 .hamburger { width:32px !important; height:32px !important; gap:3.5px !important; padding:4px !important; }
@@ -285,15 +245,15 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
     </a>
   </div>
   <div class="header-right">
-    <button class="refresh-btn" id="refreshBtn" onclick="refreshNews()" aria-label="Refresh News" title="নতুন খবর লোড করুন">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="23 4 23 10 17 10"></polyline>
-        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+    <button class="refresh-btn" id="refreshBtn" onclick="refreshNews()" aria-label="Refresh News">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 12a9 9 0 1 1-3-6.7"/>
+        <polyline points="21 3 21 9 15 9"/>
       </svg>
     </button>
     <button class="notif-btn" id="notifyBtn" onclick="toggleNotification()" aria-label="Notifications">
-      <svg viewBox="0 0 24 24">
-        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 7-3 9h18c0-2-3-2-3-9z"/>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
         <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
       </svg>
     </button>
@@ -340,7 +300,6 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
   </div>
 </div>
 
-<!-- ✅ Notification Prompt Modal -->
 <div id="notifPromptModal" class="notif-prompt-modal">
   <div class="notif-prompt-box">
     <div class="notif-prompt-icon">🔔</div>
@@ -354,10 +313,9 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
 </div>
 
 <div class="main-content">
-  <div id="newsContainer">
-    <div class="empty-news-msg">⏳ খবর লোড হচ্ছে...</div>
-  </div>
+  <div id="newsContainer"></div>
   <button id="loadMoreBtn" onclick="loadMoreNews()">আরও খবর দেখুন</button>
+  <div id="scrollSentinel" style="height:1px;width:100%;"></div>
 </div>
 <footer class="footer">
   <div class="footer-links">
@@ -518,23 +476,15 @@ window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
 });
-window.addEventListener('appinstalled', () => {
-  console.log('PWA installed');
-});
+window.addEventListener('appinstalled', () => { console.log('PWA installed'); });
 function installApp() {
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
-  if (isStandalone) {
-    alert('App already installed!');
-    return;
-  }
+  if (isStandalone) { alert('App already installed!'); return; }
   if (deferredPrompt) {
     deferredPrompt.prompt();
     deferredPrompt.userChoice.then((choiceResult) => {
-      if (choiceResult.outcome === 'accepted') {
-        alert('App installed successfully!');
-      } else {
-        alert('You can install the app from your browser menu.');
-      }
+      if (choiceResult.outcome === 'accepted') alert('App installed successfully!');
+      else alert('You can install the app from your browser menu.');
       deferredPrompt = null;
     });
     return;
@@ -545,15 +495,26 @@ function installApp() {
 // ===== REFRESH =====
 async function refreshNews() {
   const btn = document.getElementById('refreshBtn');
-  if (isLoadingNews) return;
+  if (isLoadingNews || btn.classList.contains('spinning')) return;
+
   btn.classList.add('spinning');
   btn.disabled = true;
+  const startedAt = Date.now();
+  const MIN_SPIN_MS = 700;
+
   try {
-    await loadNews(currentCategory || 'top', currentSearchQuery || '', { showLoading: true, keepExisting: false });
+    await loadNews(currentCategory || 'top', currentSearchQuery || '', {
+      showLoading: true,
+      keepExisting: false,
+      autoSpin: false
+    });
   } catch (error) {
     console.error('Refresh error:', error);
-    alert('খবর রিফ্রেশ করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।');
   } finally {
+    const elapsed = Date.now() - startedAt;
+    if (elapsed < MIN_SPIN_MS) {
+      await new Promise(r => setTimeout(r, MIN_SPIN_MS - elapsed));
+    }
     btn.classList.remove('spinning');
     btn.disabled = false;
   }
@@ -582,10 +543,15 @@ function showSkeleton(container, count = 3) {
 // ===== LOAD NEWS =====
 async function loadNews(category = 'top', search = '', options = {}) {
   currentOffset = 0;
-  const { showLoading = true, keepExisting = false } = options;
+  const { showLoading = true, keepExisting = false, autoSpin = true } = options;
   const container = document.getElementById('newsContainer');
   if (isLoadingNews) return;
   isLoadingNews = true;
+
+  const refreshBtn = document.getElementById('refreshBtn');
+  const shouldRestoreSpin = autoSpin && refreshBtn && !refreshBtn.classList.contains('spinning');
+  if (shouldRestoreSpin) refreshBtn.classList.add('spinning');
+
   currentSearchQuery = search || '';
   if (showLoading && !keepExisting) {
     showSkeleton(container, 3);
@@ -619,11 +585,27 @@ async function loadNews(category = 'top', search = '', options = {}) {
     renderNews(currentNews, hasMoreNews);
   } catch (error) {
     console.error('News loading error:', error);
-    if (keepExisting && currentNews.length) return;
-    container.innerHTML = `<div class="empty-news-msg">এই মুহূর্তে খবর লোড করা যাচ্ছে না।</div>`;
-  } finally {
     isLoadingNews = false;
+    if (shouldRestoreSpin && refreshBtn) refreshBtn.classList.remove('spinning');
+
+    const attempts = options.__retry || 0;
+    if (attempts < 3) {
+      setTimeout(() => {
+        loadNews(category, search, {
+          ...options,
+          showLoading: false,
+          keepExisting: true,
+          __retry: attempts + 1,
+          autoSpin: false
+        });
+      }, 2000);
+    } else if (!currentNews.length) {
+      container.innerHTML = '';
+    }
+    return;
   }
+  isLoadingNews = false;
+  if (shouldRestoreSpin && refreshBtn) refreshBtn.classList.remove('spinning');
 }
 
 // ===== BUILD NEWS HTML =====
@@ -686,11 +668,13 @@ function buildAdHtml(ad) {
   </a>`;
 }
 
-// ===== RENDER NEWS (Staggered 1 by 1) =====
+// ===== RENDER NEWS =====
 function renderNews(newsList, hasMore = false) {
   const container = document.getElementById('newsContainer');
   if (!Array.isArray(newsList) || !newsList.length) {
-    container.innerHTML = `<div class="empty-news-msg">📰 এই বিভাগে এখন কোনো খবর নেই।</div>`;
+    if (container.querySelector('.news-skeleton')) container.innerHTML = '';
+    const btn = document.getElementById('loadMoreBtn');
+    if (btn) btn.style.display = 'none';
     return;
   }
 
@@ -706,10 +690,10 @@ function renderNews(newsList, hasMore = false) {
       if (hasMore) {
         loadMoreBtn.style.display = 'block';
         loadMoreBtn.disabled = false;
-        loadMoreBtn.textContent = 'আরও খবর দেখুন';
       } else {
         loadMoreBtn.style.display = 'none';
       }
+      setTimeout(setupInfiniteScroll, 100);
       return;
     }
 
@@ -718,9 +702,7 @@ function renderNews(newsList, hasMore = false) {
     const card = wrapper.firstElementChild;
     container.appendChild(card);
 
-    requestAnimationFrame(() => {
-      card.classList.add('visible');
-    });
+    requestAnimationFrame(() => { card.classList.add('visible'); });
 
     index++;
     adCounter++;
@@ -752,7 +734,7 @@ function getNextAd() {
 async function loadMoreNews() {
   if (isLoadingNews) return;
   const loadMoreBtn = document.getElementById('loadMoreBtn');
-  loadMoreBtn.textContent = '⏳ লোড হচ্ছে...';
+  loadMoreBtn.style.display = 'none';
   loadMoreBtn.disabled = true;
   try {
     currentOffset += PAGE_SIZE;
@@ -765,9 +747,9 @@ async function loadMoreNews() {
     if (!response.ok) throw new Error('API error');
     const data = await response.json();
     if (!data.news || data.news.length === 0) {
-      loadMoreBtn.textContent = '📭 আর কোনো খবর নেই';
-      loadMoreBtn.disabled = true;
       hasMoreNews = false;
+      loadMoreBtn.disabled = true;
+      loadMoreBtn.style.display = 'none';
       return;
     }
     const newNews = data.news.map(normalizeNews).filter(Boolean);
@@ -775,18 +757,32 @@ async function loadMoreNews() {
     visibleCount = currentNews.length;
     hasMoreNews = data.has_more || false;
     renderNews(currentNews, hasMoreNews);
-    if (!hasMoreNews) {
-      loadMoreBtn.textContent = '📭 সব খবর দেখানো হয়েছে';
-      loadMoreBtn.disabled = true;
-    } else {
-      loadMoreBtn.textContent = 'আরও খবর দেখুন';
-      loadMoreBtn.disabled = false;
-    }
+    loadMoreBtn.disabled = false;
   } catch (error) {
     console.error('Load more error:', error);
-    loadMoreBtn.textContent = '⚠️ আবার চেষ্টা করুন';
     loadMoreBtn.disabled = false;
+    loadMoreBtn.style.display = 'none';
+    setTimeout(() => {
+      if (!isLoadingNews && hasMoreNews) loadMoreNews();
+    }, 2500);
   }
+  setTimeout(setupInfiniteScroll, 100);
+}
+
+// ===== ✅ YouTube-style infinite scroll =====
+let __infiniteObserver = null;
+function setupInfiniteScroll() {
+  if (__infiniteObserver) __infiniteObserver.disconnect();
+  const sentinel = document.getElementById('scrollSentinel');
+  if (!sentinel || !('IntersectionObserver' in window)) return;
+  __infiniteObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting && !isLoadingNews && hasMoreNews) {
+        loadMoreNews();
+      }
+    });
+  }, { root: null, rootMargin: '800px 0px', threshold: 0 });
+  __infiniteObserver.observe(sentinel);
 }
 
 // ===== LOVE =====
@@ -820,7 +816,6 @@ async function toggleLove(id) {
     setNewsLoved(id, currentlyLoved);
     updateLoveUI(id, currentlyLoved, currentCount);
     if (news) news.love_count = currentCount;
-    alert('ভালোবাসা দিতে সমস্যা হয়েছে। আবার চেষ্টা করুন।');
   }
 }
 
@@ -831,9 +826,7 @@ async function copyShareText(text) {
       await navigator.clipboard.writeText(text);
       return true;
     }
-  } catch (e) {
-    console.warn('Clipboard API failed, trying legacy copy:', e);
-  }
+  } catch (e) { console.warn('Clipboard API failed:', e); }
   try {
     const textarea = document.createElement('textarea');
     textarea.value = text;
@@ -863,7 +856,7 @@ async function shareNews(id, headline, summary) {
     if (cutIndex === -1) cutIndex = MAX_SUMMARY;
     cleanSummary = cleanSummary.substring(0, cutIndex) + '...';
   }
-  const shareUrl = 'https://ajkernews.in/go/' + encodeURIComponent(id);
+  const shareUrl = 'https://ajkernews.in/?id=' + encodeURIComponent(id);
   const shareText = cleanSummary
     ? `${cleanHeadline}\n\n${cleanSummary}\n\nপূর্ণ খবর দেখতে এই লিঙ্কে ক্লিক করুন\n${shareUrl}`
     : `${cleanHeadline}\n\nপূর্ণ খবর দেখতে এই লিঙ্কে ক্লিক করুন\n${shareUrl}`;
@@ -873,15 +866,10 @@ async function shareNews(id, headline, summary) {
       return;
     } catch (error) {
       if (error && error.name === 'AbortError') return;
-      console.warn('Native share failed; using copy fallback:', error);
+      console.warn('Native share failed:', error);
     }
   }
   const copied = await copyShareText(shareText);
-  if (copied) {
-    alert('লিংক কপি হয়েছে');
-  } else {
-    alert('লিংক কপি করা যায়নি। আবার চেষ্টা করুন।');
-  }
   const toast = document.getElementById('copyToast');
   if (toast) {
     toast.textContent = copied ? 'লিংক কপি হয়েছে' : 'লিংক কপি করা যায়নি';
@@ -895,7 +883,6 @@ async function shareNews(id, headline, summary) {
 let notificationSetupInProgress = false;
 async function toggleNotification() {
   const btn = document.getElementById('notifyBtn');
-  const svg = btn.querySelector('svg');
   if (notificationSetupInProgress) return;
   if (!('Notification' in window) || !('PushManager' in window)) {
     alert('এই ব্রাউজারে নোটিফিকেশন সাপোর্টেড নয়।');
@@ -912,8 +899,6 @@ async function toggleNotification() {
         body: JSON.stringify({ endpoint: existingSub.endpoint })
       }).catch(() => {});
       btn.classList.remove('subscribed');
-      svg.setAttribute('stroke', '#222');
-      svg.setAttribute('fill', 'none');
       alert('নোটিফিকেশন বন্ধ করা হয়েছে।');
     }
     return;
@@ -950,15 +935,11 @@ async function toggleNotification() {
         });
         if (!res.ok) throw new Error('Subscribe HTTP ' + res.status);
         btn.classList.add('subscribed');
-        svg.setAttribute('stroke', '#000');
-        svg.setAttribute('fill', '#000');
         alert('নোটিফিকেশন চালু হয়েছে! নতুন খবর এলে আমরা জানাব।');
         if ('serviceWorker' in navigator && 'SyncManager' in window) {
           try {
             await registration.sync.register('sync-pending-notifications');
-          } catch (e) {
-            console.warn('Background sync registration failed:', e);
-          }
+          } catch (e) { console.warn('Background sync registration failed:', e); }
         }
         return;
       } catch (err) {
@@ -975,14 +956,12 @@ async function toggleNotification() {
   }
 }
 
-// ===== CHECK NOTIFICATION STATUS =====
 async function checkNotificationStatus() {
   if (!('Notification' in window) || !('PushManager' in window)) return;
   try {
     const registration = await navigator.serviceWorker.ready;
     const subscription = await registration.pushManager.getSubscription();
     const btn = document.getElementById('notifyBtn');
-    const svg = btn.querySelector('svg');
     let osGranted = Notification.permission === 'granted';
     try {
       const perm = await navigator.permissions.query({ name: 'notifications' });
@@ -990,19 +969,12 @@ async function checkNotificationStatus() {
     } catch (_) {}
     if (subscription && osGranted) {
       btn.classList.add('subscribed');
-      svg.setAttribute('stroke', '#000');
-      svg.setAttribute('fill', '#000');
     } else {
       btn.classList.remove('subscribed');
-      svg.setAttribute('stroke', '#222');
-      svg.setAttribute('fill', 'none');
     }
-  } catch (e) {
-    console.error('Status check error:', e);
-  }
+  } catch (e) { console.error('Status check error:', e); }
 }
 
-// ===== MISSED NOTIFICATION SYNC =====
 async function syncMissedNotifications() {
   if (!navigator.onLine || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
   try {
@@ -1014,9 +986,7 @@ async function syncMissedNotifications() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(subscription)
     });
-  } catch (e) {
-    console.warn('Missed notification sync failed:', e);
-  }
+  } catch (e) { console.warn('Missed notification sync failed:', e); }
 }
 window.addEventListener('online', () => { syncMissedNotifications(); });
 
@@ -1050,9 +1020,7 @@ async function openCommentModal(id) {
     html += `</div>`;
     body.innerHTML = html;
     modal.style.display = 'block';
-  } catch (error) {
-    console.error('Comment error:', error);
-  }
+  } catch (error) { console.error('Comment error:', error); }
 }
 async function submitComment(newsId) {
   const author = document.getElementById('commentAuthor').value.trim() || 'Guest';
@@ -1067,12 +1035,8 @@ async function submitComment(newsId) {
     if (response.ok) {
       document.getElementById('commentText').value = '';
       await openCommentModal(newsId);
-    } else {
-      alert('মন্তব্য পাঠানো যায়নি। আবার চেষ্টা করুন।');
     }
-  } catch (error) {
-    alert('Network error. Please try again.');
-  }
+  } catch (error) { console.error(error); }
 }
 
 // ===== NEWS MODAL =====
@@ -1085,11 +1049,11 @@ function openNewsModal(id) {
     fetch(`${API_URL}?id=${encodeURIComponent(id)}`)
       .then(res => res.json())
       .then(data => {
-         if (data.news && data.news.length) {
-            const fetchedNews = normalizeNews(data.news[0]);
-            currentNews = [fetchedNews, ...currentNews];
-            openNewsModal(id);
-         }
+        if (data.news && data.news.length) {
+          const fetchedNews = normalizeNews(data.news[0]);
+          currentNews = [fetchedNews, ...currentNews];
+          openNewsModal(id);
+        }
       }).catch(err => console.error("Error fetching news for modal:", err));
     return;
   }
@@ -1139,22 +1103,12 @@ async function showSharedNewsFirst(id) {
     });
     if (!response.ok) throw new Error('Shared news API error');
     const data = await response.json();
-    const sharedNews = data.news && data.news.length
-      ? normalizeNews(data.news[0])
-      : null;
-    if (!sharedNews) {
-      console.warn('Shared news not found:', id);
-      return;
-    }
-    currentNews = [
-      sharedNews,
-      ...currentNews.filter(news => news.id !== sharedNews.id)
-    ];
+    const sharedNews = data.news && data.news.length ? normalizeNews(data.news[0]) : null;
+    if (!sharedNews) return;
+    currentNews = [sharedNews, ...currentNews.filter(news => news.id !== sharedNews.id)];
     visibleCount = 10;
     renderNews(currentNews, hasMoreNews);
-  } catch (error) {
-    console.error('showSharedNewsFirst error:', error);
-  }
+  } catch (error) { console.error('showSharedNewsFirst error:', error); }
 }
 
 // ===== CATEGORY, SEARCH, SIDEBAR =====
@@ -1175,10 +1129,6 @@ async function performSearch() {
   currentSearchQuery = query;
   document.getElementById('categoryTitle').innerText = 'খুঁজছি: ' + query;
   await loadNews('all', query, { showLoading: true, keepExisting: false });
-  if (!currentNews.length) {
-    document.getElementById('newsContainer').innerHTML =
-      `<div class="empty-news-msg">"${escapeHtml(query)}" এর সঙ্গে সম্পর্কিত কোনো খবর পাওয়া যায়নি।</div>`;
-  }
 }
 function toggleSidebar(open) {
   document.getElementById('sidebar').classList.toggle('open', open);
@@ -1217,85 +1167,80 @@ function closeModal() {
 }
 document.getElementById('currentYear').textContent = new Date().getFullYear();
 
-// ===== NOTIFICATION CLICK → SPECIFIC NEWS OPEN =====
+// ===== ✅ Smart notification click flow =====
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.addEventListener('message', (event) => {
-    if (event.data && event.data.type === 'OPEN_NEWS_URL') {
-      const url = event.data.url;
+  navigator.serviceWorker.addEventListener('message', async (event) => {
+    const data = event.data || {};
+    if (data.type !== 'OPEN_NEWS_URL') return;
+
+    let id = data.newsId || '';
+    if (!id && data.url) {
       try {
-        const parsed = new URL(url);
-        const id = parsed.searchParams.get('id') || parsed.pathname.split('/').pop();
-        if (id) {
-          showSharedNewsFirst(id);
-        }
-      } catch (e) {
-        console.warn('Failed to parse notification URL:', e);
+        const parsed = new URL(data.url, location.origin);
+        id = parsed.searchParams.get('id')
+          || parsed.pathname.split('/').filter(Boolean).pop()
+          || '';
+      } catch (_) {}
+    }
+
+    try {
+      if (id) {
+        const u = new URL(location.href);
+        u.searchParams.delete('shared');
+        u.searchParams.set('id', id);
+        history.replaceState({}, '', u.toString());
       }
+      await loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: false });
+      if (id) await showSharedNewsFirst(id);
+      const reg = await navigator.serviceWorker.ready;
+      if (reg.active) reg.active.postMessage({ type: 'CLEAR_NOTIFICATIONS' });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (err) {
+      console.warn('Notification flow failed:', err);
     }
   });
 }
 
 /* ===== NOTIFICATION PROMPT SYSTEM ===== */
-const NOTIFICATION_PROMPT_DELAY = 10000;              // ১০ সেকেন্ড
-const NOTIFICATION_LATER_DELAY = 10 * 60 * 60 * 1000; // ১০ ঘণ্টা
+const NOTIFICATION_PROMPT_DELAY = 10000;
+const NOTIFICATION_LATER_DELAY = 10 * 60 * 60 * 1000;
 const NOTIFICATION_LATER_KEY = 'notifPromptLaterAt';
 
 async function shouldShowNotificationPrompt() {
-  // Notification API support check
   if (!('Notification' in window) || !('PushManager' in window)) return false;
-
-  // Already granted or denied
   if (Notification.permission === 'granted') return false;
   if (Notification.permission === 'denied') return false;
-
-  // User clicked "Later" recently
   const laterAt = parseInt(localStorage.getItem(NOTIFICATION_LATER_KEY) || '0', 10);
   if (laterAt && (Date.now() - laterAt) < NOTIFICATION_LATER_DELAY) return false;
-
-  // Already subscribed
   try {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
     if (sub) return false;
   } catch (_) {}
-
   return true;
 }
-
 function showNotificationPrompt() {
   const modal = document.getElementById('notifPromptModal');
   if (modal) modal.classList.add('active');
 }
-
 function hideNotificationPrompt() {
   const modal = document.getElementById('notifPromptModal');
   if (modal) modal.classList.remove('active');
 }
-
 async function handleNotificationPromptEnable() {
   hideNotificationPrompt();
-  // Call existing toggleNotification
-  if (typeof toggleNotification === 'function') {
-    await toggleNotification();
-  }
+  if (typeof toggleNotification === 'function') await toggleNotification();
 }
-
 function handleNotificationPromptLater() {
   localStorage.setItem(NOTIFICATION_LATER_KEY, String(Date.now()));
   hideNotificationPrompt();
 }
-
-// Schedule the prompt when page loads
 window.addEventListener('load', () => {
   setTimeout(async () => {
     try {
       const eligible = await shouldShowNotificationPrompt();
-      if (eligible) {
-        showNotificationPrompt();
-      }
-    } catch (err) {
-      console.warn('Notification prompt check failed:', err);
-    }
+      if (eligible) showNotificationPrompt();
+    } catch (err) { console.warn('Notification prompt check failed:', err); }
   }, NOTIFICATION_PROMPT_DELAY);
 });
 
@@ -1306,18 +1251,10 @@ window.addEventListener('load', () => {
       const reg = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
       if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
       reg.update().catch(() => {});
-      console.log('Service Worker registered');
       if ('SyncManager' in window) {
-        try {
-          await reg.sync.register('sync-pending-notifications');
-          console.log('Background sync registered on init.');
-        } catch (syncErr) {
-          console.warn('Background sync registration failed:', syncErr);
-        }
+        try { await reg.sync.register('sync-pending-notifications'); } catch (_) {}
       }
-    } catch (err) {
-      console.error('SW registration failed:', err);
-    }
+    } catch (err) { console.error('SW registration failed:', err); }
   }
   await checkNotificationStatus();
 
@@ -1325,16 +1262,14 @@ window.addEventListener('load', () => {
   const sharedQueryId = urlParams.get('shared');
   const legacyNewsId = urlParams.get('id');
   const goPath = window.location.pathname;
-  const goId = goPath.startsWith('/go/')
-    ? decodeURIComponent(goPath.split('/')[2] || '')
-    : null;
+  const goId = goPath.startsWith('/go/') ? decodeURIComponent(goPath.split('/')[2] || '') : null;
   const sharedId = sharedQueryId || legacyNewsId || goId;
 
-  await loadNews('top', '', { showLoading: true, keepExisting: false });
+  await loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: false });
 
-  if (sharedId) {
-    await showSharedNewsFirst(sharedId);
-  }
+  if (sharedId) await showSharedNewsFirst(sharedId);
+
+  setupInfiniteScroll();
 })();
 </script>
 </body>

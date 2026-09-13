@@ -45,7 +45,7 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
 .header-left h1 { font-size:24px; line-height:1; font-weight:700; color:#111111; white-space:nowrap; letter-spacing:-0.3px; }
 .header-right { display:flex; align-items:center; gap:10px; flex-shrink:0; }
 
-/* ✅ Refresh — pure black, YouTube-style spin */
+/* ✅ REFRESH — pure black outline, YouTube-style spin */
 .refresh-btn {
   width:36px; height:36px; padding:4px;
   display:flex; align-items:center; justify-content:center;
@@ -65,7 +65,7 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
   to   { transform: rotate(360deg); }
 }
 
-/* ✅ Notification — Feather outline, never filled */
+/* ✅ NOTIFICATION BELL — Feather outline, NEVER filled */
 .notif-btn {
   width:36px; height:36px; padding:4px;
   display:flex; align-items:center; justify-content:center;
@@ -74,11 +74,11 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
 }
 .notif-btn svg {
   width:24px; height:24px;
-  stroke:#222; fill:none;
+  stroke:#000000; fill:none;
   stroke-width:2; stroke-linecap:round; stroke-linejoin:round;
   transition:stroke 0.2s;
 }
-.notif-btn.subscribed svg { stroke:#000; }
+.notif-btn.subscribed svg { stroke:#000000; }
 
 .search-btn { width:36px; height:36px; padding:4px; display:flex; align-items:center; justify-content:center; background:transparent; border:none; cursor:pointer; -webkit-tap-highlight-color:transparent; }
 .search-svg { width:20px; height:20px; display:block; overflow:visible; }
@@ -180,12 +180,20 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
 .modal-like-actions .action-btn { color:#555; }
 .modal-like-actions .action-btn:hover { color:#000; }
 
-/* ===== NOTIFICATION PROMPT ===== */
+/* ===== NOTIFICATION PROMPT — BLACK OUTLINE BELL ===== */
 .notif-prompt-modal { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 2500; align-items: center; justify-content: center; padding: 20px; opacity: 0; transition: opacity 0.3s ease; }
 .notif-prompt-modal.active { display: flex; opacity: 1; }
 .notif-prompt-box { background: #fff; border-radius: 16px; padding: 24px 20px 20px; max-width: 360px; width: 100%; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.2); transform: translateY(20px); transition: transform 0.3s ease; }
 .notif-prompt-modal.active .notif-prompt-box { transform: translateY(0); }
-.notif-prompt-icon { font-size: 48px; margin-bottom: 12px; line-height: 1; }
+.notif-prompt-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 12px;
+}
+.notif-prompt-icon svg { display: block; }
 .notif-prompt-title { font-size: 20px; font-weight: 700; color: #111; margin-bottom: 8px; }
 .notif-prompt-text { font-size: 15px; line-height: 1.6; color: #555; margin-bottom: 20px; }
 .notif-prompt-actions { display: flex; gap: 10px; }
@@ -210,7 +218,7 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
 .hamburger { width:32px !important; height:32px !important; gap:3.5px !important; padding:4px !important; }
 .hamburger span { width:18px !important; height:2.5px !important; }
 .notif-btn { width:32px !important; height:32px !important; }
-.notif-btn svg { width:20px !important; height:20px !important; }
+.notif-btn svg { width:22px !important; height:22px !important; }
 .trending-banner { padding:8px 14px; min-height:42px; }
 .trending-banner span { font-size:15px; }
 .banner-right-btn { padding:5px 12px; font-size:12px; }
@@ -228,7 +236,8 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
 .modal-content { width:92%; margin:3% auto; padding:16px; max-height:90vh; }
 #modal-body { padding-right:2px; }
 .notif-prompt-box { padding: 20px 16px 16px; }
-.notif-prompt-icon { font-size: 42px; }
+.notif-prompt-icon { width: 48px; height: 48px; }
+.notif-prompt-icon svg { width: 48px; height: 48px; }
 .notif-prompt-title { font-size: 18px; }
 .notif-prompt-text { font-size: 14px; }
 .notif-prompt-btn { padding: 11px 14px; font-size: 14px; }
@@ -252,7 +261,7 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
       </svg>
     </button>
     <button class="notif-btn" id="notifyBtn" onclick="toggleNotification()" aria-label="Notifications">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
         <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
       </svg>
@@ -302,7 +311,12 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
 
 <div id="notifPromptModal" class="notif-prompt-modal">
   <div class="notif-prompt-box">
-    <div class="notif-prompt-icon">🔔</div>
+    <div class="notif-prompt-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="56" height="56">
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+      </svg>
+    </div>
     <h3 class="notif-prompt-title">নোটিফিকেশন চালু করুন</h3>
     <p class="notif-prompt-text">নতুন খবর প্রকাশিত হলে সাথে সাথে জানতে নোটিফিকেশন চালু করুন।</p>
     <div class="notif-prompt-actions">

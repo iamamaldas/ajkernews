@@ -1,7 +1,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v6 — Modular pipeline (3 bn + 3 en per slot)
+ * FINAL v7 — LEFT JOIN optimization + SEO bot homepage
  * =========================================================
  */
 
@@ -183,7 +183,6 @@ async function updateNews(env) {
   if (!env.DB) throw new Error("D1 binding DB is missing");
   if (!env.GNEWS_API_KEY) throw new Error("GNEWS_API_KEY secret is missing");
 
-  // 1. Fetch GNews bn + en → store as candidates
   let batchResult = { batches: [], totalReceived: 0, totalInserted: 0 };
   try {
     batchResult = await runGNewsBatch(env.DB, env.GNEWS_API_KEY);
@@ -204,7 +203,6 @@ async function updateNews(env) {
     };
   }
 
-  // 2. Fetch all candidates
   const candidatesResult = await env.DB.prepare(
     `SELECT * FROM news WHERE status = 'candidate' ORDER BY published_at DESC LIMIT 200`
   ).all();
@@ -225,13 +223,11 @@ async function updateNews(env) {
     };
   }
 
-  // 3. Existing published for similarity check
   const publishedResult = await env.DB.prepare(
     `SELECT source_title, headline FROM news WHERE status = 'published' ORDER BY published_at DESC LIMIT 50`
   ).all();
   const existingPublished = publishedResult.results || [];
 
-  // 4. Select best: 3 bn + 3 en
   const selected = selectBestCandidates(candidates, existingPublished);
 
   if (selected.length === 0) {
@@ -249,7 +245,6 @@ async function updateNews(env) {
     };
   }
 
-  // 5. Gemini
   let geminiResults = [];
   let usedGemini = false;
   if (env.GEMINI_API_KEY) {
@@ -287,11 +282,9 @@ async function updateNews(env) {
     };
   }
 
-  // 6. Publish selected
   const publishResult = await publishSelectedNews(env.DB, selected, geminiResults);
   console.log(`[NEWS] Published ${publishResult.published} news`);
 
-  // 7. Update search_text for published articles
   const publishedIds = geminiResults.map(r => r.id).filter(Boolean);
   for (const id of publishedIds) {
     const row = await env.DB.prepare(
@@ -308,11 +301,9 @@ async function updateNews(env) {
       .bind(searchText, id).run();
   }
 
-  // 8. Enforce storage limit 1000
   const cleanupResult = await enforceNewsLimit(env.DB);
   console.log(`[NEWS] Cleanup: deleted ${cleanupResult.deleted}, total ${cleanupResult.total}`);
 
-  // 9. Clean orphan loves/comments
   for (const id of cleanupResult.deletedIds || []) {
     try {
       await env.DB.prepare(`DELETE FROM news_loves WHERE news_id = ?`).bind(id).run();
@@ -335,25 +326,44 @@ async function updateNews(env) {
 }
 
 /* =========================================================
- * SEO / PUBLIC PAGES
+ * SEO BOT HOMEPAGE
  * ========================================================= */
 
 async function serveBotHomepage(env) {
   try {
     const result = await env.DB.prepare(
-      `SELECT id, headline, summary, published_at, category, image_url FROM news WHERE status = 'published' ORDER BY published_at DESC LIMIT 20`
+      `SELECT id, headline, summary, published_at, category, image_url, source_name FROM news WHERE status = 'published' ORDER BY published_at DESC LIMIT 30`
     ).all();
 
     const news = result.results || [];
     let newsHtml = "";
 
     for (const item of news) {
-      const link = `https://ajkernews.in/?id=${encodeURIComponent(item.id)}`;
+      const link = `https://ajkernews.in/news?id=${encodeURIComponent(item.id)}`;
+      const image = item.image_url || "https://ajkernews.in/logo.png";
+      const publishedDate = item.published_at
+        ? new Date(item.published_at).toISOString()
+        : new Date().toISOString();
+
       newsHtml += `
-        <article style="margin-bottom: 20px;">
-          <h2><a href="${link}">${escapeHtml(item.headline)}</a></h2>
-          <p>${escapeHtml((item.summary || "").substring(0, 300))}...</p>
-          <small>প্রকাশিত: ${escapeHtml(item.published_at || "")}</small>
+        <article itemscope itemtype="https://schema.org/NewsArticle" style="margin-bottom: 24px; border-bottom: 1px solid #eee; padding-bottom: 16px;">
+          <meta itemprop="datePublished" content="${escapeHtml(publishedDate)}">
+          <meta itemprop="dateModified" content="${escapeHtml(publishedDate)}">
+          <div itemprop="image" itemscope itemtype="https://schema.org/ImageObject">
+            <meta itemprop="url" content="${escapeHtml(image)}">
+          </div>
+          <h2 itemprop="headline" style="font-size: 20px; margin-bottom: 8px;">
+            <a href="${link}" style="color: #111; text-decoration: none;">${escapeHtml(item.headline)}</a>
+          </h2>
+          <p itemprop="description" style="font-size: 15px; color: #444; line-height: 1.6;">${escapeHtml((item.summary || "").substring(0, 300))}...</p>
+          <div style="font-size: 12px; color: #888; margin-top: 8px;">
+            <span itemprop="author" itemscope itemtype="https://schema.org/Organization">
+              <span itemprop="name">${escapeHtml(item.source_name || "Ajker News")}</span>
+            </span>
+            •
+            <time datetime="${escapeHtml(publishedDate)}">${escapeHtml(item.published_at || "")}</time>
+          </div>
+          <a href="${link}" style="display: inline-block; margin-top: 8px; color: #007bff; font-size: 14px;">পূর্ণ খবর পড়ুন →</a>
         </article>
       `;
     }
@@ -365,6 +375,7 @@ async function serveBotHomepage(env) {
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>আজকের নিউজ | কলকাতা, পশ্চিমবঙ্গ ও ভারতের সর্বশেষ খবর</title>
       <meta name="description" content="কলকাতা, পশ্চিমবঙ্গ এবং ভারতের সর্বশেষ খবর পড়ুন আজকের নিউজে। প্রতিদিনের আপডেট বাংলায়।">
+      <link rel="canonical" href="https://ajkernews.in/">
       <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -374,22 +385,36 @@ async function serveBotHomepage(env) {
       }
       </script>
     </head>
-    <body>
-      <header><h1>আজকের নিউজ</h1></header>
+    <body style="max-width: 800px; margin: 0 auto; padding: 20px; font-family: Inter, -apple-system, sans-serif;">
+      <header>
+        <h1 style="font-size: 28px; margin-bottom: 8px;">আজকের নিউজ</h1>
+        <p style="color: #666; font-size: 15px; margin-bottom: 24px;">কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর</p>
+      </header>
       <main>${newsHtml}</main>
-      <footer><p>&copy; 2026 Ajker News</p></footer>
+      <footer style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; text-align: center; color: #888; font-size: 13px;">
+        <p>&copy; ${new Date().getFullYear()} Ajker News. All rights reserved.</p>
+        <p><a href="https://ajkernews.in/sitemap.xml" style="color: #007bff;">Sitemap</a></p>
+      </footer>
     </body>
     </html>`;
 
     return new Response(html, {
       status: 200,
-      headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": "public, max-age=300" }
+      headers: {
+        "Content-Type": "text/html; charset=UTF-8",
+        "Cache-Control": "public, max-age=300, s-maxage=600",
+        "X-Robots-Tag": "index, follow"
+      }
     });
   } catch (error) {
     console.error("Bot homepage error:", error?.message || error?.stack || String(error));
     return new Response("Error loading content", { status: 500 });
   }
 }
+
+/* =========================================================
+ * TABLES SETUP
+ * ========================================================= */
 
 async function ensureTables(env) {
   const queries = [
@@ -418,7 +443,6 @@ async function ensureTables(env) {
     }
   }
 
-  // Migration: add "language" column if missing
   try {
     const columns = await env.DB.prepare(`PRAGMA table_info(news)`).all();
     const hasLanguage = (columns.results || []).some(c => c.name === "language");
@@ -442,6 +466,10 @@ async function ensureTablesOnce(env) {
     throw error;
   }
 }
+
+/* =========================================================
+ * SHARE PAGE / NEWS PAGE
+ * ========================================================= */
 
 async function serveSharePage(id, env, requestUserAgentFromContext = "", requestUrl = null) {
   const safeId = String(id || "").trim();
@@ -550,7 +578,7 @@ async function handleAffiliate(url, env) {
 }
 
 /* =========================================================
- * API: GET NEWS
+ * API: GET NEWS (LEFT JOIN optimized)
  * ========================================================= */
 
 async function handleGetNews(url, env) {
@@ -558,12 +586,22 @@ async function handleGetNews(url, env) {
   const query = (url.searchParams.get("q") || "").trim();
   const specificId = url.searchParams.get("id");
   const offset = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10));
-  const queryLimit = API_PAGE_SIZE + 1;
 
-  const selectFields = `news.id, news.headline, news.summary, news.main_topic, news.category, news.image_url, news.published_at, news.source_name, news.source_url, news.created_at, news.score, (SELECT COUNT(*) FROM news_loves nl WHERE nl.news_id = news.id) AS love_count`;
+  const requestedLimit = parseInt(url.searchParams.get("limit") || "10", 10);
+  const limit = Math.min(Math.max(requestedLimit, 1), 20);
+  const queryLimit = limit + 1;
+
+  const selectFields = `news.id, news.headline, news.summary, news.main_topic, news.category, news.image_url, news.published_at, news.source_name, news.source_url, news.created_at, news.score, COUNT(nl.id) AS love_count`;
 
   if (specificId) {
-    const result = await env.DB.prepare(`SELECT ${selectFields} FROM news WHERE news.id = ? AND news.status = 'published' LIMIT 1`).bind(specificId).all();
+    const result = await env.DB.prepare(`
+      SELECT ${selectFields}
+      FROM news
+      LEFT JOIN news_loves nl ON nl.news_id = news.id
+      WHERE news.id = ? AND news.status = 'published'
+      GROUP BY news.id
+      LIMIT 1
+    `).bind(specificId).all();
     const news = result.results || [];
     return json({ success: true, count: news.length, news }, 200, 300);
   }
@@ -571,21 +609,53 @@ async function handleGetNews(url, env) {
   let result;
   if (query) {
     const transliterated = toTransliterated(query);
-    result = await env.DB.prepare(`SELECT ${selectFields} FROM news WHERE news.status = 'published' AND (news.search_text LIKE ? OR news.headline LIKE ? OR news.summary LIKE ? OR news.main_topic LIKE ?) ORDER BY news.published_at DESC LIMIT ? OFFSET ?`)
-      .bind(`%${transliterated}%`, `%${query}%`, `%${query}%`, `%${query}%`, queryLimit, offset).all();
+    result = await env.DB.prepare(`
+      SELECT ${selectFields}
+      FROM news
+      LEFT JOIN news_loves nl ON nl.news_id = news.id
+      WHERE news.status = 'published'
+        AND (news.search_text LIKE ? OR news.headline LIKE ? OR news.summary LIKE ? OR news.main_topic LIKE ?)
+      GROUP BY news.id
+      ORDER BY news.published_at DESC
+      LIMIT ? OFFSET ?
+    `).bind(`%${transliterated}%`, `%${query}%`, `%${query}%`, `%${query}%`, queryLimit, offset).all();
   } else if (category === "trending") {
-    result = await env.DB.prepare(`SELECT ${selectFields} FROM news WHERE news.status = 'published' ORDER BY news.score DESC, news.published_at DESC LIMIT ? OFFSET ?`).bind(queryLimit, offset).all();
+    result = await env.DB.prepare(`
+      SELECT ${selectFields}
+      FROM news
+      LEFT JOIN news_loves nl ON nl.news_id = news.id
+      WHERE news.status = 'published'
+      GROUP BY news.id
+      ORDER BY news.score DESC, news.published_at DESC
+      LIMIT ? OFFSET ?
+    `).bind(queryLimit, offset).all();
   } else if (category !== "top" && category !== "all") {
-    result = await env.DB.prepare(`SELECT ${selectFields} FROM news WHERE news.status = 'published' AND news.category = ? ORDER BY news.published_at DESC LIMIT ? OFFSET ?`).bind(category, queryLimit, offset).all();
+    result = await env.DB.prepare(`
+      SELECT ${selectFields}
+      FROM news
+      LEFT JOIN news_loves nl ON nl.news_id = news.id
+      WHERE news.status = 'published' AND news.category = ?
+      GROUP BY news.id
+      ORDER BY news.published_at DESC
+      LIMIT ? OFFSET ?
+    `).bind(category, queryLimit, offset).all();
   } else {
-    result = await env.DB.prepare(`SELECT ${selectFields} FROM news WHERE news.status = 'published' ORDER BY news.published_at DESC LIMIT ? OFFSET ?`).bind(queryLimit, offset).all();
+    result = await env.DB.prepare(`
+      SELECT ${selectFields}
+      FROM news
+      LEFT JOIN news_loves nl ON nl.news_id = news.id
+      WHERE news.status = 'published'
+      GROUP BY news.id
+      ORDER BY news.published_at DESC
+      LIMIT ? OFFSET ?
+    `).bind(queryLimit, offset).all();
   }
 
   const rawNews = result?.results || [];
-  const hasMore = rawNews.length > API_PAGE_SIZE;
-  const news = rawNews.slice(0, API_PAGE_SIZE);
+  const hasMore = rawNews.length > limit;
+  const news = rawNews.slice(0, limit);
 
-  return json({ success: true, count: news.length, offset, limit: API_PAGE_SIZE, has_more: hasMore, news }, 200, 30);
+  return json({ success: true, count: news.length, offset, limit, has_more: hasMore, news }, 200, 30);
 }
 
 /* =========================================================

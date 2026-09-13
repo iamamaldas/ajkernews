@@ -1,7 +1,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v7 — LEFT JOIN optimization + SEO bot homepage
+ * FINAL v8 — LEFT JOIN + SEO bot + Google Indexing API
  * =========================================================
  */
 
@@ -176,7 +176,7 @@ export default {
 };
 
 /* =========================================================
- * NEW MODULAR PIPELINE
+ * NEWS UPDATE PIPELINE
  * ========================================================= */
 
 async function updateNews(env) {
@@ -197,6 +197,7 @@ async function updateNews(env) {
       selected: 0,
       published: 0,
       deleted: 0,
+      indexed: 0,
       gemini: false,
       newNewsIds: [],
       message: "GNews fetch failed: " + (error?.message || String(error))
@@ -217,6 +218,7 @@ async function updateNews(env) {
       selected: 0,
       published: 0,
       deleted: 0,
+      indexed: 0,
       gemini: false,
       newNewsIds: [],
       message: "No candidates available"
@@ -239,6 +241,7 @@ async function updateNews(env) {
       selected: 0,
       published: 0,
       deleted: 0,
+      indexed: 0,
       gemini: false,
       newNewsIds: [],
       message: "No selectable news"
@@ -276,6 +279,7 @@ async function updateNews(env) {
       selected: selected.length,
       published: 0,
       deleted: 0,
+      indexed: 0,
       gemini: false,
       newNewsIds: [],
       message: "Gemini returned no valid results"
@@ -286,6 +290,8 @@ async function updateNews(env) {
   console.log(`[NEWS] Published ${publishResult.published} news`);
 
   const publishedIds = geminiResults.map(r => r.id).filter(Boolean);
+
+  // ✅ Update search_text for published articles
   for (const id of publishedIds) {
     const row = await env.DB.prepare(
       `SELECT headline, summary, main_topic, category FROM news WHERE id = ? AND status = 'published'`
@@ -301,9 +307,34 @@ async function updateNews(env) {
       .bind(searchText, id).run();
   }
 
+  // ✅ GOOGLE INDEXING API — নতুন খবর সরাসরি Google-এ submit
+  let indexedCount = 0;
+  if (env.GOOGLE_SERVICE_ACCOUNT_JSON && publishedIds.length > 0) {
+    console.log(`[INDEXING] Submitting ${publishedIds.length} URLs to Google...`);
+    for (const id of publishedIds) {
+      const newsUrl = `https://ajkernews.in/?id=${encodeURIComponent(id)}`;
+      try {
+        const success = await requestGoogleIndexing(newsUrl, env);
+        if (success) {
+          indexedCount++;
+          console.log(`[INDEXING] ✅ ${newsUrl}`);
+        } else {
+          console.warn(`[INDEXING] ❌ ${newsUrl}`);
+        }
+      } catch (error) {
+        console.error(`[INDEXING] Error for ${newsUrl}:`, error?.message || String(error));
+      }
+    }
+    console.log(`[INDEXING] Completed: ${indexedCount}/${publishedIds.length} submitted`);
+  } else if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+    console.warn("[INDEXING] GOOGLE_SERVICE_ACCOUNT_JSON not set — skipping Indexing API");
+  }
+
+  // ✅ Enforce storage limit
   const cleanupResult = await enforceNewsLimit(env.DB);
   console.log(`[NEWS] Cleanup: deleted ${cleanupResult.deleted}, total ${cleanupResult.total}`);
 
+  // ✅ Clean orphan loves/comments
   for (const id of cleanupResult.deletedIds || []) {
     try {
       await env.DB.prepare(`DELETE FROM news_loves WHERE news_id = ?`).bind(id).run();
@@ -319,9 +350,10 @@ async function updateNews(env) {
     selected: selected.length,
     published: publishResult.published,
     deleted: cleanupResult.deleted,
+    indexed: indexedCount,
     gemini: usedGemini,
     newNewsIds: publishedIds,
-    message: `Update completed. ${publishResult.published} published, ${cleanupResult.deleted} cleaned.`
+    message: `Update completed. ${publishResult.published} published, ${indexedCount} indexed, ${cleanupResult.deleted} cleaned.`
   };
 }
 
@@ -339,7 +371,7 @@ async function serveBotHomepage(env) {
     let newsHtml = "";
 
     for (const item of news) {
-      const link = `https://ajkernews.in/news?id=${encodeURIComponent(item.id)}`;
+      const link = `https://ajkernews.in/?id=${encodeURIComponent(item.id)}`;
       const image = item.image_url || "https://ajkernews.in/logo.png";
       const publishedDate = item.published_at
         ? new Date(item.published_at).toISOString()
@@ -578,7 +610,7 @@ async function handleAffiliate(url, env) {
 }
 
 /* =========================================================
- * API: GET NEWS (LEFT JOIN optimized)
+ * API: GET NEWS
  * ========================================================= */
 
 async function handleGetNews(url, env) {
@@ -896,13 +928,16 @@ async function addComment(request, env) {
 }
 
 /* =========================================================
- * GOOGLE INDEXING
+ * GOOGLE INDEXING API
  * ========================================================= */
 
 async function requestGoogleIndexing(url, env) {
   try {
     const token = await getGoogleAccessToken(env);
-    if (!token) return false;
+    if (!token) {
+      console.warn("[INDEXING] Failed to get access token");
+      return false;
+    }
 
     const response = await fetch("https://indexing.googleapis.com/v3/urlNotifications:publish", {
       method: "POST",

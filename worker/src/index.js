@@ -1,7 +1,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v8 — LEFT JOIN + SEO bot + Google Indexing API
+ * FINAL v9 — Assets + Bot SSR + Google Indexing API
  * =========================================================
  */
 
@@ -44,6 +44,8 @@ function toTransliterated(text) {
   return result.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 }
 
+const BOT_REGEX = /googlebot|bingbot|yandex|baiduspider|twitterbot|facebookexternalhit|whatsapp|slurp|duckduckbot|applebot|petalbot|semrushbot|ahrefsbot|lighthouse|chrome-lighthouse/i;
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -55,9 +57,14 @@ export default {
       await ensureTablesOnce(env);
 
       const userAgent = request.headers.get("User-Agent") || "";
-      const isBot = /googlebot|bingbot|yandex|baiduspider|twitterbot|facebookexternalhit|whatsapp|slurp|duckduckbot|applebot/i.test(userAgent);
+      const isBot = BOT_REGEX.test(userAgent);
 
-      if (url.pathname === "/" && isBot) {
+      // ✅ Bot homepage (no id) vs bot article (?id=)
+      if (url.pathname === "/" && request.method === "GET" && isBot) {
+        const articleId = url.searchParams.get("id");
+        if (articleId) {
+          return await serveBotArticlePage(articleId, env);
+        }
         return await serveBotHomepage(env);
       }
 
@@ -78,7 +85,7 @@ export default {
       if (url.pathname.startsWith("/go/")) {
         const id = url.pathname.split("/")[2];
         if (!id) return new Response("Invalid link", { status: 400 });
-        return await serveSharePage(id, env, request.headers.get("User-Agent") || "", url);
+        return await serveSharePage(id, env, userAgent, url);
       }
 
       if (url.pathname === "/api/affiliate" && request.method === "GET") {
@@ -86,11 +93,19 @@ export default {
       }
 
       if (url.pathname === "/news" && url.searchParams.has("id")) {
-        return await serveNewsPage(url, env);
+        return await serveNewsPage(url, env, request);
       }
 
       if (url.pathname === "/sitemap.xml") {
         return await generateSitemap(env);
+      }
+
+      if (url.pathname === "/news-sitemap.xml") {
+        return await generateNewsSitemap(env);
+      }
+
+      if (url.pathname === "/rss.xml") {
+        return await generateRSS(env);
       }
 
       if (url.pathname === "/api/news") {
@@ -137,6 +152,11 @@ export default {
 
       if (url.pathname === "/api/push-sync" && request.method === "POST") {
         return await handlePushSync(request, env);
+      }
+
+      // ✅ Human non-API routes → Cloudflare Assets (index.html, sw.js, logo.png, pages/*)
+      if (env.ASSETS) {
+        return env.ASSETS.fetch(request);
       }
 
       return new Response("Ajker News Worker is running.", {
@@ -190,16 +210,8 @@ async function updateNews(env) {
   } catch (error) {
     console.error("[NEWS] GNews batch failed:", error?.message || String(error));
     return {
-      success: false,
-      fetched: 0,
-      inserted: 0,
-      candidates: 0,
-      selected: 0,
-      published: 0,
-      deleted: 0,
-      indexed: 0,
-      gemini: false,
-      newNewsIds: [],
+      success: false, fetched: 0, inserted: 0, candidates: 0, selected: 0,
+      published: 0, deleted: 0, indexed: 0, gemini: false, newNewsIds: [],
       message: "GNews fetch failed: " + (error?.message || String(error))
     };
   }
@@ -211,17 +223,9 @@ async function updateNews(env) {
 
   if (candidates.length === 0) {
     return {
-      success: true,
-      fetched: batchResult.totalReceived,
-      inserted: batchResult.totalInserted,
-      candidates: 0,
-      selected: 0,
-      published: 0,
-      deleted: 0,
-      indexed: 0,
-      gemini: false,
-      newNewsIds: [],
-      message: "No candidates available"
+      success: true, fetched: batchResult.totalReceived, inserted: batchResult.totalInserted,
+      candidates: 0, selected: 0, published: 0, deleted: 0, indexed: 0,
+      gemini: false, newNewsIds: [], message: "No candidates available"
     };
   }
 
@@ -234,17 +238,9 @@ async function updateNews(env) {
 
   if (selected.length === 0) {
     return {
-      success: true,
-      fetched: batchResult.totalReceived,
-      inserted: batchResult.totalInserted,
-      candidates: candidates.length,
-      selected: 0,
-      published: 0,
-      deleted: 0,
-      indexed: 0,
-      gemini: false,
-      newNewsIds: [],
-      message: "No selectable news"
+      success: true, fetched: batchResult.totalReceived, inserted: batchResult.totalInserted,
+      candidates: candidates.length, selected: 0, published: 0, deleted: 0, indexed: 0,
+      gemini: false, newNewsIds: [], message: "No selectable news"
     };
   }
 
@@ -272,16 +268,9 @@ async function updateNews(env) {
 
   if (!geminiResults.length) {
     return {
-      success: true,
-      fetched: batchResult.totalReceived,
-      inserted: batchResult.totalInserted,
-      candidates: candidates.length,
-      selected: selected.length,
-      published: 0,
-      deleted: 0,
-      indexed: 0,
-      gemini: false,
-      newNewsIds: [],
+      success: true, fetched: batchResult.totalReceived, inserted: batchResult.totalInserted,
+      candidates: candidates.length, selected: selected.length, published: 0,
+      deleted: 0, indexed: 0, gemini: false, newNewsIds: [],
       message: "Gemini returned no valid results"
     };
   }
@@ -291,7 +280,6 @@ async function updateNews(env) {
 
   const publishedIds = geminiResults.map(r => r.id).filter(Boolean);
 
-  // ✅ Update search_text for published articles
   for (const id of publishedIds) {
     const row = await env.DB.prepare(
       `SELECT headline, summary, main_topic, category FROM news WHERE id = ? AND status = 'published'`
@@ -307,7 +295,6 @@ async function updateNews(env) {
       .bind(searchText, id).run();
   }
 
-  // ✅ GOOGLE INDEXING API — নতুন খবর সরাসরি Google-এ submit
   let indexedCount = 0;
   if (env.GOOGLE_SERVICE_ACCOUNT_JSON && publishedIds.length > 0) {
     console.log(`[INDEXING] Submitting ${publishedIds.length} URLs to Google...`);
@@ -330,11 +317,9 @@ async function updateNews(env) {
     console.warn("[INDEXING] GOOGLE_SERVICE_ACCOUNT_JSON not set — skipping Indexing API");
   }
 
-  // ✅ Enforce storage limit
   const cleanupResult = await enforceNewsLimit(env.DB);
   console.log(`[NEWS] Cleanup: deleted ${cleanupResult.deleted}, total ${cleanupResult.total}`);
 
-  // ✅ Clean orphan loves/comments
   for (const id of cleanupResult.deletedIds || []) {
     try {
       await env.DB.prepare(`DELETE FROM news_loves WHERE news_id = ?`).bind(id).run();
@@ -343,105 +328,297 @@ async function updateNews(env) {
   }
 
   return {
-    success: true,
-    fetched: batchResult.totalReceived,
-    inserted: batchResult.totalInserted,
-    candidates: candidates.length,
-    selected: selected.length,
-    published: publishResult.published,
-    deleted: cleanupResult.deleted,
-    indexed: indexedCount,
-    gemini: usedGemini,
+    success: true, fetched: batchResult.totalReceived, inserted: batchResult.totalInserted,
+    candidates: candidates.length, selected: selected.length, published: publishResult.published,
+    deleted: cleanupResult.deleted, indexed: indexedCount, gemini: usedGemini,
     newNewsIds: publishedIds,
     message: `Update completed. ${publishResult.published} published, ${indexedCount} indexed, ${cleanupResult.deleted} cleaned.`
   };
 }
 
 /* =========================================================
- * SEO BOT HOMEPAGE
+ * BOT HOMEPAGE — rich schema + category nav
  * ========================================================= */
-
 async function serveBotHomepage(env) {
   try {
-    const result = await env.DB.prepare(
-      `SELECT id, headline, summary, published_at, category, image_url, source_name FROM news WHERE status = 'published' ORDER BY published_at DESC LIMIT 30`
+    const newsResult = await env.DB.prepare(
+      `SELECT id, headline, summary, published_at, category, image_url,
+              source_name, main_topic
+       FROM news
+       WHERE status = 'published'
+       ORDER BY published_at DESC
+       LIMIT 100`
     ).all();
+    const news = newsResult.results || [];
 
-    const news = result.results || [];
+    const catResult = await env.DB.prepare(
+      `SELECT category, COUNT(*) AS cnt FROM news
+       WHERE status = 'published' AND category IS NOT NULL
+       GROUP BY category ORDER BY cnt DESC LIMIT 20`
+    ).all();
+    const categories = catResult.results || [];
+
+    const catLabel = {
+      top:'সেরা খবর', trending:'ট্রেন্ডিং', west_bengal:'পশ্চিমবঙ্গ',
+      kolkata:'কলকাতা', india:'ভারত', world:'বিশ্ব', business:'ব্যবসা',
+      sports:'খেলা', politics:'রাজনীতি', technology:'প্রযুক্তি',
+      entertainment:'বিনোদন', crime:'অপরাধ', district:'জেলা', general:'সাধারণ'
+    };
+
     let newsHtml = "";
-
     for (const item of news) {
       const link = `https://ajkernews.in/?id=${encodeURIComponent(item.id)}`;
       const image = item.image_url || "https://ajkernews.in/logo.png";
       const publishedDate = item.published_at
         ? new Date(item.published_at).toISOString()
         : new Date().toISOString();
+      const cat = catLabel[item.category] || item.category || 'সংবাদ';
 
       newsHtml += `
-        <article itemscope itemtype="https://schema.org/NewsArticle" style="margin-bottom: 24px; border-bottom: 1px solid #eee; padding-bottom: 16px;">
+        <article itemscope itemtype="https://schema.org/NewsArticle"
+                 style="margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid #eee;">
           <meta itemprop="datePublished" content="${escapeHtml(publishedDate)}">
           <meta itemprop="dateModified" content="${escapeHtml(publishedDate)}">
+          <meta itemprop="mainEntityOfPage" content="${escapeHtml(link)}">
           <div itemprop="image" itemscope itemtype="https://schema.org/ImageObject">
             <meta itemprop="url" content="${escapeHtml(image)}">
+            <meta itemprop="width" content="1200">
+            <meta itemprop="height" content="675">
           </div>
-          <h2 itemprop="headline" style="font-size: 20px; margin-bottom: 8px;">
-            <a href="${link}" style="color: #111; text-decoration: none;">${escapeHtml(item.headline)}</a>
+          <p style="font-size:12px;color:#f44336;font-weight:700;margin:0 0 6px;">
+            <a href="https://ajkernews.in/?category=${encodeURIComponent(item.category || 'top')}"
+               style="color:#f44336;text-decoration:none;">${escapeHtml(cat)}</a>
+          </p>
+          <h2 itemprop="headline" style="font-size:20px;margin:0 0 8px;line-height:1.4;">
+            <a href="${escapeHtml(link)}" style="color:#111;text-decoration:none;">${escapeHtml(item.headline)}</a>
           </h2>
-          <p itemprop="description" style="font-size: 15px; color: #444; line-height: 1.6;">${escapeHtml((item.summary || "").substring(0, 300))}...</p>
-          <div style="font-size: 12px; color: #888; margin-top: 8px;">
+          <p itemprop="description" style="font-size:15px;color:#444;line-height:1.6;margin:0 0 8px;">
+            ${escapeHtml((item.summary || "").substring(0, 300))}...
+          </p>
+          <div style="font-size:12px;color:#888;">
             <span itemprop="author" itemscope itemtype="https://schema.org/Organization">
               <span itemprop="name">${escapeHtml(item.source_name || "Ajker News")}</span>
             </span>
-            •
-            <time datetime="${escapeHtml(publishedDate)}">${escapeHtml(item.published_at || "")}</time>
+            • <time datetime="${escapeHtml(publishedDate)}">${escapeHtml(item.published_at || "")}</time>
           </div>
-          <a href="${link}" style="display: inline-block; margin-top: 8px; color: #007bff; font-size: 14px;">পূর্ণ খবর পড়ুন →</a>
-        </article>
-      `;
+          <a itemprop="url" href="${escapeHtml(link)}"
+             style="display:inline-block;margin-top:8px;color:#007bff;font-size:14px;text-decoration:none;">
+            পূর্ণ খবর পড়ুন →
+          </a>
+        </article>`;
     }
 
+    const catNavHtml = categories.map(c => {
+      const label = catLabel[c.category] || c.category;
+      return `<a href="https://ajkernews.in/?category=${encodeURIComponent(c.category)}"
+                 style="display:inline-block;margin:0 6px 6px 0;padding:6px 12px;background:#f5f5f5;border-radius:16px;color:#111;text-decoration:none;font-size:13px;">
+        ${escapeHtml(label)} (${c.cnt})
+      </a>`;
+    }).join("");
+
     const html = `<!DOCTYPE html>
-    <html lang="bn">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>আজকের নিউজ | কলকাতা, পশ্চিমবঙ্গ ও ভারতের সর্বশেষ খবর</title>
-      <meta name="description" content="কলকাতা, পশ্চিমবঙ্গ এবং ভারতের সর্বশেষ খবর পড়ুন আজকের নিউজে। প্রতিদিনের আপডেট বাংলায়।">
-      <link rel="canonical" href="https://ajkernews.in/">
-      <script type="application/ld+json">
-      {
-        "@context": "https://schema.org",
-        "@type": "CollectionPage",
-        "name": "আজকের নিউজ",
-        "url": "https://ajkernews.in/"
-      }
-      </script>
-    </head>
-    <body style="max-width: 800px; margin: 0 auto; padding: 20px; font-family: Inter, -apple-system, sans-serif;">
-      <header>
-        <h1 style="font-size: 28px; margin-bottom: 8px;">আজকের নিউজ</h1>
-        <p style="color: #666; font-size: 15px; margin-bottom: 24px;">কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর</p>
-      </header>
-      <main>${newsHtml}</main>
-      <footer style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; text-align: center; color: #888; font-size: 13px;">
-        <p>&copy; ${new Date().getFullYear()} Ajker News. All rights reserved.</p>
-        <p><a href="https://ajkernews.in/sitemap.xml" style="color: #007bff;">Sitemap</a></p>
-      </footer>
-    </body>
-    </html>`;
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>আজকের নিউজ | কলকাতা, পশ্চিমবঙ্গ ও ভারতের সর্বশেষ খবর</title>
+<meta name="description" content="কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ বাংলা খবর। প্রতিদিনের রাজনীতি, খেলা, বিনোদন, ব্যবসা, প্রযুক্তির আপডেট — আজকের নিউজে।">
+<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1">
+<link rel="canonical" href="https://ajkernews.in/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="আজকের নিউজ | সর্বশেষ বাংলা খবর">
+<meta property="og:description" content="কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ বাংলা খবর।">
+<meta property="og:url" content="https://ajkernews.in/">
+<meta property="og:image" content="https://ajkernews.in/logo.png">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context":"https://schema.org",
+  "@type":"WebSite",
+  "name":"আজকের নিউজ",
+  "alternateName":["Ajker News","ajkernews.in"],
+  "url":"https://ajkernews.in/",
+  "inLanguage":"bn-IN",
+  "publisher":{"@type":"NewsMediaOrganization","name":"Ajker News","logo":{"@type":"ImageObject","url":"https://ajkernews.in/logo.png"}},
+  "potentialAction":{
+    "@type":"SearchAction",
+    "target":"https://ajkernews.in/?q={search_term_string}",
+    "query-input":"required name=search_term_string"
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context":"https://schema.org",
+  "@type":"CollectionPage",
+  "name":"আজকের নিউজ",
+  "url":"https://ajkernews.in/",
+  "isPartOf":{"@type":"WebSite","url":"https://ajkernews.in/"},
+  "inLanguage":"bn-IN"
+}
+</script>
+</head>
+<body style="max-width:820px;margin:0 auto;padding:20px;font-family:Inter,-apple-system,sans-serif;color:#111;">
+<header>
+  <h1 style="font-size:28px;margin:0 0 6px;">
+    <a href="/" style="color:#111;text-decoration:none;">আজকের নিউজ</a>
+  </h1>
+  <p style="color:#666;font-size:15px;margin:0 0 16px;">কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর</p>
+  <nav style="margin-bottom:24px;">${catNavHtml}</nav>
+</header>
+<main>${newsHtml}</main>
+<footer style="margin-top:40px;padding-top:20px;border-top:1px solid #eee;text-align:center;color:#888;font-size:13px;">
+  <p>&copy; ${new Date().getFullYear()} Ajker News — All rights reserved.</p>
+  <p>
+    <a href="https://ajkernews.in/sitemap.xml" style="color:#007bff;">Sitemap</a> ·
+    <a href="https://ajkernews.in/news-sitemap.xml" style="color:#007bff;">News Sitemap</a> ·
+    <a href="https://ajkernews.in/rss.xml" style="color:#007bff;">RSS</a>
+  </p>
+</footer>
+</body>
+</html>`;
 
     return new Response(html, {
       status: 200,
       headers: {
         "Content-Type": "text/html; charset=UTF-8",
         "Cache-Control": "public, max-age=300, s-maxage=600",
-        "X-Robots-Tag": "index, follow"
+        "X-Robots-Tag": "index, follow, max-image-preview:large"
       }
     });
   } catch (error) {
-    console.error("Bot homepage error:", error?.message || error?.stack || String(error));
+    console.error("Bot homepage error:", error?.message || String(error));
     return new Response("Error loading content", { status: 500 });
   }
+}
+
+/* =========================================================
+ * BOT ARTICLE PAGE — Google/Bing সরাসরি article পড়বে
+ * ========================================================= */
+async function serveBotArticlePage(id, env) {
+  const safeId = String(id || "").trim();
+  if (!safeId) return Response.redirect("https://ajkernews.in/", 302);
+
+  const result = await env.DB.prepare(
+    `SELECT headline, summary, main_topic, image_url, published_at,
+            source_name, source_url, category
+     FROM news
+     WHERE id = ? AND status = 'published'
+     LIMIT 1`
+  ).bind(safeId).first();
+
+  if (!result) return Response.redirect("https://ajkernews.in/", 302);
+
+  const title = cleanText(result.headline) || "Ajker News";
+  const description = cleanText(result.summary || "").slice(0, 160);
+  const fullSummary = cleanText(result.summary || result.main_topic || "");
+  const image = result.image_url || "https://ajkernews.in/logo.png";
+  const publishedAt = result.published_at || new Date().toISOString();
+  const canonical = `https://ajkernews.in/?id=${encodeURIComponent(safeId)}`;
+
+  const newsArticleLd = JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "NewsArticle",
+    "mainEntityOfPage": { "@type": "WebPage", "@id": canonical },
+    "headline": title,
+    "description": description,
+    "image": [image],
+    "datePublished": publishedAt,
+    "dateModified": publishedAt,
+    "author": {
+      "@type": "Organization",
+      "name": result.source_name || "Ajker News"
+    },
+    "publisher": {
+      "@type": "Organization",
+      "name": "Ajker News",
+      "logo": { "@type": "ImageObject", "url": "https://ajkernews.in/logo.png" }
+    },
+    "inLanguage": "bn-IN",
+    "isAccessibleForFree": true
+  });
+
+  const breadcrumbLd = JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "হোম", "item": "https://ajkernews.in/" },
+      { "@type": "ListItem", "position": 2, "name": title, "item": canonical }
+    ]
+  });
+
+  const html = `<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtml(title)} - Ajker News</title>
+<meta name="description" content="${escapeHtml(description)}">
+<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1">
+<link rel="canonical" href="${escapeHtml(canonical)}">
+<meta property="og:type" content="article">
+<meta property="og:title" content="${escapeHtml(title)}">
+<meta property="og:description" content="${escapeHtml(description)}">
+<meta property="og:url" content="${escapeHtml(canonical)}">
+<meta property="og:image" content="${escapeHtml(image)}">
+<meta property="og:site_name" content="Ajker News">
+<meta property="article:published_time" content="${escapeHtml(publishedAt)}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${escapeHtml(title)}">
+<meta name="twitter:description" content="${escapeHtml(description)}">
+<meta name="twitter:image" content="${escapeHtml(image)}">
+<script type="application/ld+json">${newsArticleLd}</script>
+<script type="application/ld+json">${breadcrumbLd}</script>
+</head>
+<body style="max-width:780px;margin:0 auto;padding:20px;font-family:Inter,-apple-system,sans-serif;color:#111;line-height:1.7;">
+<header style="margin-bottom:20px;">
+  <p style="margin:0 0 12px;">
+    <a href="https://ajkernews.in/" style="color:#007bff;text-decoration:none;font-size:14px;">← আজকের নিউজ হোম</a>
+  </p>
+</header>
+<article itemscope itemtype="https://schema.org/NewsArticle">
+  <meta itemprop="datePublished" content="${escapeHtml(publishedAt)}">
+  <meta itemprop="dateModified" content="${escapeHtml(publishedAt)}">
+  <meta itemprop="mainEntityOfPage" content="${escapeHtml(canonical)}">
+  <h1 itemprop="headline" style="font-size:28px;line-height:1.35;margin:0 0 12px;color:#111;">${escapeHtml(title)}</h1>
+  <div style="font-size:13px;color:#888;margin-bottom:16px;">
+    <span itemprop="author" itemscope itemtype="https://schema.org/Organization">
+      <span itemprop="name">${escapeHtml(result.source_name || "Ajker News")}</span>
+    </span>
+    • <time datetime="${escapeHtml(publishedAt)}">${escapeHtml(publishedAt)}</time>
+  </div>
+  <div itemprop="image" itemscope itemtype="https://schema.org/ImageObject" style="margin-bottom:18px;">
+    <img itemprop="url" src="${escapeHtml(image)}" alt="${escapeHtml(title)}"
+         style="width:100%;height:auto;border-radius:8px;display:block;"
+         width="1200" height="675">
+  </div>
+  <div itemprop="articleBody" style="font-size:16px;color:#222;">
+    <p>${escapeHtml(fullSummary)}</p>
+  </div>
+  ${result.source_url ? `
+  <p style="margin-top:20px;">
+    <a href="${escapeHtml(result.source_url)}" rel="noopener noreferrer nofollow"
+       style="color:#007bff;text-decoration:none;font-size:14px;">মূল উৎস দেখুন →</a>
+  </p>` : ""}
+</article>
+<footer style="margin-top:40px;padding-top:20px;border-top:1px solid #eee;text-align:center;color:#888;font-size:13px;">
+  <p>&copy; ${new Date().getFullYear()} Ajker News</p>
+  <p>
+    <a href="https://ajkernews.in/sitemap.xml" style="color:#007bff;">Sitemap</a> ·
+    <a href="https://ajkernews.in/news-sitemap.xml" style="color:#007bff;">News Sitemap</a>
+  </p>
+</footer>
+</body>
+</html>`;
+
+  return new Response(html, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/html; charset=UTF-8",
+      "Cache-Control": "public, max-age=300, s-maxage=600",
+      "X-Robots-Tag": "index, follow, max-image-preview:large"
+    }
+  });
 }
 
 /* =========================================================
@@ -524,7 +701,7 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
   if (!result) return Response.redirect("https://ajkernews.in/", 302);
 
   const openModalParam = (requestUrl && requestUrl.searchParams.get("openModal") === "true") ? "&openModal=true" : "";
-  const homeUrl = `https://ajkernews.in/?shared=${encodeURIComponent(safeId)}${openModalParam}`;
+  const homeUrl = `https://ajkernews.in/?id=${encodeURIComponent(safeId)}${openModalParam}`;
 
   const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><script>window.location.replace(${JSON.stringify(homeUrl)});</script></head><body><noscript><a href="${escapeHtml(homeUrl)}">পূর্ণ খবর দেখতে এই লিঙ্কে ক্লিক করুন</a></noscript></body></html>`;
 
@@ -540,53 +717,18 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
   });
 }
 
-async function serveNewsPage(url, env) {
+async function serveNewsPage(url, env, request) {
   const id = url.searchParams.get("id");
   if (!id) return Response.redirect("https://ajkernews.in/", 302);
 
-  const result = await env.DB.prepare(`SELECT headline, summary, image_url, published_at, source_name FROM news WHERE id = ? AND status = 'published' LIMIT 1`).bind(id).first();
-  if (!result) return Response.redirect("https://ajkernews.in/", 302);
+  const ua = (request?.headers?.get("User-Agent") || "");
+  const isBot = BOT_REGEX.test(ua);
 
-  const title = cleanText(result.headline) || "Ajker News";
-  const description = cleanText(result.summary || "").slice(0, 160);
-  const image = result.image_url || "https://ajkernews.in/logo.png";
-  const publishedAt = result.published_at || new Date().toISOString();
-  const homeUrl = `https://ajkernews.in/?shared=${encodeURIComponent(id)}`;
-
-  const newsArticleLd = JSON.stringify({
-    "@context": "https://schema.org",
-    "@type": "NewsArticle",
-    "headline": title,
-    "description": description,
-    "image": [image],
-    "datePublished": publishedAt,
-    "dateModified": publishedAt,
-    "author": { "@type": "Organization", "name": "Ajker News" },
-    "publisher": {
-      "@type": "Organization",
-      "name": "Ajker News",
-      "logo": { "@type": "ImageObject", "url": "https://ajkernews.in/logo.png" }
-    },
-    "mainEntityOfPage": { "@type": "WebPage", "@id": `https://ajkernews.in/?id=${encodeURIComponent(id)}` }
-  });
-
-  let html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} - Ajker News</title><meta name="description" content="${escapeHtml(description)}"><meta property="og:title" content="${escapeHtml(title)}"><meta property="og:description" content="${escapeHtml(description)}"><meta property="og:url" content="${escapeHtml(homeUrl)}"><meta property="og:type" content="article"><meta property="og:image" content="${escapeHtml(image)}"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${escapeHtml(title)}"><meta name="twitter:description" content="${escapeHtml(description)}"><meta name="twitter:image" content="${escapeHtml(image)}"><script type="application/ld+json">${newsArticleLd}</script><meta http-equiv="refresh" content="0;url=${escapeHtml(homeUrl)}"><script>window.location.replace(${JSON.stringify(homeUrl)});</script></head><body><p>${escapeHtml(title)}</p></body></html>`;
-
-  const analyticsScript = `<script async src="https://www.googletagmanager.com/gtag/js?id=${escapeHtml(ANALYTICS_CONFIG.gaTrackingId)}"></script><script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag("js",new Date());gtag("config",${JSON.stringify(ANALYTICS_CONFIG.gaTrackingId)});</script>${ANALYTICS_CONFIG.extraHeadScripts || ""}${ADS_CONFIG.adNetworkScripts || ""}`;
-
-  html = html.replace("</head>", analyticsScript + "</head>");
-  if (ADS_CONFIG.extraFooterScripts) {
-    html = html.replace("</body>", ADS_CONFIG.extraFooterScripts + "</body>");
+  if (isBot) {
+    return await serveBotArticlePage(id, env);
   }
 
-  return new Response(html, {
-    status: 200,
-    headers: {
-      "Content-Type": "text/html; charset=UTF-8",
-      "Cache-Control": "public, max-age=300, s-maxage=300",
-      ...corsHeaders()
-    }
-  });
+  return Response.redirect(`https://ajkernews.in/?id=${encodeURIComponent(id)}`, 301);
 }
 
 async function handleAffiliate(url, env) {
@@ -777,7 +919,7 @@ async function queueAndSendPushNotifications(env, newsIds) {
     const notificationId = `news:${news.id}`;
     const title = "নতুন খবর!";
     const body = cleanText(news.headline || news.summary || "আজকের নতুন খবর দেখুন।").slice(0, 180);
-    const targetUrl = `https://ajkernews.in/go/${encodeURIComponent(news.id)}`;
+    const targetUrl = `https://ajkernews.in/?id=${encodeURIComponent(news.id)}`;
 
     await env.DB.prepare(`INSERT OR IGNORE INTO push_notifications (id, news_id, title, body, url, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .bind(notificationId, news.id, title, body, targetUrl, now.toISOString(), expires).run();
@@ -1023,7 +1165,7 @@ async function getGoogleAccessToken(env) {
 }
 
 /* =========================================================
- * SITEMAP
+ * SITEMAP + NEWS SITEMAP + RSS
  * ========================================================= */
 
 async function generateSitemap(env) {
@@ -1031,7 +1173,7 @@ async function generateSitemap(env) {
   const news = result.results || [];
   const baseUrl = "https://ajkernews.in";
 
-  let xml = `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9"><url><loc>${baseUrl}/</loc><changefreq>hourly</changefreq><priority>1.0</priority></url>`;
+  let xml = `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${baseUrl}/</loc><changefreq>hourly</changefreq><priority>1.0</priority></url>`;
 
   for (const item of news) {
     const lastmod = item.created_at ? item.created_at.split("T")[0] : new Date().toISOString().split("T")[0];
@@ -1046,6 +1188,86 @@ async function generateSitemap(env) {
       "Content-Type": "application/xml",
       "Cache-Control": "public, max-age=3600",
       ...corsHeaders()
+    }
+  });
+}
+
+async function generateNewsSitemap(env) {
+  const result = await env.DB.prepare(
+    `SELECT id, headline, published_at FROM news
+     WHERE status='published'
+       AND published_at >= datetime('now','-2 days')
+     ORDER BY published_at DESC LIMIT 1000`
+  ).all();
+  const news = result.results || [];
+  const base = "https://ajkernews.in";
+
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">`;
+
+  for (const n of news) {
+    xml += `<url>
+  <loc>${base}/?id=${encodeURIComponent(n.id)}</loc>
+  <news:news>
+    <news:publication>
+      <news:name>Ajker News</news:name>
+      <news:language>bn</news:language>
+    </news:publication>
+    <news:publication_date>${escapeHtml(n.published_at)}</news:publication_date>
+    <news:title>${escapeHtml(n.headline)}</news:title>
+  </news:news>
+</url>`;
+  }
+  xml += `</urlset>`;
+
+  return new Response(xml, {
+    headers: {
+      "Content-Type": "application/xml; charset=UTF-8",
+      "Cache-Control": "public, max-age=600, s-maxage=1800"
+    }
+  });
+}
+
+async function generateRSS(env) {
+  const result = await env.DB.prepare(
+    `SELECT id, headline, summary, published_at, image_url, source_name
+     FROM news WHERE status='published'
+     ORDER BY published_at DESC LIMIT 50`
+  ).all();
+  const news = result.results || [];
+  const base = "https://ajkernews.in";
+
+  const items = news.map(n => {
+    const link = `${base}/?id=${encodeURIComponent(n.id)}`;
+    const pubDate = n.published_at ? new Date(n.published_at).toUTCString() : new Date().toUTCString();
+    return `<item>
+  <title>${escapeHtml(n.headline)}</title>
+  <link>${link}</link>
+  <guid isPermaLink="true">${link}</guid>
+  <pubDate>${pubDate}</pubDate>
+  <description><![CDATA[${n.summary || ""}]]></description>
+  ${n.image_url ? `<enclosure url="${escapeHtml(n.image_url)}" type="image/jpeg"/>` : ""}
+</item>`;
+  }).join("\n");
+
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<channel>
+  <title>আজকের নিউজ</title>
+  <link>${base}/</link>
+  <description>কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ বাংলা খবর</description>
+  <language>bn-IN</language>
+  <atom:link href="${base}/rss.xml" rel="self" type="application/rss+xml"/>
+  <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
+${items}
+</channel>
+</rss>`;
+
+  return new Response(xml, {
+    headers: {
+      "Content-Type": "application/rss+xml; charset=UTF-8",
+      "Cache-Control": "public, max-age=600, s-maxage=1800"
     }
   });
 }

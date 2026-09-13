@@ -1,9 +1,9 @@
 /**
  * Ajker News Service Worker
- * Notification Click behaves like Share Link (no popup modal)
+ * v2026-09-13-1 — Smart notification click + tray clear
  */
 
-const CACHE_VERSION = "ajker-news-v2026-09-12-1";
+const CACHE_VERSION = "ajker-news-v2026-09-13-1";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const LOGO_URL = "/logo.png";
 
@@ -28,7 +28,20 @@ self.addEventListener("activate", event => {
 });
 
 self.addEventListener("message", event => {
-  if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
+  const type = event.data?.type;
+
+  if (type === "SKIP_WAITING") {
+    self.skipWaiting();
+    return;
+  }
+
+  if (type === "CLEAR_NOTIFICATIONS") {
+    event.waitUntil(
+      self.registration.getNotifications()
+        .then(list => list.forEach(n => { try { n.close(); } catch (_) {} }))
+        .catch(() => {})
+    );
+  }
 });
 
 self.addEventListener("fetch", event => {
@@ -100,35 +113,52 @@ self.addEventListener("push", event => {
   event.waitUntil(self.registration.showNotification(data.title, options));
 });
 
-/*
- * Notification click handler — behaves like share link
- *
- * No openModal flag.
- * News appears at top of list (same as share link behavior).
- */
 self.addEventListener("notificationclick", event => {
   event.notification.close();
-  let url = event.notification.data?.url || "/";
-  
-  if (!url.startsWith("http")) {
-    url = `https://ajkernews.in${url.startsWith("/") ? url : "/" + url}`;
+
+  const notifData = event.notification.data || {};
+  let targetUrl = notifData.url || "/";
+  if (!targetUrl.startsWith("http")) {
+    targetUrl = `https://ajkernews.in${targetUrl.startsWith("/") ? targetUrl : "/" + targetUrl}`;
   }
 
-  // ✅ openModal ফ্ল্যাগ সরানো — share link-এর মতো আচরণ হবে
-  const fullUrl = url;
+  let newsId = notifData.notificationId || "";
+  if (newsId.startsWith("news:")) newsId = newsId.slice(5);
+  if (!newsId) {
+    try {
+      const u = new URL(targetUrl);
+      newsId = u.searchParams.get("id") || u.pathname.split("/").filter(Boolean).pop() || "";
+    } catch (_) {}
+  }
 
   event.waitUntil((async () => {
-    const windowClients = await clients.matchAll({ type: "window", includeUncontrolled: true });
+    try {
+      const all = await self.registration.getNotifications();
+      all.forEach(n => { try { n.close(); } catch (_) {} });
+    } catch (_) {}
+
+    const windowClients = await self.clients.matchAll({
+      type: "window",
+      includeUncontrolled: true
+    });
+
     for (const client of windowClients) {
-      if (client.url.includes("ajkernews.in") && "focus" in client) {
+      if (client.url.startsWith(self.location.origin) && "focus" in client) {
         try {
-          client.postMessage({ type: "OPEN_NEWS_URL", url: fullUrl });
+          client.postMessage({
+            type: "OPEN_NEWS_URL",
+            url: targetUrl,
+            newsId: newsId
+          });
         } catch (_) {}
-        await client.focus();
+        try { await client.focus(); } catch (_) {}
         return;
       }
     }
-    if (clients.openWindow) return clients.openWindow(fullUrl);
+
+    if (self.clients.openWindow) {
+      await self.clients.openWindow(targetUrl);
+    }
   })());
 });
 

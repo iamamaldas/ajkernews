@@ -157,6 +157,85 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
 .modal-like-actions { display:flex; justify-content:flex-start; gap:20px; margin:12px 0 6px 0; padding-top:10px; border-top:1px solid #eee; }
 .modal-like-actions .action-btn { color:#555; }
 .modal-like-actions .action-btn:hover { color:#000; }
+
+/* ===== NOTIFICATION PROMPT ===== */
+.notif-prompt-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 2500;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.notif-prompt-modal.active {
+  display: flex;
+  opacity: 1;
+}
+.notif-prompt-box {
+  background: #fff;
+  border-radius: 16px;
+  padding: 24px 20px 20px;
+  max-width: 360px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+  transform: translateY(20px);
+  transition: transform 0.3s ease;
+}
+.notif-prompt-modal.active .notif-prompt-box {
+  transform: translateY(0);
+}
+.notif-prompt-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  line-height: 1;
+}
+.notif-prompt-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #111;
+  margin-bottom: 8px;
+}
+.notif-prompt-text {
+  font-size: 15px;
+  line-height: 1.6;
+  color: #555;
+  margin-bottom: 20px;
+}
+.notif-prompt-actions {
+  display: flex;
+  gap: 10px;
+}
+.notif-prompt-btn {
+  flex: 1;
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: none;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+.notif-prompt-btn.later {
+  background: #f0f0f0;
+  color: #333;
+}
+.notif-prompt-btn.later:hover {
+  background: #e0e0e0;
+}
+.notif-prompt-btn.enable {
+  background: #000;
+  color: #fff;
+}
+.notif-prompt-btn.enable:hover {
+  background: #333;
+}
+
 @media (min-width:768px) {
 .modal-content { width:85%; max-width:900px; padding:32px; }
 }
@@ -188,6 +267,11 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
 .floating-app-btn span { font-size:8px; }
 .modal-content { width:92%; margin:3% auto; padding:16px; max-height:90vh; }
 #modal-body { padding-right:2px; }
+.notif-prompt-box { padding: 20px 16px 16px; }
+.notif-prompt-icon { font-size: 42px; }
+.notif-prompt-title { font-size: 18px; }
+.notif-prompt-text { font-size: 14px; }
+.notif-prompt-btn { padding: 11px 14px; font-size: 14px; }
 }
 </style>
 </head>
@@ -255,6 +339,20 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
     <div id="modal-body"></div>
   </div>
 </div>
+
+<!-- ✅ Notification Prompt Modal -->
+<div id="notifPromptModal" class="notif-prompt-modal">
+  <div class="notif-prompt-box">
+    <div class="notif-prompt-icon">🔔</div>
+    <h3 class="notif-prompt-title">নোটিফিকেশন চালু করুন</h3>
+    <p class="notif-prompt-text">নতুন খবর প্রকাশিত হলে সাথে সাথে জানতে নোটিফিকেশন চালু করুন।</p>
+    <div class="notif-prompt-actions">
+      <button class="notif-prompt-btn later" onclick="handleNotificationPromptLater()">পরে</button>
+      <button class="notif-prompt-btn enable" onclick="handleNotificationPromptEnable()">OK</button>
+    </div>
+  </div>
+</div>
+
 <div class="main-content">
   <div id="newsContainer">
     <div class="empty-news-msg">⏳ খবর লোড হচ্ছে...</div>
@@ -490,7 +588,6 @@ async function loadNews(category = 'top', search = '', options = {}) {
   isLoadingNews = true;
   currentSearchQuery = search || '';
   if (showLoading && !keepExisting) {
-    // ✅ Skeleton দেখান — "লোড হচ্ছে" টেক্সট নয়
     showSkeleton(container, 3);
   }
   try {
@@ -605,7 +702,6 @@ function renderNews(newsList, hasMore = false) {
 
   function showNext() {
     if (index >= limitedNews.length) {
-      // ✅ সব নিউজ আসা শেষ — Load More button দেখান
       const loadMoreBtn = document.getElementById('loadMoreBtn');
       if (hasMore) {
         loadMoreBtn.style.display = 'block';
@@ -617,13 +713,11 @@ function renderNews(newsList, hasMore = false) {
       return;
     }
 
-    // ✅ একটি নিউজ কার্ড যোগ করুন
     const wrapper = document.createElement('div');
     wrapper.innerHTML = buildNewsHtml(limitedNews[index]);
     const card = wrapper.firstElementChild;
     container.appendChild(card);
 
-    // ✅ Fade-in animation
     requestAnimationFrame(() => {
       card.classList.add('visible');
     });
@@ -631,7 +725,6 @@ function renderNews(newsList, hasMore = false) {
     index++;
     adCounter++;
 
-    // ✅ বিজ্ঞাপন (প্রতি ২ নিউজ পর)
     if (adCounter === AD_INTERVAL && index < limitedNews.length) {
       const ad = getNextAd();
       if (ad) {
@@ -642,11 +735,9 @@ function renderNews(newsList, hasMore = false) {
       adCounter = 0;
     }
 
-    // ✅ পরের নিউজ ৮০ms পরে (staggered)
     setTimeout(showNext, 80);
   }
 
-  // ✅ প্রথম নিউজ সাথে সাথে
   showNext();
 }
 
@@ -1135,7 +1226,6 @@ if ('serviceWorker' in navigator) {
         const parsed = new URL(url);
         const id = parsed.searchParams.get('id') || parsed.pathname.split('/').pop();
         if (id) {
-          // ✅ Share link-এর মতো — শুধু লিস্টে উপরে দেখাবে
           showSharedNewsFirst(id);
         }
       } catch (e) {
@@ -1144,6 +1234,70 @@ if ('serviceWorker' in navigator) {
     }
   });
 }
+
+/* ===== NOTIFICATION PROMPT SYSTEM ===== */
+const NOTIFICATION_PROMPT_DELAY = 10000;              // ১০ সেকেন্ড
+const NOTIFICATION_LATER_DELAY = 10 * 60 * 60 * 1000; // ১০ ঘণ্টা
+const NOTIFICATION_LATER_KEY = 'notifPromptLaterAt';
+
+async function shouldShowNotificationPrompt() {
+  // Notification API support check
+  if (!('Notification' in window) || !('PushManager' in window)) return false;
+
+  // Already granted or denied
+  if (Notification.permission === 'granted') return false;
+  if (Notification.permission === 'denied') return false;
+
+  // User clicked "Later" recently
+  const laterAt = parseInt(localStorage.getItem(NOTIFICATION_LATER_KEY) || '0', 10);
+  if (laterAt && (Date.now() - laterAt) < NOTIFICATION_LATER_DELAY) return false;
+
+  // Already subscribed
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) return false;
+  } catch (_) {}
+
+  return true;
+}
+
+function showNotificationPrompt() {
+  const modal = document.getElementById('notifPromptModal');
+  if (modal) modal.classList.add('active');
+}
+
+function hideNotificationPrompt() {
+  const modal = document.getElementById('notifPromptModal');
+  if (modal) modal.classList.remove('active');
+}
+
+async function handleNotificationPromptEnable() {
+  hideNotificationPrompt();
+  // Call existing toggleNotification
+  if (typeof toggleNotification === 'function') {
+    await toggleNotification();
+  }
+}
+
+function handleNotificationPromptLater() {
+  localStorage.setItem(NOTIFICATION_LATER_KEY, String(Date.now()));
+  hideNotificationPrompt();
+}
+
+// Schedule the prompt when page loads
+window.addEventListener('load', () => {
+  setTimeout(async () => {
+    try {
+      const eligible = await shouldShowNotificationPrompt();
+      if (eligible) {
+        showNotificationPrompt();
+      }
+    } catch (err) {
+      console.warn('Notification prompt check failed:', err);
+    }
+  }, NOTIFICATION_PROMPT_DELAY);
+});
 
 // ===== INIT =====
 (async function initApp() {

@@ -1,6 +1,6 @@
 /*
- * IndexNow — Bing, Yandex, Seznam, Naver
- * Google does NOT support IndexNow (use Search Console + sitemap for Google)
+ * IndexNow — Bing, Yandex, Naver, Seznam
+ * Google also accepts IndexNow via api.indexnow.org
  */
 
 const INDEXNOW_ENDPOINTS = [
@@ -21,12 +21,7 @@ export async function submitToIndexNow(env, urls, host = "ajkernews.in") {
   if (!list.length) return { submitted: 0, total: 0 };
 
   const keyLocation = `https://${host}/${env.INDEXNOW_KEY}.txt`;
-  const payload = {
-    host,
-    key: env.INDEXNOW_KEY,
-    keyLocation,
-    urlList: list
-  };
+  const payload = { host, key: env.INDEXNOW_KEY, keyLocation, urlList: list };
 
   const results = await Promise.allSettled(
     INDEXNOW_ENDPOINTS.map(endpoint =>
@@ -41,9 +36,6 @@ export async function submitToIndexNow(env, urls, host = "ajkernews.in") {
   let success = 0;
   for (const r of results) {
     if (r.status === "fulfilled" && r.value.ok) success++;
-    else if (r.status === "rejected") {
-      console.warn("[INDEXNOW] endpoint error:", r.reason?.message);
-    }
   }
 
   console.log(`[INDEXNOW] ${success}/${INDEXNOW_ENDPOINTS.length} endpoints accepted ${list.length} URLs`);

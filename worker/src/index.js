@@ -1,8 +1,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v14 — 4-Cron + Dynamic Sitemaps + Parallel Fetch
- * Free Tier Safe + Fast Indexing + AdSense Ready
+ * FINAL v15 — 4-Cron + Fast Index + Cache + Clean URLs
  * =========================================================
  */
 
@@ -14,6 +13,8 @@ import { processSelectedNews } from "./gemini.js";
 import { runGNewsBatch } from "./news-fetcher.js";
 import { selectBestCandidates, publishSelectedNews } from "./news-selector.js";
 import { enforceNewsLimit } from "./cleanup.js";
+import { fastIndexNews } from "./fast-index.js";
+import { cacheNewsApi, purgeNewsApiCache, purgeArticleCache } from "./cache.js";
 
 const MAX_NEWS = 1000;
 const API_PAGE_SIZE = 10;
@@ -45,7 +46,7 @@ function toTransliterated(text) {
   return result.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 }
 
-const BOT_REGEX = /googlebot|bingbot|yandex|baiduspider|twitterbot|facebookexternalhit|whatsapp|slurp|duckduckbot|applebot|petalbot|semrushbot|ahrefsbot|lighthouse|chrome-lighthouse/i;
+const BOT_REGEX = /googlebot|google-inspectiontool|apis-google|mediapartners-google|adsbot-google|bingbot|msnbot|yandex|baiduspider|duckduckbot|applebot|slurp|twitterbot|facebookexternalhit|facebookcatalog|whatsapp|telegrambot|linkedinbot|pinterest|slackbot|discordbot|petalbot|semrushbot|ahrefsbot|lighthouse|chrome-lighthouse/i;
 
 export default {
   async fetch(request, env, ctx) {
@@ -60,6 +61,31 @@ export default {
       const userAgent = request.headers.get("User-Agent") || "";
       const isBot = BOT_REGEX.test(userAgent);
 
+      /* ===== Clean article URL — /news/{id} ===== */
+      if (url.pathname.startsWith("/news/") && request.method === "GET") {
+        const articleId = decodeURIComponent(url.pathname.slice(6).split("/")[0] || "").trim();
+        if (!articleId) return Response.redirect("https://ajkernews.in/", 302);
+
+        if (isBot) {
+          return await serveBotArticlePage(articleId, env);
+        }
+
+        const spaRequest = new Request("https://ajkernews.in/", {
+          method: "GET",
+          headers: request.headers
+        });
+        return env.ASSETS.fetch(spaRequest);
+      }
+
+      /* IndexNow key file */
+      if (env.INDEXNOW_KEY && url.pathname === `/${env.INDEXNOW_KEY}.txt`) {
+        return new Response(env.INDEXNOW_KEY, {
+          status: 200,
+          headers: { "content-type": "text/plain; charset=UTF-8", "Cache-Control": "public, max-age=86400" }
+        });
+      }
+
+      /* Bot homepage */
       if (url.pathname === "/" && request.method === "GET" && isBot) {
         const articleId = url.searchParams.get("id");
         if (articleId) {
@@ -68,6 +94,7 @@ export default {
         return await serveBotHomepage(env);
       }
 
+      /* Search Console verification */
       if (ANALYTICS_CONFIG.searchConsole && url.pathname === ANALYTICS_CONFIG.searchConsole.filePath) {
         return new Response(ANALYTICS_CONFIG.searchConsole.content, {
           status: 200,
@@ -75,6 +102,7 @@ export default {
         });
       }
 
+      /* ads.txt */
       if (url.pathname === "/ads.txt") {
         return new Response(ADS_CONFIG.adsTxtContent, {
           status: 200,
@@ -82,24 +110,10 @@ export default {
         });
       }
 
-      // ✅ Robots.txt (Dynamic)
-      if (url.pathname === "/robots.txt") {
-        return generateRobotsTxt();
-      }
-
-      // ✅ Sitemap (Dynamic — সব Published খবর)
-      if (url.pathname === "/sitemap.xml") {
-        return await generateSitemap(env);
-      }
-
-      // ✅ News Sitemap (Dynamic — শেষ ৪৮ ঘণ্টার খবর)
-      if (url.pathname === "/news-sitemap.xml") {
-        return await generateNewsSitemap(env);
-      }
-
-      if (url.pathname === "/rss.xml") {
-        return await generateRSS(env);
-      }
+      if (url.pathname === "/robots.txt") return generateRobotsTxt();
+      if (url.pathname === "/sitemap.xml") return await generateSitemap(env);
+      if (url.pathname === "/news-sitemap.xml") return await generateNewsSitemap(env);
+      if (url.pathname === "/rss.xml") return await generateRSS(env);
 
       if (url.pathname.startsWith("/go/")) {
         const id = url.pathname.split("/")[2];
@@ -116,7 +130,7 @@ export default {
       }
 
       if (url.pathname === "/api/news") {
-        return await handleGetNews(url, env);
+        return await handleGetNews(url, env, request);
       }
 
       if (url.pathname === "/api/update") {
@@ -167,21 +181,11 @@ export default {
         return await handlePushSync(request, env);
       }
 
-      // ✅ Debug endpoint
       if (url.pathname === "/api/debug" && request.method === "GET") {
         try {
-          const stats = await env.DB.prepare(`
-            SELECT status, COUNT(*) AS count FROM news GROUP BY status
-          `).all();
-          const recent = await env.DB.prepare(`
-            SELECT id, headline, status, created_at, published_at, indexed_at
-            FROM news ORDER BY created_at DESC LIMIT 10
-          `).all();
-          const indexing = await env.DB.prepare(`
-            SELECT COUNT(*) AS total, 
-                   SUM(CASE WHEN indexed_at IS NOT NULL THEN 1 ELSE 0 END) AS indexed
-            FROM news WHERE status = 'published'
-          `).first();
+          const stats = await env.DB.prepare(`SELECT status, COUNT(*) AS count FROM news GROUP BY status`).all();
+          const recent = await env.DB.prepare(`SELECT id, headline, status, created_at, published_at, indexed_at FROM news ORDER BY created_at DESC LIMIT 10`).all();
+          const indexing = await env.DB.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN indexed_at IS NOT NULL THEN 1 ELSE 0 END) AS indexed FROM news WHERE status = 'published'`).first();
           return json({
             success: true,
             stats: stats.results || [],
@@ -193,7 +197,18 @@ export default {
         }
       }
 
-      // ✅ Manual Indexing Test
+      if (url.pathname === "/api/fast-index-test" && request.method === "POST") {
+        try {
+          const body = await request.json();
+          const ids = Array.isArray(body.ids) ? body.ids : [];
+          if (!ids.length) return json({ success: false, error: "ids array required" }, 400, 0);
+          const result = await fastIndexNews(env, ids);
+          return json({ success: true, result }, 200, 0);
+        } catch (error) {
+          return json({ success: false, error: error.message }, 500, 0);
+        }
+      }
+
       if (url.pathname === "/api/index-test" && request.method === "POST") {
         try {
           const body = await request.json();
@@ -226,7 +241,7 @@ export default {
   },
 
   /* =========================================================
-   * ✅ 4-CRON ARCHITECTURE
+   * 4-CRON ARCHITECTURE
    * ========================================================= */
   async scheduled(event, env, ctx) {
     const cron = event.cron;
@@ -235,7 +250,7 @@ export default {
 
     try {
       /* =========================================================
-       * ✅ Cron 1: 0 * * * * — News Pipeline
+       * Cron 1: 0 * * * * — News Pipeline
        * ========================================================= */
       if (cron === "0 * * * *") {
         let result;
@@ -266,53 +281,37 @@ export default {
       }
 
       /* =========================================================
-       * ✅ Cron 2: 15 * * * * — Google Indexing (Fast)
+       * Cron 2: 15 * * * * — Fast Index (IndexNow + WebSub + Bing)
        * ========================================================= */
       if (cron === "15 * * * *") {
-        if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) {
-          console.warn("[CRON-INDEX] Skipped — no credentials");
-          return;
-        }
-
         try {
           const recent = await env.DB.prepare(
             `SELECT id FROM news 
              WHERE status = 'published'
-               AND created_at >= datetime('now', '-2 hours')
-               AND (indexed_at IS NULL OR indexed_at = '')
+               AND created_at >= datetime('now', '-3 hours')
              ORDER BY created_at DESC
-             LIMIT 10`
+             LIMIT 20`
           ).all();
-
           const ids = (recent.results || []).map(r => r.id);
 
-          if (!ids.length) {
-            console.log("[CRON-INDEX] No unindexed URLs");
-            return;
-          }
-
-          const indexResult = await submitToGoogleIndexing(env, ids);
-          console.log(`[CRON-INDEX] ${indexResult.submitted}/${indexResult.total} submitted`);
-
           if (ids.length) {
-            const updates = ids.map(id =>
-              env.DB.prepare(`UPDATE news SET indexed_at = ? WHERE id = ?`)
-                .bind(new Date().toISOString(), id)
-            );
-            await env.DB.batch(updates);
+            await fastIndexNews(env, ids);
+            console.log(`[CRON-FAST-INDEX] ${ids.length} URLs submitted`);
+          } else {
+            console.log("[CRON-FAST-INDEX] No recent URLs");
           }
         } catch (error) {
-          console.error("[CRON-INDEX] Failed:", error?.message || String(error));
+          console.error("[CRON-FAST-INDEX] Failed:", error?.message || String(error));
         }
-
-        console.log(`[CRON-INDEX] Completed in ${Date.now() - startTime}ms`);
+        console.log(`[CRON-FAST-INDEX] Completed in ${Date.now() - startTime}ms`);
         return;
       }
 
       /* =========================================================
-       * ✅ Cron 3: 35 * * * * — Retry Indexing + Push Retry
+       * Cron 3: 35 * * * * — Google Indexing API + Push Retry
        * ========================================================= */
       if (cron === "35 * * * *") {
+        // Google Indexing API — kept alive for future use
         if (env.GOOGLE_SERVICE_ACCOUNT_JSON) {
           try {
             const failed = await env.DB.prepare(
@@ -328,7 +327,7 @@ export default {
 
             if (ids.length) {
               const retryResult = await submitToGoogleIndexing(env, ids);
-              console.log(`[CRON-RETRY] Indexing: ${retryResult.submitted}/${retryResult.total}`);
+              console.log(`[CRON-GOOGLE] Indexing: ${retryResult.submitted}/${retryResult.total}`);
 
               const updates = ids.map(id =>
                 env.DB.prepare(`UPDATE news SET indexed_at = ? WHERE id = ?`)
@@ -337,10 +336,11 @@ export default {
               await env.DB.batch(updates);
             }
           } catch (error) {
-            console.error("[CRON-RETRY] Indexing error:", error?.message || String(error));
+            console.error("[CRON-GOOGLE] Failed:", error?.message || String(error));
           }
         }
 
+        // Push retry
         try {
           await sendPendingPushNotifications(env);
           console.log("[CRON-RETRY] Push retry done");
@@ -348,12 +348,30 @@ export default {
           console.error("[CRON-RETRY] Push retry failed:", error?.message || String(error));
         }
 
+        // Additional fast-index for backlog
+        try {
+          const backlog = await env.DB.prepare(
+            `SELECT id FROM news 
+             WHERE status = 'published'
+               AND created_at >= datetime('now', '-6 hours')
+             ORDER BY created_at DESC
+             LIMIT 10`
+          ).all();
+          const ids = (backlog.results || []).map(r => r.id);
+          if (ids.length) {
+            await fastIndexNews(env, ids);
+            console.log(`[CRON-RETRY] Backlog fast-index: ${ids.length}`);
+          }
+        } catch (error) {
+          console.error("[CRON-RETRY] Backlog failed:", error?.message || String(error));
+        }
+
         console.log(`[CRON-RETRY] Completed in ${Date.now() - startTime}ms`);
         return;
       }
 
       /* =========================================================
-       * ✅ Cron 4: 50 * * * * — Cleanup + Sitemap Ping
+       * Cron 4: 50 * * * * — Cleanup + Sitemap Ping
        * ========================================================= */
       if (cron === "50 * * * *") {
         try {
@@ -368,6 +386,16 @@ export default {
           try {
             const cleanupResult = await enforceNewsLimit(env.DB);
             console.log(`[CRON-CLEAN] News: ${cleanupResult.deleted} deleted, ${cleanupResult.total} total`);
+
+            // Purge cache for deleted IDs
+            if (cleanupResult.deleted > 0) {
+              try {
+                await purgeNewsApiCache("https://ajkernews.in");
+                for (const id of cleanupResult.deletedIds || []) {
+                  await purgeArticleCache("https://ajkernews.in", id);
+                }
+              } catch (e) { /* ignore */ }
+            }
           } catch (error) {
             console.error("[CRON-CLEAN] News cleanup failed:", error?.message || String(error));
           }
@@ -548,6 +576,32 @@ async function updateNews(env) {
     } catch (e) { /* ignore */ }
   }
 
+  /* Cache purge */
+  if (publishResult.published > 0 || cleanupResult.deleted > 0) {
+    try {
+      await purgeNewsApiCache("https://ajkernews.in");
+      for (const id of publishedIds) {
+        await purgeArticleCache("https://ajkernews.in", id);
+      }
+      for (const id of cleanupResult.deletedIds || []) {
+        await purgeArticleCache("https://ajkernews.in", id);
+      }
+      console.log(`[CACHE] Purged API + ${publishedIds.length} articles`);
+    } catch (error) {
+      console.warn("[CACHE] Purge failed:", error?.message || String(error));
+    }
+  }
+
+  /* Fast Index — instant submit to all channels */
+  if (publishedIds.length) {
+    try {
+      await fastIndexNews(env, publishedIds);
+      console.log(`[FAST-INDEX] Published ${publishedIds.length} URLs to all channels`);
+    } catch (error) {
+      console.warn("[FAST-INDEX] Instant failed:", error?.message || String(error));
+    }
+  }
+
   return {
     success: true,
     fetched: batchResult.totalReceived,
@@ -564,31 +618,23 @@ async function updateNews(env) {
 }
 
 /* =========================================================
- * SITEMAP PING — Fast Discovery
+ * SITEMAP PING
  * ========================================================= */
 async function pingSitemaps(env) {
   const sitemapUrl = "https://ajkernews.in/sitemap.xml";
   const newsSitemapUrl = "https://ajkernews.in/news-sitemap.xml";
 
   const pings = [
-    fetch(`https://www.google.com/ping?sitemap=${encodeURIComponent(sitemapUrl)}`, {
-      method: "GET"
-    }).catch(e => console.warn("Google sitemap ping:", e.message)),
-
-    fetch(`https://www.google.com/ping?sitemap=${encodeURIComponent(newsSitemapUrl)}`, {
-      method: "GET"
-    }).catch(e => console.warn("Google news sitemap ping:", e.message)),
-
-    fetch(`https://www.bing.com/ping?sitemap=${encodeURIComponent(sitemapUrl)}`, {
-      method: "GET"
-    }).catch(e => console.warn("Bing sitemap ping:", e.message))
+    fetch(`https://www.google.com/ping?sitemap=${encodeURIComponent(sitemapUrl)}`).catch(e => console.warn("Google ping:", e.message)),
+    fetch(`https://www.google.com/ping?sitemap=${encodeURIComponent(newsSitemapUrl)}`).catch(e => console.warn("Google news ping:", e.message)),
+    fetch(`https://www.bing.com/ping?sitemap=${encodeURIComponent(sitemapUrl)}`).catch(e => console.warn("Bing ping:", e.message))
   ];
 
   await Promise.allSettled(pings);
 }
 
 /* =========================================================
- * GOOGLE INDEXING — Parallel
+ * GOOGLE INDEXING — Kept for future use
  * ========================================================= */
 async function submitToGoogleIndexing(env, newsIds) {
   if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) {
@@ -603,7 +649,7 @@ async function submitToGoogleIndexing(env, newsIds) {
 
   const results = await Promise.allSettled(
     ids.map(async (id) => {
-      const newsUrl = `https://ajkernews.in/?id=${encodeURIComponent(id)}`;
+      const newsUrl = `https://ajkernews.in/news/${encodeURIComponent(id)}`;
       try {
         const success = await requestGoogleIndexing(newsUrl, env);
         return { id, success };
@@ -654,7 +700,7 @@ async function serveBotHomepage(env) {
 
     let newsHtml = "";
     for (const item of news) {
-      const link = `https://ajkernews.in/?id=${encodeURIComponent(item.id)}`;
+      const link = `https://ajkernews.in/news/${encodeURIComponent(item.id)}`;
       const image = item.image_url || "https://ajkernews.in/logo.png";
       const publishedDate = item.published_at
         ? new Date(item.published_at).toISOString()
@@ -734,16 +780,6 @@ async function serveBotHomepage(env) {
   }
 }
 </script>
-<script type="application/ld+json">
-{
-  "@context":"https://schema.org",
-  "@type":"CollectionPage",
-  "name":"আজকের নিউজ",
-  "url":"https://ajkernews.in/",
-  "isPartOf":{"@type":"WebSite","url":"https://ajkernews.in/"},
-  "inLanguage":"bn-IN"
-}
-</script>
 </head>
 <body style="max-width:820px;margin:0 auto;padding:20px;font-family:Inter,-apple-system,sans-serif;color:#111;">
 <header>
@@ -801,28 +837,37 @@ async function serveBotArticlePage(id, env) {
   const fullSummary = cleanText(result.summary || result.main_topic || "");
   const image = result.image_url || "https://ajkernews.in/logo.png";
   const publishedAt = result.published_at || new Date().toISOString();
-  const canonical = `https://ajkernews.in/?id=${encodeURIComponent(safeId)}`;
+  const canonical = `https://ajkernews.in/news/${encodeURIComponent(safeId)}`;
 
   const newsArticleLd = JSON.stringify({
     "@context": "https://schema.org",
     "@type": "NewsArticle",
     "mainEntityOfPage": { "@type": "WebPage", "@id": canonical },
-    "headline": title,
+    "headline": title.slice(0, 110),
     "description": description,
-    "image": [image],
+    "image": [image, "https://ajkernews.in/logo.png"],
     "datePublished": publishedAt,
     "dateModified": publishedAt,
     "author": {
       "@type": "Organization",
-      "name": result.source_name || "Ajker News"
+      "name": result.source_name || "Ajker News",
+      "url": "https://ajkernews.in/"
     },
     "publisher": {
-      "@type": "Organization",
+      "@type": "NewsMediaOrganization",
       "name": "Ajker News",
-      "logo": { "@type": "ImageObject", "url": "https://ajkernews.in/logo.png" }
+      "url": "https://ajkernews.in/",
+      "logo": {
+        "@type": "ImageObject",
+        "url": "https://ajkernews.in/logo.png",
+        "width": 512,
+        "height": 512
+      }
     },
+    "articleSection": result.category || "News",
     "inLanguage": "bn-IN",
-    "isAccessibleForFree": true
+    "isAccessibleForFree": true,
+    "url": canonical
   });
 
   const breadcrumbLd = JSON.stringify({
@@ -969,7 +1014,7 @@ async function ensureTablesOnce(env) {
 }
 
 /* =========================================================
- * SHARE PAGE / NEWS PAGE
+ * SHARE / NEWS PAGE
  * ========================================================= */
 async function serveSharePage(id, env, requestUserAgentFromContext = "", requestUrl = null) {
   const safeId = String(id || "").trim();
@@ -992,7 +1037,7 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
   if (!result) return Response.redirect("https://ajkernews.in/", 302);
 
   const openModalParam = (requestUrl && requestUrl.searchParams.get("openModal") === "true") ? "&openModal=true" : "";
-  const homeUrl = `https://ajkernews.in/?id=${encodeURIComponent(safeId)}${openModalParam}`;
+  const homeUrl = `https://ajkernews.in/news/${encodeURIComponent(safeId)}${openModalParam ? "?" + openModalParam.slice(1) : ""}`;
 
   const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><script>window.location.replace(${JSON.stringify(homeUrl)});</script></head><body><noscript><a href="${escapeHtml(homeUrl)}">পূর্ণ খবর দেখতে এই লিঙ্কে ক্লিক করুন</a></noscript></body></html>`;
 
@@ -1013,13 +1058,11 @@ async function serveNewsPage(url, env, request) {
   if (!id) return Response.redirect("https://ajkernews.in/", 302);
 
   const ua = (request?.headers?.get("User-Agent") || "");
-  const isBot = BOT_REGEX.test(ua);
-
-  if (isBot) {
+  if (BOT_REGEX.test(ua)) {
     return await serveBotArticlePage(id, env);
   }
 
-  return Response.redirect(`https://ajkernews.in/?id=${encodeURIComponent(id)}`, 301);
+  return Response.redirect(`https://ajkernews.in/news/${encodeURIComponent(id)}`, 301);
 }
 
 async function handleAffiliate(url, env) {
@@ -1043,9 +1086,15 @@ async function handleAffiliate(url, env) {
 }
 
 /* =========================================================
- * API: GET NEWS
+ * API: GET NEWS (with cache)
  * ========================================================= */
-async function handleGetNews(url, env) {
+async function handleGetNews(url, env, request) {
+  return cacheNewsApi(request, async () => {
+    return await handleGetNewsInternal(url, env);
+  });
+}
+
+async function handleGetNewsInternal(url, env) {
   const category = url.searchParams.get("category") || "top";
   const query = (url.searchParams.get("q") || "").trim();
   const specificId = url.searchParams.get("id");
@@ -1208,7 +1257,7 @@ async function queueAndSendPushNotifications(env, newsIds) {
     const notificationId = `news:${news.id}`;
     const title = "নতুন খবর!";
     const body = cleanText(news.headline || news.summary || "আজকের নতুন খবর দেখুন।").slice(0, 180);
-    const targetUrl = `https://ajkernews.in/?id=${encodeURIComponent(news.id)}`;
+    const targetUrl = `https://ajkernews.in/news/${encodeURIComponent(news.id)}`;
 
     await env.DB.prepare(`INSERT OR IGNORE INTO push_notifications (id, news_id, title, body, url, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .bind(notificationId, news.id, title, body, targetUrl, now.toISOString(), expires).run();
@@ -1358,7 +1407,7 @@ async function addComment(request, env) {
 }
 
 /* =========================================================
- * GOOGLE INDEXING API
+ * GOOGLE INDEXING API — kept for future use
  * ========================================================= */
 async function requestGoogleIndexing(url, env) {
   try {
@@ -1395,7 +1444,10 @@ async function requestGoogleIndexing(url, env) {
 
 function getIdFromNewsUrl(url) {
   try {
-    return new URL(url).searchParams.get("id") || "unknown";
+    const u = new URL(url);
+    const pathMatch = u.pathname.match(/^\/news\/(.+)$/);
+    if (pathMatch) return decodeURIComponent(pathMatch[1]);
+    return u.searchParams.get("id") || "unknown";
   } catch {
     return "unknown";
   }
@@ -1452,14 +1504,14 @@ async function getGoogleAccessToken(env) {
 }
 
 /* =========================================================
- * ✅ DYNAMIC SITEMAP — All Published News
+ * SITEMAP
  * ========================================================= */
 async function generateSitemap(env) {
   try {
     const result = await env.DB.prepare(
-      `SELECT id, created_at FROM news 
+      `SELECT id, published_at FROM news 
        WHERE status = 'published' 
-       ORDER BY created_at DESC 
+       ORDER BY published_at DESC 
        LIMIT ?`
     ).bind(MAX_NEWS).all();
 
@@ -1475,13 +1527,13 @@ async function generateSitemap(env) {
   </url>`;
 
     for (const item of news) {
-      const lastmod = item.created_at 
-        ? item.created_at.split("T")[0] 
+      const lastmod = item.published_at
+        ? new Date(item.published_at).toISOString().split("T")[0]
         : new Date().toISOString().split("T")[0];
 
       xml += `
   <url>
-    <loc>${baseUrl}/?id=${encodeURIComponent(item.id)}</loc>
+    <loc>${baseUrl}/news/${encodeURIComponent(item.id)}</loc>
     <lastmod>${lastmod}</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>
@@ -1489,8 +1541,6 @@ async function generateSitemap(env) {
     }
 
     xml += `\n</urlset>`;
-
-    console.log(`[SITEMAP] Generated with ${news.length} URLs`);
 
     return new Response(xml, {
       status: 200,
@@ -1512,9 +1562,6 @@ async function generateSitemap(env) {
   }
 }
 
-/* =========================================================
- * ✅ GOOGLE NEWS SITEMAP — শেষ ৪৮ ঘণ্টার খবর
- * ========================================================= */
 async function generateNewsSitemap(env) {
   try {
     const result = await env.DB.prepare(
@@ -1536,24 +1583,23 @@ async function generateNewsSitemap(env) {
       const publishedAt = n.published_at 
         ? new Date(n.published_at).toISOString() 
         : new Date().toISOString();
+      const safeTitle = String(n.headline || "News").slice(0, 110);
 
       xml += `
   <url>
-    <loc>${base}/?id=${encodeURIComponent(n.id)}</loc>
+    <loc>${base}/news/${encodeURIComponent(n.id)}</loc>
     <news:news>
       <news:publication>
         <news:name>Ajker News</news:name>
         <news:language>bn</news:language>
       </news:publication>
       <news:publication_date>${publishedAt}</news:publication_date>
-      <news:title>${escapeHtml(n.headline || "News")}</news:title>
+      <news:title>${escapeHtml(safeTitle)}</news:title>
     </news:news>
   </url>`;
     }
 
     xml += `\n</urlset>`;
-
-    console.log(`[NEWS-SITEMAP] Generated with ${news.length} URLs`);
 
     return new Response(xml, {
       status: 200,
@@ -1576,11 +1622,24 @@ async function generateNewsSitemap(env) {
 }
 
 /* =========================================================
- * ✅ ROBOTS.TXT — Dynamic
+ * ROBOTS.TXT
  * ========================================================= */
 function generateRobotsTxt() {
   const text = `User-agent: *
 Allow: /
+Disallow: /api/
+Disallow: /go/
+
+User-agent: Googlebot-News
+Allow: /
+
+User-agent: Googlebot
+Allow: /
+Crawl-delay: 1
+
+User-agent: Bingbot
+Allow: /
+Crawl-delay: 1
 
 Sitemap: https://ajkernews.in/sitemap.xml
 Sitemap: https://ajkernews.in/news-sitemap.xml
@@ -1608,14 +1667,15 @@ async function generateRSS(env) {
   const base = "https://ajkernews.in";
 
   const items = news.map(n => {
-    const link = `${base}/?id=${encodeURIComponent(n.id)}`;
+    const link = `${base}/news/${encodeURIComponent(n.id)}`;
     const pubDate = n.published_at ? new Date(n.published_at).toUTCString() : new Date().toUTCString();
+    const safeDesc = String(n.summary || "").replace(/]]>/g, "]]]]><![CDATA[>");
     return `<item>
   <title>${escapeHtml(n.headline)}</title>
   <link>${link}</link>
   <guid isPermaLink="true">${link}</guid>
   <pubDate>${pubDate}</pubDate>
-  <description><![CDATA[${n.summary || ""}]]></description>
+  <description><![CDATA[${safeDesc}]]></description>
   ${n.image_url ? `<enclosure url="${escapeHtml(n.image_url)}" type="image/jpeg"/>` : ""}
 </item>`;
   }).join("\n");

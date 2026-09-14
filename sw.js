@@ -1,9 +1,9 @@
 /**
  * Ajker News Service Worker
- * v2026-09-13-2 — Smart notification click + tray clear
+ * v2026-09-14 — Latest single notification + image support
  */
 
-const CACHE_VERSION = "ajker-news-v2026-09-13-2";
+const CACHE_VERSION = "ajker-news-v2026-09-14";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const LOGO_URL = "/logo.png";
 
@@ -70,6 +70,9 @@ self.addEventListener("fetch", event => {
   event.respondWith(fetch(request).catch(() => caches.match(request)));
 });
 
+/* =========================================================
+ * ✅ Push Notification — Latest single + Image
+ * ========================================================= */
 self.addEventListener("push", event => {
   let data = {
     title: "আজকের নিউজ",
@@ -77,6 +80,7 @@ self.addEventListener("push", event => {
     url: "/",
     icon: LOGO_URL,
     badge: LOGO_URL,
+    image: null,
     notificationId: Date.now().toString()
   };
 
@@ -96,11 +100,12 @@ self.addEventListener("push", event => {
     body: data.body,
     icon: data.icon || LOGO_URL,
     badge: data.badge || LOGO_URL,
+    image: data.image || undefined,  // ✅ বড় ছবি (BigPicture)
     vibrate: [200, 100, 200],
-    tag: data.notificationId || data.url || "ajker-news",
+    tag: "ajker-news-latest",        // ✅ একই tag — পুরোনোটি রিপ্লেস হবে
     renotify: true,
     silent: false,
-    requireInteraction: false,  // ✅ changed to false for better delivery
+    requireInteraction: false,
     priority: 2,
     timestamp: Date.now(),
     data: {
@@ -113,6 +118,9 @@ self.addEventListener("push", event => {
   event.waitUntil(self.registration.showNotification(data.title, options));
 });
 
+/* =========================================================
+ * Notification Click
+ * ========================================================= */
 self.addEventListener("notificationclick", event => {
   event.notification.close();
 

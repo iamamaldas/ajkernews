@@ -1,7 +1,8 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v10 — Assets + Bot SSR + Google Indexing API
+ * FINAL v11 — Assets + Bot SSR + Google Indexing API
+ * Free Tier Safe — Cron 1 hour, Parallel Indexing, Batch D1
  * =========================================================
  */
 
@@ -129,6 +130,13 @@ export default {
             )
           );
         }
+        if (result.newNewsIds && result.newNewsIds.length) {
+          ctx.waitUntil(
+            submitToGoogleIndexing(env, result.newNewsIds).catch(error =>
+              console.error("Indexing error:", error?.message || String(error))
+            )
+          );
+        }
         return json(result, 200, 0);
       }
 
@@ -159,6 +167,26 @@ export default {
         return await handlePushSync(request, env);
       }
 
+      // ✅ NEW: Debug endpoint
+      if (url.pathname === "/api/debug" && request.method === "GET") {
+        try {
+          const stats = await env.DB.prepare(`
+            SELECT status, COUNT(*) AS count FROM news GROUP BY status
+          `).all();
+          const recent = await env.DB.prepare(`
+            SELECT id, headline, status, created_at, published_at
+            FROM news ORDER BY created_at DESC LIMIT 10
+          `).all();
+          return json({
+            success: true,
+            stats: stats.results || [],
+            recent: recent.results || []
+          }, 200, 0);
+        } catch (error) {
+          return json({ success: false, error: error.message }, 500, 0);
+        }
+      }
+
       if (env.ASSETS) {
         return env.ASSETS.fetch(request);
       }
@@ -176,32 +204,45 @@ export default {
   async scheduled(event, env, ctx) {
     console.log("Scheduled task started:", new Date(event.scheduledTime).toISOString());
 
+    let result;
     try {
-      const result = await updateNews(env);
+      result = await updateNews(env);
       console.log("Scheduled task completed:", JSON.stringify(result));
-
-      if (result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
-        ctx.waitUntil(
-          queueAndSendPushNotifications(env, result.newNewsIds).catch(error => {
-            console.error("Push queue error:", error?.message || String(error));
-          })
-        );
-      }
-
-      // ✅ সবসময় pending পুশ পাঠান (নতুন খবর না থাকলেও)
-      ctx.waitUntil(
-        sendPendingPushNotifications(env).catch(error => {
-          console.error("Pending push send error:", error?.message || String(error));
-        })
-      );
-
-      ctx.waitUntil(
-        cleanExpiredPushNotifications(env).catch(error => {
-          console.error("Push cleanup error:", error?.message || String(error));
-        })
-      );
     } catch (error) {
-      console.error("Scheduled task failed:", error?.message || error?.stack || String(error));
+      console.error("updateNews failed:", error?.message || error?.stack || String(error));
+      return;
+    }
+
+    // Push notification queue — background
+    if (result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
+      ctx.waitUntil(
+        queueAndSendPushNotifications(env, result.newNewsIds).catch(error => {
+          console.error("Push queue error:", error?.message || String(error));
+        })
+      );
+    }
+
+    // Pending pushes — always run
+    ctx.waitUntil(
+      sendPendingPushNotifications(env).catch(error => {
+        console.error("Pending push send error:", error?.message || String(error));
+      })
+    );
+
+    // Push cleanup — background
+    ctx.waitUntil(
+      cleanExpiredPushNotifications(env).catch(error => {
+        console.error("Push cleanup error:", error?.message || String(error));
+      })
+    );
+
+    // ✅ Google Indexing — separate background task
+    if (result.newNewsIds && result.newNewsIds.length) {
+      ctx.waitUntil(
+        submitToGoogleIndexing(env, result.newNewsIds).catch(error => {
+          console.error("Google Indexing error:", error?.message || String(error));
+        })
+      );
     }
   }
 };
@@ -277,20 +318,20 @@ async function updateNews(env) {
     }
   }
 
-  if (!geminiResults.length) {
-    return {
-      success: true, fetched: batchResult.totalReceived, inserted: batchResult.totalInserted,
-      candidates: candidates.length, selected: selected.length, published: 0,
-      deleted: 0, indexed: 0, gemini: false, newNewsIds: [],
-      message: "Gemini returned no valid results"
-    };
-  }
-
   const publishResult = await publishSelectedNews(env.DB, selected, geminiResults);
   console.log(`[NEWS] Published ${publishResult.published} news`);
 
-  const publishedIds = geminiResults.map(r => r.id).filter(Boolean);
+  // ✅ Published IDs — Fallback সহ
+  const publishedIds = [];
+  for (const article of selected) {
+    const row = await env.DB.prepare(
+      `SELECT id FROM news WHERE id = ? AND status = 'published'`
+    ).bind(article.id).first();
+    if (row?.id) publishedIds.push(row.id);
+  }
 
+  // ✅ Batch UPDATE search_text
+  const searchUpdates = [];
   for (const id of publishedIds) {
     const row = await env.DB.prepare(
       `SELECT headline, summary, main_topic, category FROM news WHERE id = ? AND status = 'published'`
@@ -302,31 +343,20 @@ async function updateNews(env) {
       [row.headline, row.summary, row.main_topic, row.category].filter(Boolean).join(" ")
     );
 
-    await env.DB.prepare(`UPDATE news SET search_text = ? WHERE id = ?`)
-      .bind(searchText, id).run();
+    searchUpdates.push(
+      env.DB.prepare(`UPDATE news SET search_text = ? WHERE id = ?`).bind(searchText, id)
+    );
+  }
+  if (searchUpdates.length) {
+    try {
+      await env.DB.batch(searchUpdates);
+    } catch (error) {
+      console.error("[SEARCH_TEXT] Batch update failed:", error?.message || String(error));
+    }
   }
 
-  let indexedCount = 0;
-  if (env.GOOGLE_SERVICE_ACCOUNT_JSON && publishedIds.length > 0) {
-    console.log(`[INDEXING] Submitting ${publishedIds.length} URLs to Google...`);
-    for (const id of publishedIds) {
-      const newsUrl = `https://ajkernews.in/?id=${encodeURIComponent(id)}`;
-      try {
-        const success = await requestGoogleIndexing(newsUrl, env);
-        if (success) {
-          indexedCount++;
-          console.log(`[INDEXING] ✅ ${newsUrl}`);
-        } else {
-          console.warn(`[INDEXING] ❌ ${newsUrl}`);
-        }
-      } catch (error) {
-        console.error(`[INDEXING] Error for ${newsUrl}:`, error?.message || String(error));
-      }
-    }
-    console.log(`[INDEXING] Completed: ${indexedCount}/${publishedIds.length} submitted`);
-  } else if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) {
-    console.warn("[INDEXING] GOOGLE_SERVICE_ACCOUNT_JSON not set — skipping Indexing API");
-  }
+  // ✅ Indexing এখন scheduled()-এ আলাদা background task-এ চলবে
+  const indexedCount = 0;
 
   const cleanupResult = await enforceNewsLimit(env.DB);
   console.log(`[NEWS] Cleanup: deleted ${cleanupResult.deleted}, total ${cleanupResult.total}`);
@@ -348,7 +378,44 @@ async function updateNews(env) {
 }
 
 /* =========================================================
- * BOT HOMEPAGE — rich schema + category nav
+ * GOOGLE INDEXING — Parallel
+ * ========================================================= */
+
+async function submitToGoogleIndexing(env, newsIds) {
+  if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+    console.warn("[INDEXING] GOOGLE_SERVICE_ACCOUNT_JSON not set — skipping");
+    return { submitted: 0, total: newsIds.length };
+  }
+
+  const ids = [...new Set((newsIds || []).filter(Boolean))];
+  if (!ids.length) return { submitted: 0, total: 0 };
+
+  console.log(`[INDEXING] Submitting ${ids.length} URLs to Google...`);
+
+  const results = await Promise.allSettled(
+    ids.map(async (id) => {
+      const newsUrl = `https://ajkernews.in/?id=${encodeURIComponent(id)}`;
+      try {
+        const success = await requestGoogleIndexing(newsUrl, env);
+        return { id, success };
+      } catch (error) {
+        console.error(`[INDEXING] Error for ${newsUrl}:`, error?.message || String(error));
+        return { id, success: false };
+      }
+    })
+  );
+
+  let submitted = 0;
+  for (const r of results) {
+    if (r.status === "fulfilled" && r.value.success) submitted++;
+  }
+
+  console.log(`[INDEXING] Completed: ${submitted}/${ids.length} submitted`);
+  return { submitted, total: ids.length };
+}
+
+/* =========================================================
+ * BOT HOMEPAGE
  * ========================================================= */
 async function serveBotHomepage(env) {
   try {

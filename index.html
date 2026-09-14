@@ -333,7 +333,8 @@ const PERSONAL_ADS = [
   { id: "ad1", title: "আপনার বিজ্ঞাপন দিন", description: "বাংলার সবচেয়ে বড় নিউজ প্ল্যাটফর্মে বিজ্ঞাপন দিন। লাখ লাখ দর্শকের কাছে পৌঁছান।", link: "https://your-ad-page.com/contact", image: "https://your-image-url.com/ad-banner.png", category: "sponsored" },
   { id: "ad2", title: "বিশেষ অফার", description: "আজই অর্ডার করুন এবং ৫০% ছাড় পান। সীমিত সময়ের অফার।", link: "https://your-offer-page.com", image: "https://your-image-url.com/offer.png", category: "sponsored" }
 ];
-const AD_INTERVAL = 2;
+// ✅ AD_INTERVAL = 4 (২ থেকে বাড়ানো)
+const AD_INTERVAL = 4;
 let adIndex = 0;
 
 // ===== UTILITY =====
@@ -678,7 +679,8 @@ function renderNews(newsList, hasMore = false) {
     index++;
     adCounter++;
 
-    if (adCounter === AD_INTERVAL && index < limitedNews.length) {
+    // ✅ প্রথম ৩টি খবরে ad দেখাবে না, index > 3 হলেই ad
+    if (adCounter === AD_INTERVAL && index > 3 && index < limitedNews.length) {
       const ad = getNextAd();
       if (ad) {
         const adWrapper = document.createElement('div');
@@ -996,7 +998,7 @@ async function syncMissedNotifications() {
 }
 window.addEventListener('online', () => { syncMissedNotifications(); });
 
-// ===== COMMENTS (FIXED: Instant UI update) =====
+// ===== COMMENTS (Instant UI) =====
 async function openCommentModal(id) {
   const modal = document.getElementById('modal');
   const body = document.getElementById('modal-body');
@@ -1077,7 +1079,6 @@ async function submitComment(newsId) {
     const tempEl = document.getElementById(tempId);
     if (tempEl) tempEl.remove();
     alert('মন্তব্য পাঠানো যায়নি। আবার চেষ্টা করুন।');
-    // Restore input
     textInput.value = text;
   }
 }
@@ -1214,7 +1215,7 @@ function closeModal() {
 }
 document.getElementById('currentYear').textContent = new Date().getFullYear();
 
-// ===== ✅ Smart notification click flow =====
+// ===== Smart notification click flow =====
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('message', async (event) => {
     const data = event.data || {};

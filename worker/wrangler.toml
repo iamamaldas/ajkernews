@@ -21,12 +21,14 @@ database_name = "ajkernews-db"
 database_id = "f10f96b7-8bed-4c7c-a580-483d2a77e5ae"
 
 # =========================================================
-# ✅ 4 CRONS — Free Tier Safe + Fast Indexing
-# ---------------------------------------------------------
-#  0 * * * *  → News Pipeline (Fetch + Gemini + Publish)
-# 15 * * * *  → Google Indexing (Fast, 15 min after publish)
-# 35 * * * *  → Retry Indexing + Push Retry
-# 50 * * * *  → Cleanup + Sitemap Ping
+# PUBLIC VARS (non-secret) — secrets are in Worker Secrets
+# =========================================================
+[vars]
+SITE_ORIGIN = "https://ajkernews.in"
+WORKER_ORIGIN = "https://ajkernews.ajkernews-1c0.workers.dev"
+
+# =========================================================
+# CRONS — Free Tier Safe
 # =========================================================
 [triggers]
 crons = [

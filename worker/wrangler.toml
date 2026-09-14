@@ -3,23 +3,42 @@ main = "src/index.js"
 compatibility_date = "2026-09-03"
 compatibility_flags = ["nodejs_compat"]
 
+# =========================================================
+# STATIC ASSETS
+# =========================================================
 [assets]
 directory = "../"
 binding = "ASSETS"
 run_worker_first = ["/*"]
 not_found_handling = "none"
 
+# =========================================================
+# D1 DATABASE
+# =========================================================
 [[d1_databases]]
 binding = "DB"
 database_name = "ajkernews-db"
 database_id = "f10f96b7-8bed-4c7c-a580-483d2a77e5ae"
 
 # =========================================================
-# ✅ CRON — প্রতি ঘণ্টায় (Free Tier Safe)
+# ✅ 4 CRONS — Free Tier Safe + Fast Indexing
+# ---------------------------------------------------------
+#  0 * * * *  → News Pipeline (Fetch + Gemini + Publish)
+# 15 * * * *  → Google Indexing (Fast, 15 min after publish)
+# 35 * * * *  → Retry Indexing + Push Retry
+# 50 * * * *  → Cleanup + Sitemap Ping
 # =========================================================
 [triggers]
-crons = ["0 * * * *"]
+crons = [
+  "0 * * * *",
+  "15 * * * *",
+  "35 * * * *",
+  "50 * * * *"
+]
 
+# =========================================================
+# OBSERVABILITY
+# =========================================================
 [observability]
 enabled = true
 

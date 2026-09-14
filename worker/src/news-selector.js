@@ -1,7 +1,7 @@
 /*
- * News selector — 3 bn + 3 en model
+ * News selector — 5 bn + 5 en model (Free Tier Safe)
  *
- * Selects the best 3 Bengali and 3 English candidates.
+ * Selects the best 5 Bengali and 5 English candidates.
  * English news will be translated to Bengali by Gemini later.
  */
 
@@ -9,7 +9,7 @@ import { publishNews } from "./database.js";
 import { normalizeText } from "./utils.js";
 
 const MAX_NEWS_PER_SLOT = 6;
-const MAX_PER_LANGUAGE = 3;
+const MAX_PER_LANGUAGE = 5;
 
 export function selectBestCandidates(candidates, existingPublished = []) {
   if (!Array.isArray(candidates)) return [];
@@ -122,7 +122,8 @@ function areSimilarStories(wordsA, wordsB) {
   const smaller = Math.min(setA.size, setB.size);
   if (!smaller) return false;
 
-  return (common / smaller) >= 0.65;
+  // ✅ 0.80 — কম খবর বাদ পড়বে
+  return (common / smaller) >= 0.80;
 }
 
 function calculateQualityScore(article) {
@@ -177,7 +178,8 @@ function selectWithCategoryBalance(articles, limit) {
     const category = article.category || "general";
     const count = categoryCount.get(category) || 0;
 
-    if (count >= 2) continue;
+    // ✅ 3 — একই category থেকে ৩টি পর্যন্ত
+    if (count >= 3) continue;
 
     selected.push(article);
     categoryCount.set(category, count + 1);
@@ -198,10 +200,9 @@ function selectWithCategoryBalance(articles, limit) {
 
 export async function publishSelectedNews(db, selectedArticles, geminiResults) {
   if (!Array.isArray(selectedArticles)) return { published: 0 };
-  if (!Array.isArray(geminiResults)) return { published: 0 };
 
   const geminiMap = new Map();
-  for (const result of geminiResults) {
+  for (const result of (geminiResults || [])) {
     if (!result?.id) continue;
     geminiMap.set(result.id, result);
   }
@@ -211,21 +212,49 @@ export async function publishSelectedNews(db, selectedArticles, geminiResults) {
   for (const article of selectedArticles) {
     const generated = geminiMap.get(article.id);
 
-    if (!generated || !generated.headline || !generated.summary) {
+    let headline, summary, mainTopic;
+
+    if (generated && generated.headline && generated.summary) {
+      // ✅ Gemini result আছে
+      headline = generated.headline;
+      summary = generated.summary;
+      mainTopic = generated.main_topic || article.main_topic || article.category || "general";
+    } else {
+      // ✅ Fallback: Gemini fail করলেও খবর publish হবে
+      console.warn(`[FALLBACK] No Gemini result for ${article.id}, using source data`);
+      headline = cleanText(article.source_title || article.headline || "সংবাদ");
+      summary = cleanText(article.source_description || article.summary || "");
+      mainTopic = article.category || "general";
+
+      if (summary.length < 100) {
+        summary = summary + `\n\nএই খবরটি ${article.source_name || 'সূত্র'} থেকে সংগ্রহ করা হয়েছে।`;
+      }
+    }
+
+    if (!headline || !summary) {
+      console.warn(`[SKIP] Missing headline/summary for ${article.id}`);
       continue;
     }
 
-    await publishNews(db, article.id, {
-      headline: generated.headline,
-      summary: generated.summary,
-      main_topic: generated.main_topic || article.main_topic || article.category,
-      score: article.score
-    });
-
-    published++;
+    try {
+      await publishNews(db, article.id, {
+        headline,
+        summary,
+        main_topic: mainTopic,
+        score: article.score || 0
+      });
+      published++;
+    } catch (error) {
+      console.error(`[PUBLISH FAIL] ${article.id}:`, error?.message || String(error));
+    }
   }
 
+  console.log(`[PUBLISH] ${published}/${selectedArticles.length} published`);
   return { published };
+}
+
+function cleanText(value) {
+  return String(value || "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
 }
 
 export { MAX_NEWS_PER_SLOT, MAX_PER_LANGUAGE };

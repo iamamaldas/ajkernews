@@ -2,13 +2,13 @@
  * GNews fetcher — Hybrid approach (Free Tier Safe)
  *
  * - bn: top-headlines (NO keyword) → ALL Bengali news
- * - en: search with English keywords → Top media + trending
+ * - en: search with English keywords → Top media + trending + important
  * - 15s timeout per API call
  * - 2 retries with 2s delay
  * - ✅ Parallel fetch (bn + en একসাথে)
  * - ✅ 429 Rate Limit → Stop retrying immediately
  * - ✅ Quality filter before storing
- * - ✅ Top media priority
+ * - ✅ Top media priority + Expanded Keyword Sets
  */
 
 import { insertCandidate } from "./database.js";
@@ -26,32 +26,53 @@ const MIN_TITLE_LENGTH = 30;
 const MIN_DESCRIPTION_LENGTH = 80;
 
 /* =========================================================
- * ✅ NEW KEYWORD SETS — Top Media Priority
+ * ✅ EXPANDED KEYWORD SETS — Top Media + Important News
  * ========================================================= */
 const KEYWORD_SETS = [
+  // ✅ আগের মিডিয়া-ভিত্তিক সেট (বড় মিডিয়ার খবর)
   {
     id: "top-media",
     en: `"ABP Ananda" OR "Aaj Tak" OR "Times of India" OR "TV9 Bangla" OR "The Hindu" OR "NDTV" OR "Hindustan Times" OR "Indian Express" OR "Anandabazar" OR "Bartaman" OR "Ei Samay" OR "News18 Bangla"`
   },
+  // ✅ নতুন টপিক-ভিত্তিক সেট (দেশ-বিদেশের গুরুত্বপূর্ণ খবর)
   {
     id: "wb-breaking",
-    en: `"West Bengal breaking" OR "Kolkata breaking" OR "Bengal government" OR "Kolkata police" OR "TMC" OR "BJP Bengal" OR "Bengal crime"`
+    en: `"West Bengal breaking news" OR "Kolkata breaking" OR "Bengal government" OR "Kolkata police"`
   },
+  // ✅ নতুন সেট: বাংলার রাজনীতি
+  {
+    id: "wb-politics",
+    en: `"West Bengal politics" OR "TMC BJP" OR "Bengal election" OR "Mamata Banerjee"`
+  },
+  // ✅ নতুন সেট: ভারতের ট্রেন্ডিং
   {
     id: "india-trending",
-    en: `"India trending" OR "viral news India" OR "breaking India" OR "Supreme Court India" OR "Parliament India" OR "Indian economy"`
+    en: `"India trending news" OR "viral news India" OR "breaking India" OR "Supreme Court India"`
   },
-  {
-    id: "international",
-    en: `"World news" OR "International breaking" OR "Global news" OR "US news" OR "UK news" OR "Reuters" OR "BBC" OR "Al Jazeera"`
-  },
+  // ✅ আগের জাতীয় মিডিয়া সেট
   {
     id: "national-media",
     en: `"India Today" OR "Economic Times" OR "Livemint" OR "Business Standard" OR "Zee News" OR "Republic" OR "Firstpost" OR "Telegraph India"`
   },
+  // ✅ নতুন সেট: ভারতের জাতীয় গুরুত্বপূর্ণ খবর
+  {
+    id: "india-national",
+    en: `"India government scheme" OR "Parliament India" OR "Indian economy" OR "Indian education" OR "Indian railways"`
+  },
+  // ✅ আগের আন্তর্জাতিক সেট
+  {
+    id: "international",
+    en: `"World news" OR "International breaking" OR "Global news" OR "US news" OR "UK news" OR "Reuters" OR "BBC" OR "Al Jazeera"`
+  },
+  // ✅ নতুন সেট: ভাইরাল এবং ব্রেকিং নিউজ
   {
     id: "trending-viral",
     en: `"viral video" OR "trending now" OR "breaking news" OR "big announcement" OR "emergency news"`
+  },
+  // ✅ নতুন সেট: সাধারণ গুরুত্বপূর্ণ খবর
+  {
+    id: "general-important",
+    en: `"important news India" OR "big update India" OR "government announcement" OR "public interest news"`
   }
 ];
 
@@ -242,10 +263,13 @@ export function normalizeGNewsArticle(article, language, keywordSetId = "general
   const categoryMap = {
     "top-media": "general",
     "wb-breaking": "west_bengal",
+    "wb-politics": "politics",
     "india-trending": "india",
-    "international": "world",
     "national-media": "india",
-    "trending-viral": "trending"
+    "india-national": "india",
+    "international": "world",
+    "trending-viral": "trending",
+    "general-important": "general"
   };
 
   return {
@@ -342,10 +366,13 @@ function calculateInitialScore(language, publishedAt, keywordSetId, title = "", 
   const categoryBoost =
     keywordSetId === "top-media" ? 8 :
     keywordSetId === "wb-breaking" ? 6 :
+    keywordSetId === "wb-politics" ? 6 :
     keywordSetId === "india-trending" ? 5 :
-    keywordSetId === "international" ? 4 :
     keywordSetId === "national-media" ? 5 :
+    keywordSetId === "india-national" ? 6 :
+    keywordSetId === "international" ? 4 :
     keywordSetId === "trending-viral" ? 7 :
+    keywordSetId === "general-important" ? 5 :
     0;
 
   const published = new Date(publishedAt).getTime();

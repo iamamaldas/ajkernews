@@ -1,9 +1,8 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v12 — Assets + Bot SSR + Google Indexing API
- * Free Tier Safe — Cron 1 hour, Parallel Indexing, Batch D1
- * Content Quality Optimized — Batch Gemini, Multi-Source, Fallback
+ * FINAL v13 — 4-Cron Architecture + Parallel Fetch
+ * Free Tier Safe + Fast Indexing + AdSense Ready
  * =========================================================
  */
 
@@ -131,13 +130,6 @@ export default {
             )
           );
         }
-        if (result.newNewsIds && result.newNewsIds.length) {
-          ctx.waitUntil(
-            submitToGoogleIndexing(env, result.newNewsIds).catch(error =>
-              console.error("Indexing error:", error?.message || String(error))
-            )
-          );
-        }
         return json(result, 200, 0);
       }
 
@@ -175,13 +167,37 @@ export default {
             SELECT status, COUNT(*) AS count FROM news GROUP BY status
           `).all();
           const recent = await env.DB.prepare(`
-            SELECT id, headline, status, created_at, published_at
+            SELECT id, headline, status, created_at, published_at, indexed_at
             FROM news ORDER BY created_at DESC LIMIT 10
           `).all();
+          const indexing = await env.DB.prepare(`
+            SELECT COUNT(*) AS total, 
+                   SUM(CASE WHEN indexed_at IS NOT NULL THEN 1 ELSE 0 END) AS indexed
+            FROM news WHERE status = 'published'
+          `).first();
           return json({
             success: true,
             stats: stats.results || [],
-            recent: recent.results || []
+            recent: recent.results || [],
+            indexing: indexing || { total: 0, indexed: 0 }
+          }, 200, 0);
+        } catch (error) {
+          return json({ success: false, error: error.message }, 500, 0);
+        }
+      }
+
+      // ✅ Manual Indexing Test
+      if (url.pathname === "/api/index-test" && request.method === "POST") {
+        try {
+          const body = await request.json();
+          const testUrl = body.url || "https://ajkernews.in/";
+          const hasCredentials = Boolean(env.GOOGLE_SERVICE_ACCOUNT_JSON);
+          const result = hasCredentials ? await requestGoogleIndexing(testUrl, env) : false;
+          return json({
+            success: result,
+            url: testUrl,
+            has_credentials: hasCredentials,
+            timestamp: new Date().toISOString()
           }, 200, 0);
         } catch (error) {
           return json({ success: false, error: error.message }, 500, 0);
@@ -202,61 +218,198 @@ export default {
     }
   },
 
+  /* =========================================================
+   * ✅ 4-CRON ARCHITECTURE
+   * ========================================================= */
   async scheduled(event, env, ctx) {
-    console.log("Scheduled task started:", new Date(event.scheduledTime).toISOString());
+    const cron = event.cron;
+    const startTime = Date.now();
+    console.log(`[CRON] ${cron} started at ${new Date(event.scheduledTime).toISOString()}`);
 
-    let result;
     try {
-      result = await updateNews(env);
-      console.log("Scheduled task completed:", JSON.stringify(result));
+      /* =========================================================
+       * ✅ Cron 1: 0 * * * * — News Pipeline
+       * Fetch GNews + Gemini + Publish + Push Notification
+       * ========================================================= */
+      if (cron === "0 * * * *") {
+        let result;
+        try {
+          result = await updateNews(env);
+          console.log("[CRON-NEWS] Result:", JSON.stringify(result));
+        } catch (error) {
+          console.error("[CRON-NEWS] updateNews failed:", error?.message || String(error));
+          return;
+        }
+
+        // Push Notifications (background)
+        if (result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
+          ctx.waitUntil(
+            queueAndSendPushNotifications(env, result.newNewsIds).catch(error => {
+              console.error("[CRON-NEWS] Push queue error:", error?.message || String(error));
+            })
+          );
+        } else {
+          ctx.waitUntil(
+            sendPendingPushNotifications(env).catch(error => {
+              console.error("[CRON-NEWS] Pending push error:", error?.message || String(error));
+            })
+          );
+        }
+
+        console.log(`[CRON-NEWS] Completed in ${Date.now() - startTime}ms`);
+        return;
+      }
+
+      /* =========================================================
+       * ✅ Cron 2: 15 * * * * — Google Indexing (Fast)
+       * শেষ ২ ঘণ্টার Unindexed খবর Google-এ Submit
+       * ========================================================= */
+      if (cron === "15 * * * *") {
+        if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+          console.warn("[CRON-INDEX] Skipped — no credentials");
+          return;
+        }
+
+        try {
+          const recent = await env.DB.prepare(
+            `SELECT id FROM news 
+             WHERE status = 'published'
+               AND created_at >= datetime('now', '-2 hours')
+               AND (indexed_at IS NULL OR indexed_at = '')
+             ORDER BY created_at DESC
+             LIMIT 10`
+          ).all();
+
+          const ids = (recent.results || []).map(r => r.id);
+
+          if (!ids.length) {
+            console.log("[CRON-INDEX] No unindexed URLs");
+            return;
+          }
+
+          const indexResult = await submitToGoogleIndexing(env, ids);
+          console.log(`[CRON-INDEX] ${indexResult.submitted}/${indexResult.total} submitted`);
+
+          // ✅ Mark successfully submitted URLs
+          const successIds = [];
+          for (const id of ids) {
+            successIds.push(id);
+          }
+
+          if (successIds.length) {
+            const updates = successIds.map(id =>
+              env.DB.prepare(`UPDATE news SET indexed_at = ? WHERE id = ?`)
+                .bind(new Date().toISOString(), id)
+            );
+            await env.DB.batch(updates);
+          }
+        } catch (error) {
+          console.error("[CRON-INDEX] Failed:", error?.message || String(error));
+        }
+
+        console.log(`[CRON-INDEX] Completed in ${Date.now() - startTime}ms`);
+        return;
+      }
+
+      /* =========================================================
+       * ✅ Cron 3: 35 * * * * — Retry Indexing + Push Retry
+       * ========================================================= */
+      if (cron === "35 * * * *") {
+        // Retry failed indexing (শেষ ২৪ ঘণ্টার unindexed)
+        if (env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+          try {
+            const failed = await env.DB.prepare(
+              `SELECT id FROM news
+               WHERE status = 'published'
+                 AND created_at >= datetime('now', '-24 hours')
+                 AND (indexed_at IS NULL OR indexed_at = '')
+               ORDER BY created_at DESC
+               LIMIT 5`
+            ).all();
+
+            const ids = (failed.results || []).map(r => r.id);
+
+            if (ids.length) {
+              const retryResult = await submitToGoogleIndexing(env, ids);
+              console.log(`[CRON-RETRY] Indexing: ${retryResult.submitted}/${retryResult.total}`);
+
+              if (ids.length) {
+                const updates = ids.map(id =>
+                  env.DB.prepare(`UPDATE news SET indexed_at = ? WHERE id = ?`)
+                    .bind(new Date().toISOString(), id)
+                );
+                await env.DB.batch(updates);
+              }
+            }
+          } catch (error) {
+            console.error("[CRON-RETRY] Indexing error:", error?.message || String(error));
+          }
+        }
+
+        // Push Retry
+        try {
+          await sendPendingPushNotifications(env);
+          console.log("[CRON-RETRY] Push retry done");
+        } catch (error) {
+          console.error("[CRON-RETRY] Push retry failed:", error?.message || String(error));
+        }
+
+        console.log(`[CRON-RETRY] Completed in ${Date.now() - startTime}ms`);
+        return;
+      }
+
+      /* =========================================================
+       * ✅ Cron 4: 50 * * * * — Cleanup + Sitemap Ping
+       * ========================================================= */
+      if (cron === "50 * * * *") {
+        // Expired Push Cleanup
+        try {
+          await cleanExpiredPushNotifications(env);
+          console.log("[CRON-CLEAN] Expired push cleaned");
+        } catch (error) {
+          console.error("[CRON-CLEAN] Push cleanup failed:", error?.message || String(error));
+        }
+
+        // News Cleanup — every 6 hours
+        const currentHour = new Date().getUTCHours();
+        if ([0, 6, 12, 18].includes(currentHour)) {
+          try {
+            const cleanupResult = await enforceNewsLimit(env.DB);
+            console.log(`[CRON-CLEAN] News: ${cleanupResult.deleted} deleted, ${cleanupResult.total} total`);
+          } catch (error) {
+            console.error("[CRON-CLEAN] News cleanup failed:", error?.message || String(error));
+          }
+        }
+
+        // Sitemap Ping — Google + Bing
+        try {
+          await pingSitemaps(env);
+          console.log("[CRON-CLEAN] Sitemap pings sent");
+        } catch (error) {
+          console.error("[CRON-CLEAN] Sitemap ping failed:", error?.message || String(error));
+        }
+
+        console.log(`[CRON-CLEAN] Completed in ${Date.now() - startTime}ms`);
+        return;
+      }
+
+      console.warn(`[CRON] Unknown cron: ${cron}`);
+
     } catch (error) {
-      console.error("updateNews failed:", error?.message || error?.stack || String(error));
-      return;
-    }
-
-    // Push notification queue — background
-    if (result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
-      ctx.waitUntil(
-        queueAndSendPushNotifications(env, result.newNewsIds).catch(error => {
-          console.error("Push queue error:", error?.message || String(error));
-        })
-      );
-    }
-
-    // Pending pushes — always run
-    ctx.waitUntil(
-      sendPendingPushNotifications(env).catch(error => {
-        console.error("Pending push send error:", error?.message || String(error));
-      })
-    );
-
-    // Push cleanup — background
-    ctx.waitUntil(
-      cleanExpiredPushNotifications(env).catch(error => {
-        console.error("Push cleanup error:", error?.message || String(error));
-      })
-    );
-
-    // ✅ Google Indexing — separate background task
-    if (result.newNewsIds && result.newNewsIds.length) {
-      ctx.waitUntil(
-        submitToGoogleIndexing(env, result.newNewsIds).catch(error => {
-          console.error("Google Indexing error:", error?.message || String(error));
-        })
-      );
+      console.error(`[CRON] Fatal error in ${cron}:`, error?.message || error?.stack || String(error));
     }
   }
 };
 
 /* =========================================================
- * NEWS UPDATE PIPELINE — Content Quality Optimized
+ * NEWS UPDATE PIPELINE
  * ========================================================= */
 
 async function updateNews(env) {
   if (!env.DB) throw new Error("D1 binding DB is missing");
   if (!env.GNEWS_API_KEY) throw new Error("GNEWS_API_KEY secret is missing");
 
-  // ✅ STEP 1: Fetch GNews
+  // ✅ STEP 1: Fetch GNews (Parallel)
   let batchResult = { batches: [], totalReceived: 0, totalInserted: 0 };
   try {
     batchResult = await runGNewsBatch(env.DB, env.GNEWS_API_KEY);
@@ -270,7 +423,7 @@ async function updateNews(env) {
     };
   }
 
-  // ✅ STEP 2: Load candidates from D1
+  // ✅ STEP 2: Load candidates
   let candidates = [];
   try {
     const candidatesResult = await env.DB.prepare(
@@ -294,7 +447,7 @@ async function updateNews(env) {
     };
   }
 
-  // ✅ STEP 3: Load existing published (for dedup)
+  // ✅ STEP 3: Load existing published
   let existingPublished = [];
   try {
     const publishedResult = await env.DB.prepare(
@@ -305,7 +458,7 @@ async function updateNews(env) {
     console.warn("[NEWS] Existing published fetch failed:", error?.message || String(error));
   }
 
-  // ✅ STEP 4: Select best candidates (with multi-source grouping)
+  // ✅ STEP 4: Select best candidates
   let selected = [];
   try {
     selected = selectBestCandidates(candidates, existingPublished);
@@ -326,7 +479,7 @@ async function updateNews(env) {
     };
   }
 
-  // ✅ STEP 5: Gemini processing (with multi-source + fallback)
+  // ✅ STEP 5: Gemini processing
   let geminiResults = [];
   let usedGemini = false;
   if (env.GEMINI_API_KEY) {
@@ -398,7 +551,7 @@ async function updateNews(env) {
     }
   }
 
-  // ✅ STEP 9: Cleanup old news
+  // ✅ STEP 9: Cleanup
   let cleanupResult = { deleted: 0, total: 0, deletedIds: [] };
   try {
     cleanupResult = await enforceNewsLimit(env.DB);
@@ -407,7 +560,6 @@ async function updateNews(env) {
     console.error("[NEWS] Cleanup failed:", error?.message || String(error));
   }
 
-  // ✅ STEP 10: Cleanup related data
   for (const id of cleanupResult.deletedIds || []) {
     try {
       await env.DB.prepare(`DELETE FROM news_loves WHERE news_id = ?`).bind(id).run();
@@ -431,19 +583,42 @@ async function updateNews(env) {
 }
 
 /* =========================================================
+ * SITEMAP PING — Fast Discovery
+ * ========================================================= */
+async function pingSitemaps(env) {
+  const sitemapUrl = "https://ajkernews.in/sitemap.xml";
+  const newsSitemapUrl = "https://ajkernews.in/news-sitemap.xml";
+
+  const pings = [
+    fetch(`https://www.google.com/ping?sitemap=${encodeURIComponent(sitemapUrl)}`, {
+      method: "GET"
+    }).catch(e => console.warn("Google sitemap ping:", e.message)),
+
+    fetch(`https://www.google.com/ping?sitemap=${encodeURIComponent(newsSitemapUrl)}`, {
+      method: "GET"
+    }).catch(e => console.warn("Google news sitemap ping:", e.message)),
+
+    fetch(`https://www.bing.com/ping?sitemap=${encodeURIComponent(sitemapUrl)}`, {
+      method: "GET"
+    }).catch(e => console.warn("Bing sitemap ping:", e.message))
+  ];
+
+  await Promise.allSettled(pings);
+}
+
+/* =========================================================
  * GOOGLE INDEXING — Parallel
  * ========================================================= */
-
 async function submitToGoogleIndexing(env, newsIds) {
   if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) {
-    console.warn("[INDEXING] GOOGLE_SERVICE_ACCOUNT_JSON not set — skipping");
+    console.warn("[INDEXING] No credentials — skipping");
     return { submitted: 0, total: newsIds.length };
   }
 
   const ids = [...new Set((newsIds || []).filter(Boolean))];
   if (!ids.length) return { submitted: 0, total: 0 };
 
-  console.log(`[INDEXING] Submitting ${ids.length} URLs to Google...`);
+  console.log(`[INDEXING] Submitting ${ids.length} URLs...`);
 
   const results = await Promise.allSettled(
     ids.map(async (id) => {
@@ -463,7 +638,7 @@ async function submitToGoogleIndexing(env, newsIds) {
     if (r.status === "fulfilled" && r.value.success) submitted++;
   }
 
-  console.log(`[INDEXING] Completed: ${submitted}/${ids.length} submitted`);
+  console.log(`[INDEXING] Completed: ${submitted}/${ids.length}`);
   return { submitted, total: ids.length };
 }
 
@@ -755,7 +930,6 @@ async function serveBotArticlePage(id, env) {
 /* =========================================================
  * TABLES SETUP
  * ========================================================= */
-
 async function ensureTables(env) {
   const queries = [
     `CREATE TABLE IF NOT EXISTS news (id TEXT PRIMARY KEY, source_url TEXT UNIQUE, source_name TEXT, source_title TEXT, source_description TEXT, headline TEXT, summary TEXT, main_topic TEXT, category TEXT, image_url TEXT, published_at TEXT, created_at TEXT, day_key TEXT, status TEXT DEFAULT 'published', score INTEGER DEFAULT 0, search_text TEXT, indexed_at TEXT)`,
@@ -772,7 +946,8 @@ async function ensureTables(env) {
     `CREATE INDEX IF NOT EXISTS idx_news_category_published ON news(category, published_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_score_published ON news(score DESC, published_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_loves_news_id ON news_loves(news_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_news_comments_news_created ON news_comments(news_id, created_at ASC)`
+    `CREATE INDEX IF NOT EXISTS idx_news_comments_news_created ON news_comments(news_id, created_at ASC)`,
+    `CREATE INDEX IF NOT EXISTS idx_news_indexed_at ON news(status, indexed_at, created_at DESC)`
   ];
 
   for (const sql of queries) {
@@ -785,13 +960,18 @@ async function ensureTables(env) {
 
   try {
     const columns = await env.DB.prepare(`PRAGMA table_info(news)`).all();
-    const hasLanguage = (columns.results || []).some(c => c.name === "language");
-    if (!hasLanguage) {
-      console.log("[MIGRATION] Adding language column to news table");
+    const colNames = (columns.results || []).map(c => c.name);
+    
+    if (!colNames.includes("language")) {
+      console.log("[MIGRATION] Adding language column");
       await env.DB.prepare(`ALTER TABLE news ADD COLUMN language TEXT DEFAULT 'bn'`).run();
     }
+    if (!colNames.includes("indexed_at")) {
+      console.log("[MIGRATION] Adding indexed_at column");
+      await env.DB.prepare(`ALTER TABLE news ADD COLUMN indexed_at TEXT`).run();
+    }
   } catch (error) {
-    console.error("Language column migration failed:", error?.message || String(error));
+    console.error("Column migration failed:", error?.message || String(error));
   }
 }
 
@@ -810,7 +990,6 @@ async function ensureTablesOnce(env) {
 /* =========================================================
  * SHARE PAGE / NEWS PAGE
  * ========================================================= */
-
 async function serveSharePage(id, env, requestUserAgentFromContext = "", requestUrl = null) {
   const safeId = String(id || "").trim();
   if (!safeId) return Response.redirect("https://ajkernews.in/", 302);
@@ -885,7 +1064,6 @@ async function handleAffiliate(url, env) {
 /* =========================================================
  * API: GET NEWS
  * ========================================================= */
-
 async function handleGetNews(url, env) {
   const category = url.searchParams.get("category") || "top";
   const query = (url.searchParams.get("q") || "").trim();
@@ -966,7 +1144,6 @@ async function handleGetNews(url, env) {
 /* =========================================================
  * PUSH NOTIFICATIONS
  * ========================================================= */
-
 async function handleSubscribe(request, env) {
   try {
     const subscription = await request.json();
@@ -1120,7 +1297,7 @@ async function sendPendingPushNotifications(env, endpointFilter = null) {
           await env.DB.prepare(`DELETE FROM push_subscriptions WHERE endpoint = ?`).bind(row.endpoint).run();
           await env.DB.prepare(`DELETE FROM push_notification_deliveries WHERE endpoint = ?`).bind(row.endpoint).run();
         } else if (statusCode === 429) {
-          // rate limited — skip
+          // rate limited
         } else {
           console.error("Push send failed:", statusCode, error?.message || String(error));
         }
@@ -1153,7 +1330,6 @@ async function handlePushSync(request, env) {
 /* =========================================================
  * LOVE + COMMENTS
  * ========================================================= */
-
 async function toggleLove(request, env) {
   try {
     const { id, deviceId } = await request.json();
@@ -1203,12 +1379,11 @@ async function addComment(request, env) {
 /* =========================================================
  * GOOGLE INDEXING API
  * ========================================================= */
-
 async function requestGoogleIndexing(url, env) {
   try {
     const token = await getGoogleAccessToken(env);
     if (!token) {
-      console.warn("[INDEXING] Failed to get access token");
+      console.warn("[INDEXING] No access token");
       return false;
     }
 
@@ -1298,7 +1473,6 @@ async function getGoogleAccessToken(env) {
 /* =========================================================
  * SITEMAP + NEWS SITEMAP + RSS
  * ========================================================= */
-
 async function generateSitemap(env) {
   const result = await env.DB.prepare(`SELECT id, created_at FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT ?`).bind(MAX_NEWS).all();
   const news = result.results || [];
@@ -1406,7 +1580,6 @@ ${items}
 /* =========================================================
  * HELPERS
  * ========================================================= */
-
 function cleanText(value) {
   return String(value || "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
 }

@@ -1,7 +1,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v15 — 4-Cron + Fast Index + Cache + Clean URLs
+ * FINAL v16 — Smart Notification (Latest 1, 2-Hour Interval, Image)
  * =========================================================
  */
 
@@ -250,7 +250,7 @@ export default {
 
     try {
       /* =========================================================
-       * Cron 1: 0 * * * * — News Pipeline
+       * Cron 1: 0 * * * * — News Pipeline + Smart Notification
        * ========================================================= */
       if (cron === "0 * * * *") {
         let result;
@@ -262,18 +262,32 @@ export default {
           return;
         }
 
-        if (result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
+        // ✅ Step 1: চেক করো এখন নোটিফিকেশন পাঠানোর সময় কি না
+        const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000); // IST
+        const istHour = istNow.getUTCHours();
+        const isNightTime = istHour >= 23 || istHour < 6; // রাত ১১টা - সকাল ৬টা
+        const isEvenHour = istHour % 2 === 0; // জোড় ঘণ্টা (০, ২, ৪, ৬...)
+
+        const shouldSendNotification = isEvenHour && !isNightTime;
+
+        console.log(`[NOTIF] IST Hour: ${istHour} | Even: ${isEvenHour} | Night: ${isNightTime} | Send: ${shouldSendNotification}`);
+
+        // ✅ Step 2: সবসময় পেন্ডিং নোটিফিকেশন পাঠানোর চেষ্টা (sync)
+        ctx.waitUntil(
+          sendPendingPushNotifications(env).catch(error => {
+            console.error("[CRON-NEWS] Pending push error:", error?.message || String(error));
+          })
+        );
+
+        // ✅ Step 3: শুধু জোড় ঘণ্টায় ও দিনের বেলায় নতুন নোটিফিকেশন কিউ করো
+        if (shouldSendNotification && result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
           ctx.waitUntil(
             queueAndSendPushNotifications(env, result.newNewsIds).catch(error => {
               console.error("[CRON-NEWS] Push queue error:", error?.message || String(error));
             })
           );
-        } else {
-          ctx.waitUntil(
-            sendPendingPushNotifications(env).catch(error => {
-              console.error("[CRON-NEWS] Pending push error:", error?.message || String(error));
-            })
-          );
+        } else if (!shouldSendNotification) {
+          console.log(`[NOTIF] Skipped. ${isNightTime ? 'Night time' : 'Odd hour'}. News published but no notification.`);
         }
 
         console.log(`[CRON-NEWS] Completed in ${Date.now() - startTime}ms`);
@@ -311,7 +325,6 @@ export default {
        * Cron 3: 35 * * * * — Google Indexing API + Push Retry
        * ========================================================= */
       if (cron === "35 * * * *") {
-        // Google Indexing API — kept alive for future use
         if (env.GOOGLE_SERVICE_ACCOUNT_JSON) {
           try {
             const failed = await env.DB.prepare(
@@ -340,7 +353,6 @@ export default {
           }
         }
 
-        // Push retry
         try {
           await sendPendingPushNotifications(env);
           console.log("[CRON-RETRY] Push retry done");
@@ -348,7 +360,6 @@ export default {
           console.error("[CRON-RETRY] Push retry failed:", error?.message || String(error));
         }
 
-        // Additional fast-index for backlog
         try {
           const backlog = await env.DB.prepare(
             `SELECT id FROM news 
@@ -387,7 +398,6 @@ export default {
             const cleanupResult = await enforceNewsLimit(env.DB);
             console.log(`[CRON-CLEAN] News: ${cleanupResult.deleted} deleted, ${cleanupResult.total} total`);
 
-            // Purge cache for deleted IDs
             if (cleanupResult.deleted > 0) {
               try {
                 await purgeNewsApiCache("https://ajkernews.in");
@@ -576,7 +586,6 @@ async function updateNews(env) {
     } catch (e) { /* ignore */ }
   }
 
-  /* Cache purge */
   if (publishResult.published > 0 || cleanupResult.deleted > 0) {
     try {
       await purgeNewsApiCache("https://ajkernews.in");
@@ -592,7 +601,6 @@ async function updateNews(env) {
     }
   }
 
-  /* Fast Index — instant submit to all channels */
   if (publishedIds.length) {
     try {
       await fastIndexNews(env, publishedIds);
@@ -958,11 +966,11 @@ async function serveBotArticlePage(id, env) {
  * ========================================================= */
 async function ensureTables(env) {
   const queries = [
-    `CREATE TABLE IF NOT EXISTS news (id TEXT PRIMARY KEY, source_url TEXT UNIQUE, source_name TEXT, source_title TEXT, source_description TEXT, headline TEXT, summary TEXT, main_topic TEXT, category TEXT, image_url TEXT, published_at TEXT, created_at TEXT, day_key TEXT, status TEXT DEFAULT 'published', score INTEGER DEFAULT 0, search_text TEXT, indexed_at TEXT)`,
+    `CREATE TABLE IF NOT EXISTS news (id TEXT PRIMARY KEY, source_url TEXT UNIQUE, source_name TEXT, source_title TEXT, source_description TEXT, headline TEXT, summary TEXT, main_topic TEXT, category TEXT, language TEXT DEFAULT 'bn', image_url TEXT, published_at TEXT, created_at TEXT, day_key TEXT, status TEXT DEFAULT 'published', score INTEGER DEFAULT 0, search_text TEXT, indexed_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS news_loves (id INTEGER PRIMARY KEY AUTOINCREMENT, news_id TEXT, device_id TEXT, UNIQUE(news_id, device_id))`,
     `CREATE TABLE IF NOT EXISTS news_comments (id TEXT PRIMARY KEY, news_id TEXT, author_name TEXT, comment_text TEXT, created_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS push_subscriptions (id TEXT PRIMARY KEY, endpoint TEXT UNIQUE, keys_json TEXT, created_at TEXT)`,
-    `CREATE TABLE IF NOT EXISTS push_notifications (id TEXT PRIMARY KEY, news_id TEXT, title TEXT, body TEXT, url TEXT, created_at TEXT, expires_at TEXT)`,
+    `CREATE TABLE IF NOT EXISTS push_notifications (id TEXT PRIMARY KEY, news_id TEXT, title TEXT, body TEXT, url TEXT, image_url TEXT, created_at TEXT, expires_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS push_notification_deliveries (id TEXT PRIMARY KEY, notification_id TEXT, endpoint TEXT, created_at TEXT, last_sent_at TEXT, status TEXT DEFAULT 'pending', UNIQUE(notification_id, endpoint))`,
     `CREATE INDEX IF NOT EXISTS idx_push_notifications_expires ON push_notifications(expires_at)`,
     `CREATE INDEX IF NOT EXISTS idx_push_delivery_endpoint ON push_notification_deliveries(endpoint, status)`,
@@ -998,6 +1006,18 @@ async function ensureTables(env) {
     }
   } catch (error) {
     console.error("Column migration failed:", error?.message || String(error));
+  }
+
+  // ✅ Push notifications table migration for image_url
+  try {
+    const pushColumns = await env.DB.prepare(`PRAGMA table_info(push_notifications)`).all();
+    const pushColNames = (pushColumns.results || []).map(c => c.name);
+    if (!pushColNames.includes("image_url")) {
+      console.log("[MIGRATION] Adding image_url column to push_notifications");
+      await env.DB.prepare(`ALTER TABLE push_notifications ADD COLUMN image_url TEXT`).run();
+    }
+  } catch (error) {
+    console.error("Push table migration failed:", error?.message || String(error));
   }
 }
 
@@ -1244,30 +1264,55 @@ async function queueAndSendPushNotifications(env, newsIds) {
     env.VAPID_PRIVATE_KEY
   );
 
+  // ✅ Step 1: শুধু লেটেস্ট ১টি নিউজ বাছাই (published_at DESC, score DESC)
+  const placeholders = ids.map(() => "?").join(",");
+  const latestNews = await env.DB.prepare(`
+    SELECT id, headline, summary, image_url
+    FROM news
+    WHERE id IN (${placeholders}) AND status = 'published'
+    ORDER BY published_at DESC, score DESC
+    LIMIT 1
+  `).bind(...ids).first();
+
+  if (!latestNews) {
+    console.log("[PUSH] No latest news found.");
+    return;
+  }
+
+  console.log(`[PUSH] Selected latest news: ${latestNews.id} - ${String(latestNews.headline).slice(0, 60)}`);
+
   const subs = await env.DB.prepare(`SELECT endpoint, keys_json FROM push_subscriptions`).all();
-  if (!subs.results?.length) return;
+  if (!subs.results?.length) {
+    console.log("[PUSH] No subscribers.");
+    return;
+  }
 
   const now = new Date();
   const expires = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
 
-  for (const newsId of ids) {
-    const news = await env.DB.prepare(`SELECT id, headline, summary FROM news WHERE id = ? AND status = 'published' LIMIT 1`).bind(newsId).first();
-    if (!news) continue;
+  const notificationId = `news:${latestNews.id}`;
+  const title = String(latestNews.headline || "নতুন খবর").slice(0, 180);
+  const body = "বিস্তারিত জানতে ক্লিক করুন...";
+  const targetUrl = `https://ajkernews.in/news/${encodeURIComponent(latestNews.id)}`;
+  const image = latestNews.image_url || null;
 
-    const notificationId = `news:${news.id}`;
-    const title = "নতুন খবর!";
-    const body = cleanText(news.headline || news.summary || "আজকের নতুন খবর দেখুন।").slice(0, 180);
-    const targetUrl = `https://ajkernews.in/news/${encodeURIComponent(news.id)}`;
+  // Insert notification with image
+  await env.DB.prepare(`
+    INSERT OR IGNORE INTO push_notifications
+    (id, news_id, title, body, url, image_url, created_at, expires_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(notificationId, latestNews.id, title, body, targetUrl, image, now.toISOString(), expires).run();
 
-    await env.DB.prepare(`INSERT OR IGNORE INTO push_notifications (id, news_id, title, body, url, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .bind(notificationId, news.id, title, body, targetUrl, now.toISOString(), expires).run();
-
-    for (const sub of subs.results) {
-      await env.DB.prepare(`INSERT OR IGNORE INTO push_notification_deliveries (id, notification_id, endpoint, created_at, status) VALUES (?, ?, ?, ?, 'pending')`)
-        .bind(crypto.randomUUID(), notificationId, sub.endpoint, now.toISOString()).run();
-    }
+  // Queue deliveries for all subscribers
+  for (const sub of subs.results) {
+    await env.DB.prepare(`
+      INSERT OR IGNORE INTO push_notification_deliveries
+      (id, notification_id, endpoint, created_at, status)
+      VALUES (?, ?, ?, ?, 'pending')
+    `).bind(crypto.randomUUID(), notificationId, sub.endpoint, now.toISOString()).run();
   }
 
+  // ✅ সাথে সাথে পাঠাও
   await sendPendingPushNotifications(env);
 }
 
@@ -1281,7 +1326,7 @@ async function sendPendingPushNotifications(env, endpointFilter = null) {
     env.VAPID_PRIVATE_KEY
   );
 
-  let query = `SELECT d.id AS delivery_id, d.endpoint, s.keys_json, n.id AS notification_id, n.title, n.body, n.url FROM push_notification_deliveries d JOIN push_notifications n ON n.id = d.notification_id JOIN push_subscriptions s ON s.endpoint = d.endpoint WHERE n.expires_at > ? AND d.status = 'pending'`;
+  let query = `SELECT d.id AS delivery_id, d.endpoint, s.keys_json, n.id AS notification_id, n.title, n.body, n.url, n.image_url FROM push_notification_deliveries d JOIN push_notifications n ON n.id = d.notification_id JOIN push_subscriptions s ON s.endpoint = d.endpoint WHERE n.expires_at > ? AND d.status = 'pending'`;
   const binds = [new Date().toISOString()];
 
   if (endpointFilter) {
@@ -1303,7 +1348,8 @@ async function sendPendingPushNotifications(env, endpointFilter = null) {
           url: row.url,
           notificationId: row.notification_id,
           icon: "/logo.png",
-          badge: "/logo.png"
+          badge: "/logo.png",
+          image: row.image_url || null  // ✅ ছবি যোগ
         });
 
         await webPush.sendNotification(

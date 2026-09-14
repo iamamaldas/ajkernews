@@ -1,6 +1,7 @@
 /*
  * News selector — 2 bn + 2 en = 4 news per slot
  * + Group similar stories for better context
+ * + Top media priority scoring
  */
 
 import { publishNews } from "./database.js";
@@ -15,7 +16,6 @@ export function selectBestCandidates(candidates, existingPublished = []) {
   const bnCandidates = candidates.filter(c => c.language === "bn");
   const enCandidates = candidates.filter(c => c.language === "en");
 
-  // ✅ Group similar stories for richer context
   const bnGrouped = groupSimilarStories(bnCandidates);
   const enGrouped = groupSimilarStories(enCandidates);
 
@@ -63,7 +63,6 @@ function groupSimilarStories(candidates) {
     }
   }
 
-  // ✅ প্রতিটি group থেকে সবচেয়ে বড় description-এর article primary
   return groups.map(group => {
     const sorted = group.sources.slice().sort((a, b) => {
       const aLen = (a.source_description || "").length;
@@ -178,9 +177,12 @@ function areSimilarStories(wordsA, wordsB) {
   const smaller = Math.min(setA.size, setB.size);
   if (!smaller) return false;
 
-  return (common / smaller) >= 0.60; // ✅ Lower for grouping
+  return (common / smaller) >= 0.60;
 }
 
+/* =========================================================
+ * ✅ Enhanced Quality Scoring — Top Media Priority
+ * ========================================================= */
 function calculateQualityScore(article) {
   let score = Number(article.score || 0);
 
@@ -189,11 +191,25 @@ function calculateQualityScore(article) {
   const source = String(article.source_name || "").trim();
 
   if (title.length >= 35 && title.length <= 180) score += 5;
-  if (description.length >= 80) score += 5;
+
+  // ✅ Description length bonus
+  if (description.length >= 200) score += 8;
+  else if (description.length >= 100) score += 4;
+
   if (article.image_url) score += 3;
-  if (isRecognizedSource(source)) score += 5;
+
+  // ✅ Top media bonus — বড় মিডিয়া হলে +১৫
+  if (isRecognizedSource(source)) score += 15;
+
+  // ✅ Additional sources bonus
   if (Array.isArray(article.additional_sources) && article.additional_sources.length) {
-    score += article.additional_sources.length * 3; // ✅ Multiple sources bonus
+    score += article.additional_sources.length * 3;
+  }
+
+  // ✅ Viral/trending keyword bonus
+  const combined = (title + " " + description).toLowerCase();
+  if (combined.includes("breaking") || combined.includes("viral") || combined.includes("trending") || combined.includes("big")) {
+    score += 10;
   }
 
   score += freshnessScore(article.published_at);
@@ -215,13 +231,27 @@ function freshnessScore(publishedAt) {
   return 0;
 }
 
+/* =========================================================
+ * ✅ Expanded Recognized Sources List
+ * ========================================================= */
 function isRecognizedSource(source) {
   const value = source.toLowerCase();
   const trustedPatterns = [
-    "reuters", "associated press", "bbc", "the hindu", "hindustan times",
-    "indian express", "times of india", "ndtv", "news18", "aaj tak",
-    "india today", "economic times", "business standard", "livemint",
-    "anandabazar", "bartaman", "abp", "ei samay", "sangbad pratidin"
+    // বাংলা মিডিয়া
+    "abp", "anandabazar", "bartaman", "ei samay", "sangbad pratidin",
+    "tv9 bangla", "zee 24 ghanta", "kolkata tv", "news18 bangla",
+    "republic bangla", "abp ananda",
+
+    // জাতীয় মিডিয়া (India)
+    "aaj tak", "ndtv", "times of india", "hindustan times",
+    "indian express", "the hindu", "news18", "india today",
+    "economic times", "livemint", "business standard", "zee news",
+    "republic", "firstpost", "the wire", "scroll", "telegraph india",
+
+    // আন্তর্জাতিক মিডিয়া
+    "reuters", "associated press", "ap news", "bbc", "cnn",
+    "al jazeera", "the guardian", "new york times", "washington post",
+    "bloomberg", "forbes"
   ];
   return trustedPatterns.some(pattern => value.includes(pattern));
 }
@@ -275,12 +305,10 @@ export async function publishSelectedNews(db, selectedArticles, geminiResults) {
     let headline, summary, mainTopic;
 
     if (generated && generated.headline && generated.summary) {
-      // ✅ Gemini result
       headline = generated.headline;
       summary = generated.summary;
       mainTopic = generated.main_topic || article.main_topic || article.category || "general";
     } else {
-      // ✅ Fallback: Gemini fail করলেও খবর publish হবে
       console.warn(`[FALLBACK] No Gemini result for ${article.id}, using source data`);
       headline = cleanText(article.source_title || article.headline || "সংবাদ");
       summary = cleanText(article.source_description || article.summary || "");

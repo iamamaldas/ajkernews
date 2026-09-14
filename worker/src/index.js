@@ -1,8 +1,9 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v11 — Assets + Bot SSR + Google Indexing API
+ * FINAL v12 — Assets + Bot SSR + Google Indexing API
  * Free Tier Safe — Cron 1 hour, Parallel Indexing, Batch D1
+ * Content Quality Optimized — Batch Gemini, Multi-Source, Fallback
  * =========================================================
  */
 
@@ -167,7 +168,7 @@ export default {
         return await handlePushSync(request, env);
       }
 
-      // ✅ NEW: Debug endpoint
+      // ✅ Debug endpoint
       if (url.pathname === "/api/debug" && request.method === "GET") {
         try {
           const stats = await env.DB.prepare(`
@@ -248,13 +249,14 @@ export default {
 };
 
 /* =========================================================
- * NEWS UPDATE PIPELINE
+ * NEWS UPDATE PIPELINE — Content Quality Optimized
  * ========================================================= */
 
 async function updateNews(env) {
   if (!env.DB) throw new Error("D1 binding DB is missing");
   if (!env.GNEWS_API_KEY) throw new Error("GNEWS_API_KEY secret is missing");
 
+  // ✅ STEP 1: Fetch GNews
   let batchResult = { batches: [], totalReceived: 0, totalInserted: 0 };
   try {
     batchResult = await runGNewsBatch(env.DB, env.GNEWS_API_KEY);
@@ -268,10 +270,21 @@ async function updateNews(env) {
     };
   }
 
-  const candidatesResult = await env.DB.prepare(
-    `SELECT * FROM news WHERE status = 'candidate' ORDER BY published_at DESC LIMIT 200`
-  ).all();
-  const candidates = candidatesResult.results || [];
+  // ✅ STEP 2: Load candidates from D1
+  let candidates = [];
+  try {
+    const candidatesResult = await env.DB.prepare(
+      `SELECT * FROM news WHERE status = 'candidate' ORDER BY published_at DESC LIMIT 200`
+    ).all();
+    candidates = candidatesResult.results || [];
+  } catch (error) {
+    console.error("[NEWS] Candidate fetch failed:", error?.message || String(error));
+    return {
+      success: false, fetched: batchResult.totalReceived, inserted: batchResult.totalInserted,
+      candidates: 0, selected: 0, published: 0, deleted: 0, indexed: 0,
+      gemini: false, newNewsIds: [], message: "Candidate fetch failed"
+    };
+  }
 
   if (candidates.length === 0) {
     return {
@@ -281,12 +294,29 @@ async function updateNews(env) {
     };
   }
 
-  const publishedResult = await env.DB.prepare(
-    `SELECT source_title, headline FROM news WHERE status = 'published' ORDER BY published_at DESC LIMIT 50`
-  ).all();
-  const existingPublished = publishedResult.results || [];
+  // ✅ STEP 3: Load existing published (for dedup)
+  let existingPublished = [];
+  try {
+    const publishedResult = await env.DB.prepare(
+      `SELECT source_title, headline FROM news WHERE status = 'published' ORDER BY published_at DESC LIMIT 50`
+    ).all();
+    existingPublished = publishedResult.results || [];
+  } catch (error) {
+    console.warn("[NEWS] Existing published fetch failed:", error?.message || String(error));
+  }
 
-  const selected = selectBestCandidates(candidates, existingPublished);
+  // ✅ STEP 4: Select best candidates (with multi-source grouping)
+  let selected = [];
+  try {
+    selected = selectBestCandidates(candidates, existingPublished);
+  } catch (error) {
+    console.error("[NEWS] Selection failed:", error?.message || String(error));
+    return {
+      success: false, fetched: batchResult.totalReceived, inserted: batchResult.totalInserted,
+      candidates: candidates.length, selected: 0, published: 0, deleted: 0, indexed: 0,
+      gemini: false, newNewsIds: [], message: "Selection failed"
+    };
+  }
 
   if (selected.length === 0) {
     return {
@@ -296,6 +326,7 @@ async function updateNews(env) {
     };
   }
 
+  // ✅ STEP 5: Gemini processing (with multi-source + fallback)
   let geminiResults = [];
   let usedGemini = false;
   if (env.GEMINI_API_KEY) {
@@ -307,7 +338,8 @@ async function updateNews(env) {
         source_name: c.source_name,
         published_at: c.published_at,
         category: c.category || "general",
-        language: c.language || "en"
+        language: c.language || "en",
+        additional_sources: c.additional_sources || []
       }));
 
       geminiResults = await processSelectedNews(geminiInput, env.GEMINI_API_KEY);
@@ -318,35 +350,46 @@ async function updateNews(env) {
     }
   }
 
-  const publishResult = await publishSelectedNews(env.DB, selected, geminiResults);
-  console.log(`[NEWS] Published ${publishResult.published} news`);
+  // ✅ STEP 6: Publish (with Fallback)
+  let publishResult = { published: 0 };
+  try {
+    publishResult = await publishSelectedNews(env.DB, selected, geminiResults);
+    console.log(`[NEWS] Published ${publishResult.published} news`);
+  } catch (error) {
+    console.error("[NEWS] Publish failed:", error?.message || String(error));
+  }
 
-  // ✅ Published IDs — Fallback সহ
+  // ✅ STEP 7: Collect published IDs
   const publishedIds = [];
   for (const article of selected) {
-    const row = await env.DB.prepare(
-      `SELECT id FROM news WHERE id = ? AND status = 'published'`
-    ).bind(article.id).first();
-    if (row?.id) publishedIds.push(row.id);
+    try {
+      const row = await env.DB.prepare(
+        `SELECT id FROM news WHERE id = ? AND status = 'published'`
+      ).bind(article.id).first();
+      if (row?.id) publishedIds.push(row.id);
+    } catch (e) { /* ignore */ }
   }
 
-  // ✅ Batch UPDATE search_text
+  // ✅ STEP 8: Batch UPDATE search_text
   const searchUpdates = [];
   for (const id of publishedIds) {
-    const row = await env.DB.prepare(
-      `SELECT headline, summary, main_topic, category FROM news WHERE id = ? AND status = 'published'`
-    ).bind(id).first();
+    try {
+      const row = await env.DB.prepare(
+        `SELECT headline, summary, main_topic, category FROM news WHERE id = ? AND status = 'published'`
+      ).bind(id).first();
 
-    if (!row) continue;
+      if (!row) continue;
 
-    const searchText = toTransliterated(
-      [row.headline, row.summary, row.main_topic, row.category].filter(Boolean).join(" ")
-    );
+      const searchText = toTransliterated(
+        [row.headline, row.summary, row.main_topic, row.category].filter(Boolean).join(" ")
+      );
 
-    searchUpdates.push(
-      env.DB.prepare(`UPDATE news SET search_text = ? WHERE id = ?`).bind(searchText, id)
-    );
+      searchUpdates.push(
+        env.DB.prepare(`UPDATE news SET search_text = ? WHERE id = ?`).bind(searchText, id)
+      );
+    } catch (e) { /* ignore */ }
   }
+
   if (searchUpdates.length) {
     try {
       await env.DB.batch(searchUpdates);
@@ -355,12 +398,16 @@ async function updateNews(env) {
     }
   }
 
-  // ✅ Indexing এখন scheduled()-এ আলাদা background task-এ চলবে
-  const indexedCount = 0;
+  // ✅ STEP 9: Cleanup old news
+  let cleanupResult = { deleted: 0, total: 0, deletedIds: [] };
+  try {
+    cleanupResult = await enforceNewsLimit(env.DB);
+    console.log(`[NEWS] Cleanup: deleted ${cleanupResult.deleted}, total ${cleanupResult.total}`);
+  } catch (error) {
+    console.error("[NEWS] Cleanup failed:", error?.message || String(error));
+  }
 
-  const cleanupResult = await enforceNewsLimit(env.DB);
-  console.log(`[NEWS] Cleanup: deleted ${cleanupResult.deleted}, total ${cleanupResult.total}`);
-
+  // ✅ STEP 10: Cleanup related data
   for (const id of cleanupResult.deletedIds || []) {
     try {
       await env.DB.prepare(`DELETE FROM news_loves WHERE news_id = ?`).bind(id).run();
@@ -369,11 +416,17 @@ async function updateNews(env) {
   }
 
   return {
-    success: true, fetched: batchResult.totalReceived, inserted: batchResult.totalInserted,
-    candidates: candidates.length, selected: selected.length, published: publishResult.published,
-    deleted: cleanupResult.deleted, indexed: indexedCount, gemini: usedGemini,
+    success: true,
+    fetched: batchResult.totalReceived,
+    inserted: batchResult.totalInserted,
+    candidates: candidates.length,
+    selected: selected.length,
+    published: publishResult.published,
+    deleted: cleanupResult.deleted,
+    indexed: 0,
+    gemini: usedGemini,
     newNewsIds: publishedIds,
-    message: `Update completed. ${publishResult.published} published, ${indexedCount} indexed, ${cleanupResult.deleted} cleaned.`
+    message: `Update completed. ${publishResult.published} published, ${cleanupResult.deleted} cleaned.`
   };
 }
 

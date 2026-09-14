@@ -1,23 +1,23 @@
 /*
- * Gemini news writer — FULLY AUTOMATIC (Free Tier Safe)
+ * Gemini news writer — FULLY AUTOMATIC (Content Quality Optimized)
  *
- * - Auto-discovers all available Flash models
- * - Handles 404 (retired models)
- * - Handles 429 (quota exceeded)
- * - Handles 5xx (server overload)
- * - 45s timeout per model
- * - Lower word limit to reduce rejects
+ * - Auto-discovers Flash models
+ * - 80 words minimum (Free Tier Safe)
+ * - 5-7 sentence structure
+ * - Widely known context expansion (no invention)
+ * - 90s timeout per model
+ * - Parallel batch fallback
  */
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
-// ✅ Free Tier Safe: 100 words minimum
-const MIN_SUMMARY_WORDS = 100;
-const TARGET_SUMMARY_WORDS = 150;
+// ✅ Content Quality Optimized
+const MIN_SUMMARY_WORDS = 80;
+const TARGET_SUMMARY_WORDS = 130;
 
 const MAX_RETRIES_5XX = 3;
 const RETRY_DELAY_5XX_MS = 3000;
-const GEMINI_TIMEOUT_MS = 45000; // ✅ 45 সেকেন্ড
+const GEMINI_TIMEOUT_MS = 90000; // ✅ 90s
 
 const RESPONSE_SCHEMA = {
   type: "ARRAY",
@@ -33,6 +33,9 @@ const RESPONSE_SCHEMA = {
   }
 };
 
+/* =========================================================
+ * Model Discovery
+ * ========================================================= */
 async function discoverModels(apiKey) {
   const listUrl = `${GEMINI_API_BASE}?key=${encodeURIComponent(apiKey)}`;
 
@@ -49,24 +52,19 @@ async function discoverModels(apiKey) {
 
       if (!response.ok) {
         const errText = await response.text().catch(() => "Unknown error");
-
         if ([500, 502, 503, 504].includes(response.status)) {
           lastError = new Error(`ListModels API ${response.status}: ${errText}`);
-          console.warn(`[RETRY ${attempt}/${MAX_RETRIES_5XX}] ListModels ${response.status}`);
-
           if (attempt < MAX_RETRIES_5XX) {
             await new Promise(r => setTimeout(r, RETRY_DELAY_5XX_MS));
             continue;
           }
           throw lastError;
         }
-
         throw new Error(`ListModels API ${response.status}: ${errText}`);
       }
 
       const data = await response.json();
       const allModels = Array.isArray(data?.models) ? data.models : [];
-
       if (!allModels.length) throw new Error("ListModels returned no models.");
 
       const availableModels = allModels
@@ -82,9 +80,7 @@ async function discoverModels(apiKey) {
         .filter(m => /^gemini-\d/.test(m.name))
         .map(m => m.name);
 
-      if (!availableModels.length) {
-        throw new Error("No Flash models available.");
-      }
+      if (!availableModels.length) throw new Error("No Flash models available.");
 
       console.log(`[AUTO] Available Flash models: ${availableModels.join(", ")}`);
 
@@ -106,7 +102,6 @@ async function discoverModels(apiKey) {
     } catch (error) {
       lastError = error;
       if (attempt < MAX_RETRIES_5XX) {
-        console.warn(`[RETRY ${attempt}/${MAX_RETRIES_5XX}] Discovery failed: ${error.message}`);
         await new Promise(r => setTimeout(r, RETRY_DELAY_5XX_MS));
         continue;
       }
@@ -117,12 +112,34 @@ async function discoverModels(apiKey) {
   throw lastError || new Error("Model discovery failed after retries");
 }
 
+/* =========================================================
+ * Main Entry
+ * ========================================================= */
 export async function generateNewsWithGemini(articles, apiKey) {
   if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
   if (!Array.isArray(articles) || articles.length === 0) return [];
 
   const models = await discoverModels(apiKey);
 
+  // ✅ Process in batches of 4 to avoid timeout
+  const BATCH_SIZE = 4;
+  const allResults = [];
+
+  for (let i = 0; i < articles.length; i += BATCH_SIZE) {
+    const batch = articles.slice(i, i + BATCH_SIZE);
+    console.log(`[BATCH] Processing ${i + 1}-${i + batch.length} of ${articles.length}`);
+
+    const batchResults = await processBatch(batch, models, apiKey);
+
+    if (Array.isArray(batchResults)) {
+      allResults.push(...batchResults);
+    }
+  }
+
+  return validateAndCleanResults(allResults, articles);
+}
+
+async function processBatch(articles, models, apiKey) {
   const sourceArticles = articles.map(article => ({
     id: String(article.id),
     title: String(article.source_title || "").trim(),
@@ -130,65 +147,29 @@ export async function generateNewsWithGemini(articles, apiKey) {
     source: String(article.source_name || "").trim(),
     published_at: String(article.published_at || "").trim(),
     category: String(article.category || "general").trim(),
-    language: String(article.language || "en").trim()
+    language: String(article.language || "en").trim(),
+    // ✅ Multiple sources support
+    additional_sources: Array.isArray(article.additional_sources)
+      ? article.additional_sources.map(s => ({
+          title: String(s.source_title || "").trim(),
+          description: String(s.source_description || "").trim(),
+          source: String(s.source_name || "").trim()
+        }))
+      : []
   }));
 
-  const prompt = `
-You are the senior Bengali news editor for Ajker News, an Indian Bengali news website.
-
-PRIMARY AUDIENCE: Bengali readers in India, especially West Bengal.
-
-Your task is to rewrite the supplied source information into detailed, factual Bengali news.
-
-Note: Some sources are in English. You MUST translate and rewrite them into natural Bengali.
-
-COVERAGE PRIORITY:
-1. West Bengal: Kolkata, Bengal government, Bengal politics, Bengal crime, Bengal development, Bengal education, Bengal jobs, Bengal weather, Bengal public-interest news.
-2. India: Indian government, Delhi, Parliament, Prime Minister, Supreme Court, national politics, economy, jobs, education, public-interest events.
-3. Other Indian states.
-4. Major world news affecting India.
-5. Business, Technology, Sports, Entertainment.
-
-CRITICAL LENGTH REQUIREMENT:
-- Each summary MUST be AT LEAST ${MIN_SUMMARY_WORDS} Bengali words.
-- AIM for ${TARGET_SUMMARY_WORDS}-200 Bengali words per summary.
-- Write at least 5-6 sentences per summary.
-- If a summary is UNDER ${MIN_SUMMARY_WORDS} words, it will be REJECTED.
-- 150 Bengali words ≈ 750-900 characters. Count carefully.
-- Write full, detailed paragraphs. Do NOT stop early.
-- Cover WHAT happened, WHO was involved, WHERE, WHEN, WHY it matters, and BACKGROUND context.
-- Add relevant context, implications, and public interest angle.
-
-IMPORTANT RULES:
-1. Use ONLY facts contained in the supplied source data.
-2. Do NOT invent names, numbers, quotes, locations, dates, causes, reactions or other details.
-3. Do NOT add opinions or speculation.
-4. Do NOT copy the source headline word-for-word.
-5. Write natural, clear Bengali suitable for a mobile news website.
-6. Preserve important names, organisations, places, numbers and dates exactly when supported by the source.
-7. Do not mention that AI was used.
-8. Do not use promotional or clickbait language.
-9. Do not create facts merely to reach a word count.
-10. Return one result for every supplied article.
-11. Keep the original article ID unchanged.
-12. The main_topic should be a short Bengali topic label.
-13. Headline should be concise (under 180 characters).
-
-SOURCE ARTICLES:
-
-${JSON.stringify(sourceArticles, null, 2)}
-`;
+  const prompt = buildPrompt(sourceArticles);
 
   let lastError = null;
 
   for (const model of models) {
     try {
-      console.log(`[MODEL] Trying ${model}...`);
+      console.log(`[MODEL] Trying ${model} with ${articles.length} articles...`);
       const results = await callGeminiAPI(model, prompt, apiKey);
 
       if (Array.isArray(results) && results.length > 0) {
-        console.log(`[MODEL] ✅ ${model} succeeded`);
-        return validateAndCleanResults(results, articles);
+        console.log(`[MODEL] ✅ ${model} succeeded (${results.length} results)`);
+        return results;
       }
 
       console.warn(`[MODEL] ${model} returned empty results`);
@@ -197,17 +178,19 @@ ${JSON.stringify(sourceArticles, null, 2)}
       const msg = String(error?.message || "");
 
       if (msg.includes("429")) {
-        console.warn(`[MODEL] ${model} quota exceeded — trying next model`);
+        console.warn(`[MODEL] ${model} quota exceeded`);
         continue;
       }
-
       if (msg.includes("404") || msg.includes("NOT_FOUND")) {
-        console.warn(`[MODEL] ${model} not available (retired) — trying next model`);
+        console.warn(`[MODEL] ${model} retired`);
         continue;
       }
-
       if (msg.includes("503") || msg.includes("500") || msg.includes("502") || msg.includes("504")) {
-        console.warn(`[MODEL] ${model} server error — trying next model`);
+        console.warn(`[MODEL] ${model} server error`);
+        continue;
+      }
+      if (msg.includes("timeout")) {
+        console.warn(`[MODEL] ${model} timed out`);
         continue;
       }
 
@@ -216,9 +199,86 @@ ${JSON.stringify(sourceArticles, null, 2)}
     }
   }
 
-  throw lastError || new Error("All models exhausted");
+  console.warn(`[BATCH] All models failed for batch of ${articles.length}`);
+  return [];
 }
 
+/* =========================================================
+ * Prompt Builder — Content Quality Optimized
+ * ========================================================= */
+function buildPrompt(sourceArticles) {
+  return `You are the senior Bengali news editor for Ajker News, an Indian Bengali news website.
+
+PRIMARY AUDIENCE: Bengali readers in India, especially West Bengal.
+
+TASK: Rewrite the supplied source information into detailed, factual Bengali news.
+
+LANGUAGE: Some sources are in English. You MUST translate and rewrite them into natural Bengali.
+
+=========================================================
+COVERAGE PRIORITY:
+=========================================================
+1. West Bengal: Kolkata, Bengal government, Bengal politics, Bengal crime, Bengal development, Bengal education, Bengal jobs, Bengal weather, Bengal public-interest news.
+2. India: Indian government, Delhi, Parliament, Prime Minister, Supreme Court, national politics, economy, jobs, education, public-interest events.
+3. Other Indian states.
+4. Major world news affecting India.
+5. Business, Technology, Sports, Entertainment.
+
+=========================================================
+CRITICAL LENGTH REQUIREMENT:
+=========================================================
+- Each summary MUST be AT LEAST ${MIN_SUMMARY_WORDS} Bengali words.
+- AIM for ${TARGET_SUMMARY_WORDS}-180 Bengali words per summary.
+- Write 5-7 FULL sentences minimum.
+- If a summary is UNDER ${MIN_SUMMARY_WORDS} words, it will be REJECTED.
+
+=========================================================
+SENTENCE STRUCTURE (MANDATORY):
+=========================================================
+Follow this structure exactly:
+- Sentence 1: WHAT happened (main event)
+- Sentence 2: WHO was involved + WHERE + WHEN (if available in source)
+- Sentence 3: WHY it matters (background context)
+- Sentence 4-5: Implications / public interest angle
+- Sentence 6-7: Additional facts from source
+
+=========================================================
+HANDLING SHORT SOURCES:
+=========================================================
+If the source description is short (under 200 characters):
+- Expand using WIDELY KNOWN context about the topic.
+- DO NOT invent specific names, numbers, quotes, or dates.
+- Focus on WHAT and WHY using general knowledge.
+- Never fabricate details that are not in the source.
+
+=========================================================
+IMPORTANT RULES:
+=========================================================
+1. Use ONLY facts from the supplied source data.
+2. Do NOT invent names, numbers, quotes, locations, dates, causes, reactions.
+3. Do NOT add opinions or speculation.
+4. Do NOT copy the source headline word-for-word.
+5. Write natural, clear Bengali suitable for mobile.
+6. Preserve important names, organisations, places, numbers, dates.
+7. Do not mention AI.
+8. No promotional or clickbait language.
+9. Do not create facts merely to reach word count.
+10. Return one result for EVERY supplied article.
+11. Keep the original article ID unchanged.
+12. main_topic = short Bengali topic label.
+13. Headline = under 180 characters.
+14. If "additional_sources" is provided, use them to enrich the story with more facts.
+
+=========================================================
+SOURCE ARTICLES:
+=========================================================
+${JSON.stringify(sourceArticles, null, 2)}
+`;
+}
+
+/* =========================================================
+ * Gemini API Call
+ * ========================================================= */
 async function callGeminiAPI(model, prompt, apiKey) {
   const endpoint = `${GEMINI_API_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
@@ -226,7 +286,6 @@ async function callGeminiAPI(model, prompt, apiKey) {
 
   for (let attempt = 1; attempt <= MAX_RETRIES_5XX; attempt++) {
     try {
-      // ✅ 45s timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
 
@@ -274,8 +333,6 @@ async function callGeminiAPI(model, prompt, apiKey) {
         const errText = await response.text().catch(() => "");
         lastError = new Error(`Gemini API ${response.status}: ${errText}`);
 
-        console.warn(`[RETRY ${attempt}/${MAX_RETRIES_5XX}] ${model} ${response.status}`);
-
         if (attempt < MAX_RETRIES_5XX) {
           await new Promise(r => setTimeout(r, RETRY_DELAY_5XX_MS));
           continue;
@@ -289,7 +346,6 @@ async function callGeminiAPI(model, prompt, apiKey) {
     } catch (error) {
       const msg = String(error?.message || "");
 
-      // ✅ AbortError handle
       if (error.name === "AbortError") {
         console.error(`[MODEL] ${model} timed out after ${GEMINI_TIMEOUT_MS}ms`);
         throw new Error(`Gemini timeout: ${model}`);
@@ -305,7 +361,6 @@ async function callGeminiAPI(model, prompt, apiKey) {
         !msg.includes("not an array") &&
         !msg.includes("timeout")
       ) {
-        console.warn(`[RETRY ${attempt}/${MAX_RETRIES_5XX}] Network error: ${msg}`);
         lastError = error;
         await new Promise(r => setTimeout(r, RETRY_DELAY_5XX_MS));
         continue;
@@ -317,6 +372,9 @@ async function callGeminiAPI(model, prompt, apiKey) {
   throw lastError || new Error("Gemini call failed after retries");
 }
 
+/* =========================================================
+ * Validation
+ * ========================================================= */
 function validateAndCleanResults(results, originalArticles) {
   return results
     .map(result => validateGeminiResult(result, originalArticles))
@@ -348,21 +406,20 @@ function validateGeminiResult(result, originalArticles) {
   if (headline.length > 180) return null;
   if (summary.length > 2500) return null;
 
-  return {
-    id,
-    headline,
-    summary,
-    main_topic: mainTopic
-  };
+  return { id, headline, summary, main_topic: mainTopic };
 }
 
 function cleanText(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
+/* =========================================================
+ * Public API
+ * ========================================================= */
 export async function processSelectedNews(articles, apiKey) {
   if (!Array.isArray(articles) || articles.length === 0) return [];
-  const limitedArticles = articles.slice(0, 25);
+  // ✅ Max 6 articles per call (batched internally)
+  const limitedArticles = articles.slice(0, 6);
   return await generateNewsWithGemini(limitedArticles, apiKey);
 }
 

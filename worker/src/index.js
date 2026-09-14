@@ -1,7 +1,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v13 — 4-Cron Architecture + Parallel Fetch
+ * FINAL v14 — 4-Cron + Dynamic Sitemaps + Parallel Fetch
  * Free Tier Safe + Fast Indexing + AdSense Ready
  * =========================================================
  */
@@ -82,6 +82,25 @@ export default {
         });
       }
 
+      // ✅ Robots.txt (Dynamic)
+      if (url.pathname === "/robots.txt") {
+        return generateRobotsTxt();
+      }
+
+      // ✅ Sitemap (Dynamic — সব Published খবর)
+      if (url.pathname === "/sitemap.xml") {
+        return await generateSitemap(env);
+      }
+
+      // ✅ News Sitemap (Dynamic — শেষ ৪৮ ঘণ্টার খবর)
+      if (url.pathname === "/news-sitemap.xml") {
+        return await generateNewsSitemap(env);
+      }
+
+      if (url.pathname === "/rss.xml") {
+        return await generateRSS(env);
+      }
+
       if (url.pathname.startsWith("/go/")) {
         const id = url.pathname.split("/")[2];
         if (!id) return new Response("Invalid link", { status: 400 });
@@ -94,18 +113,6 @@ export default {
 
       if (url.pathname === "/news" && url.searchParams.has("id")) {
         return await serveNewsPage(url, env, request);
-      }
-
-      if (url.pathname === "/sitemap.xml") {
-        return await generateSitemap(env);
-      }
-
-      if (url.pathname === "/news-sitemap.xml") {
-        return await generateNewsSitemap(env);
-      }
-
-      if (url.pathname === "/rss.xml") {
-        return await generateRSS(env);
       }
 
       if (url.pathname === "/api/news") {
@@ -229,7 +236,6 @@ export default {
     try {
       /* =========================================================
        * ✅ Cron 1: 0 * * * * — News Pipeline
-       * Fetch GNews + Gemini + Publish + Push Notification
        * ========================================================= */
       if (cron === "0 * * * *") {
         let result;
@@ -241,7 +247,6 @@ export default {
           return;
         }
 
-        // Push Notifications (background)
         if (result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
           ctx.waitUntil(
             queueAndSendPushNotifications(env, result.newNewsIds).catch(error => {
@@ -262,7 +267,6 @@ export default {
 
       /* =========================================================
        * ✅ Cron 2: 15 * * * * — Google Indexing (Fast)
-       * শেষ ২ ঘণ্টার Unindexed খবর Google-এ Submit
        * ========================================================= */
       if (cron === "15 * * * *") {
         if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) {
@@ -290,14 +294,8 @@ export default {
           const indexResult = await submitToGoogleIndexing(env, ids);
           console.log(`[CRON-INDEX] ${indexResult.submitted}/${indexResult.total} submitted`);
 
-          // ✅ Mark successfully submitted URLs
-          const successIds = [];
-          for (const id of ids) {
-            successIds.push(id);
-          }
-
-          if (successIds.length) {
-            const updates = successIds.map(id =>
+          if (ids.length) {
+            const updates = ids.map(id =>
               env.DB.prepare(`UPDATE news SET indexed_at = ? WHERE id = ?`)
                 .bind(new Date().toISOString(), id)
             );
@@ -315,7 +313,6 @@ export default {
        * ✅ Cron 3: 35 * * * * — Retry Indexing + Push Retry
        * ========================================================= */
       if (cron === "35 * * * *") {
-        // Retry failed indexing (শেষ ২৪ ঘণ্টার unindexed)
         if (env.GOOGLE_SERVICE_ACCOUNT_JSON) {
           try {
             const failed = await env.DB.prepare(
@@ -333,20 +330,17 @@ export default {
               const retryResult = await submitToGoogleIndexing(env, ids);
               console.log(`[CRON-RETRY] Indexing: ${retryResult.submitted}/${retryResult.total}`);
 
-              if (ids.length) {
-                const updates = ids.map(id =>
-                  env.DB.prepare(`UPDATE news SET indexed_at = ? WHERE id = ?`)
-                    .bind(new Date().toISOString(), id)
-                );
-                await env.DB.batch(updates);
-              }
+              const updates = ids.map(id =>
+                env.DB.prepare(`UPDATE news SET indexed_at = ? WHERE id = ?`)
+                  .bind(new Date().toISOString(), id)
+              );
+              await env.DB.batch(updates);
             }
           } catch (error) {
             console.error("[CRON-RETRY] Indexing error:", error?.message || String(error));
           }
         }
 
-        // Push Retry
         try {
           await sendPendingPushNotifications(env);
           console.log("[CRON-RETRY] Push retry done");
@@ -362,7 +356,6 @@ export default {
        * ✅ Cron 4: 50 * * * * — Cleanup + Sitemap Ping
        * ========================================================= */
       if (cron === "50 * * * *") {
-        // Expired Push Cleanup
         try {
           await cleanExpiredPushNotifications(env);
           console.log("[CRON-CLEAN] Expired push cleaned");
@@ -370,7 +363,6 @@ export default {
           console.error("[CRON-CLEAN] Push cleanup failed:", error?.message || String(error));
         }
 
-        // News Cleanup — every 6 hours
         const currentHour = new Date().getUTCHours();
         if ([0, 6, 12, 18].includes(currentHour)) {
           try {
@@ -381,7 +373,6 @@ export default {
           }
         }
 
-        // Sitemap Ping — Google + Bing
         try {
           await pingSitemaps(env);
           console.log("[CRON-CLEAN] Sitemap pings sent");
@@ -404,12 +395,10 @@ export default {
 /* =========================================================
  * NEWS UPDATE PIPELINE
  * ========================================================= */
-
 async function updateNews(env) {
   if (!env.DB) throw new Error("D1 binding DB is missing");
   if (!env.GNEWS_API_KEY) throw new Error("GNEWS_API_KEY secret is missing");
 
-  // ✅ STEP 1: Fetch GNews (Parallel)
   let batchResult = { batches: [], totalReceived: 0, totalInserted: 0 };
   try {
     batchResult = await runGNewsBatch(env.DB, env.GNEWS_API_KEY);
@@ -423,7 +412,6 @@ async function updateNews(env) {
     };
   }
 
-  // ✅ STEP 2: Load candidates
   let candidates = [];
   try {
     const candidatesResult = await env.DB.prepare(
@@ -447,7 +435,6 @@ async function updateNews(env) {
     };
   }
 
-  // ✅ STEP 3: Load existing published
   let existingPublished = [];
   try {
     const publishedResult = await env.DB.prepare(
@@ -458,7 +445,6 @@ async function updateNews(env) {
     console.warn("[NEWS] Existing published fetch failed:", error?.message || String(error));
   }
 
-  // ✅ STEP 4: Select best candidates
   let selected = [];
   try {
     selected = selectBestCandidates(candidates, existingPublished);
@@ -479,7 +465,6 @@ async function updateNews(env) {
     };
   }
 
-  // ✅ STEP 5: Gemini processing
   let geminiResults = [];
   let usedGemini = false;
   if (env.GEMINI_API_KEY) {
@@ -503,7 +488,6 @@ async function updateNews(env) {
     }
   }
 
-  // ✅ STEP 6: Publish (with Fallback)
   let publishResult = { published: 0 };
   try {
     publishResult = await publishSelectedNews(env.DB, selected, geminiResults);
@@ -512,7 +496,6 @@ async function updateNews(env) {
     console.error("[NEWS] Publish failed:", error?.message || String(error));
   }
 
-  // ✅ STEP 7: Collect published IDs
   const publishedIds = [];
   for (const article of selected) {
     try {
@@ -523,7 +506,6 @@ async function updateNews(env) {
     } catch (e) { /* ignore */ }
   }
 
-  // ✅ STEP 8: Batch UPDATE search_text
   const searchUpdates = [];
   for (const id of publishedIds) {
     try {
@@ -551,7 +533,6 @@ async function updateNews(env) {
     }
   }
 
-  // ✅ STEP 9: Cleanup
   let cleanupResult = { deleted: 0, total: 0, deletedIds: [] };
   try {
     cleanupResult = await enforceNewsLimit(env.DB);
@@ -1471,69 +1452,152 @@ async function getGoogleAccessToken(env) {
 }
 
 /* =========================================================
- * SITEMAP + NEWS SITEMAP + RSS
+ * ✅ DYNAMIC SITEMAP — All Published News
  * ========================================================= */
 async function generateSitemap(env) {
-  const result = await env.DB.prepare(`SELECT id, created_at FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT ?`).bind(MAX_NEWS).all();
-  const news = result.results || [];
-  const baseUrl = "https://ajkernews.in";
+  try {
+    const result = await env.DB.prepare(
+      `SELECT id, created_at FROM news 
+       WHERE status = 'published' 
+       ORDER BY created_at DESC 
+       LIMIT ?`
+    ).bind(MAX_NEWS).all();
 
-  let xml = `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${baseUrl}/</loc><changefreq>hourly</changefreq><priority>1.0</priority></url>`;
+    const news = result.results || [];
+    const baseUrl = "https://ajkernews.in";
 
-  for (const item of news) {
-    const lastmod = item.created_at ? item.created_at.split("T")[0] : new Date().toISOString().split("T")[0];
-    xml += `<url><loc>${baseUrl}/?id=${encodeURIComponent(item.id)}</loc><lastmod>${lastmod}</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>`;
-  }
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>${baseUrl}/</loc>
+    <changefreq>hourly</changefreq>
+    <priority>1.0</priority>
+  </url>`;
 
-  xml += `</urlset>`;
+    for (const item of news) {
+      const lastmod = item.created_at 
+        ? item.created_at.split("T")[0] 
+        : new Date().toISOString().split("T")[0];
 
-  return new Response(xml, {
-    status: 200,
-    headers: {
-      "Content-Type": "application/xml",
-      "Cache-Control": "public, max-age=3600",
-      ...corsHeaders()
+      xml += `
+  <url>
+    <loc>${baseUrl}/?id=${encodeURIComponent(item.id)}</loc>
+    <lastmod>${lastmod}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>`;
     }
-  });
+
+    xml += `\n</urlset>`;
+
+    console.log(`[SITEMAP] Generated with ${news.length} URLs`);
+
+    return new Response(xml, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/xml; charset=UTF-8",
+        "Cache-Control": "public, max-age=3600, s-maxage=3600",
+        ...corsHeaders()
+      }
+    });
+  } catch (error) {
+    console.error("[SITEMAP] Error:", error?.message || String(error));
+    return new Response(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://ajkernews.in/</loc></url>
+</urlset>`, {
+      status: 200,
+      headers: { "Content-Type": "application/xml; charset=UTF-8" }
+    });
+  }
 }
 
+/* =========================================================
+ * ✅ GOOGLE NEWS SITEMAP — শেষ ৪৮ ঘণ্টার খবর
+ * ========================================================= */
 async function generateNewsSitemap(env) {
-  const result = await env.DB.prepare(
-    `SELECT id, headline, published_at FROM news
-     WHERE status='published'
-       AND published_at >= datetime('now','-2 days')
-     ORDER BY published_at DESC LIMIT 1000`
-  ).all();
-  const news = result.results || [];
-  const base = "https://ajkernews.in";
+  try {
+    const result = await env.DB.prepare(
+      `SELECT id, headline, published_at FROM news
+       WHERE status = 'published'
+         AND published_at >= datetime('now', '-2 days')
+       ORDER BY published_at DESC
+       LIMIT 1000`
+    ).all();
 
-  let xml = `<?xml version="1.0" encoding="UTF-8"?>
+    const news = result.results || [];
+    const base = "https://ajkernews.in";
+
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
         xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">`;
 
-  for (const n of news) {
-    xml += `<url>
-  <loc>${base}/?id=${encodeURIComponent(n.id)}</loc>
-  <news:news>
-    <news:publication>
-      <news:name>Ajker News</news:name>
-      <news:language>bn</news:language>
-    </news:publication>
-    <news:publication_date>${escapeHtml(n.published_at)}</news:publication_date>
-    <news:title>${escapeHtml(n.headline)}</news:title>
-  </news:news>
-</url>`;
-  }
-  xml += `</urlset>`;
+    for (const n of news) {
+      const publishedAt = n.published_at 
+        ? new Date(n.published_at).toISOString() 
+        : new Date().toISOString();
 
-  return new Response(xml, {
+      xml += `
+  <url>
+    <loc>${base}/?id=${encodeURIComponent(n.id)}</loc>
+    <news:news>
+      <news:publication>
+        <news:name>Ajker News</news:name>
+        <news:language>bn</news:language>
+      </news:publication>
+      <news:publication_date>${publishedAt}</news:publication_date>
+      <news:title>${escapeHtml(n.headline || "News")}</news:title>
+    </news:news>
+  </url>`;
+    }
+
+    xml += `\n</urlset>`;
+
+    console.log(`[NEWS-SITEMAP] Generated with ${news.length} URLs`);
+
+    return new Response(xml, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/xml; charset=UTF-8",
+        "Cache-Control": "public, max-age=600, s-maxage=1800",
+        ...corsHeaders()
+      }
+    });
+  } catch (error) {
+    console.error("[NEWS-SITEMAP] Error:", error?.message || String(error));
+    return new Response(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">
+</urlset>`, {
+      status: 200,
+      headers: { "Content-Type": "application/xml; charset=UTF-8" }
+    });
+  }
+}
+
+/* =========================================================
+ * ✅ ROBOTS.TXT — Dynamic
+ * ========================================================= */
+function generateRobotsTxt() {
+  const text = `User-agent: *
+Allow: /
+
+Sitemap: https://ajkernews.in/sitemap.xml
+Sitemap: https://ajkernews.in/news-sitemap.xml
+`;
+
+  return new Response(text, {
+    status: 200,
     headers: {
-      "Content-Type": "application/xml; charset=UTF-8",
-      "Cache-Control": "public, max-age=600, s-maxage=1800"
+      "Content-Type": "text/plain; charset=UTF-8",
+      "Cache-Control": "public, max-age=3600, s-maxage=3600"
     }
   });
 }
 
+/* =========================================================
+ * RSS FEED
+ * ========================================================= */
 async function generateRSS(env) {
   const result = await env.DB.prepare(
     `SELECT id, headline, summary, published_at, image_url, source_name

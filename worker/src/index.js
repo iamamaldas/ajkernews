@@ -1,7 +1,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v9 — Assets + Bot SSR + Google Indexing API
+ * FINAL v10 — Assets + Bot SSR + Google Indexing API
  * =========================================================
  */
 
@@ -59,7 +59,6 @@ export default {
       const userAgent = request.headers.get("User-Agent") || "";
       const isBot = BOT_REGEX.test(userAgent);
 
-      // ✅ Bot homepage (no id) vs bot article (?id=)
       if (url.pathname === "/" && request.method === "GET" && isBot) {
         const articleId = url.searchParams.get("id");
         if (articleId) {
@@ -123,6 +122,12 @@ export default {
               console.error("Push queue error:", error?.message || String(error))
             )
           );
+        } else {
+          ctx.waitUntil(
+            sendPendingPushNotifications(env).catch(error =>
+              console.error("Pending push error:", error?.message || String(error))
+            )
+          );
         }
         return json(result, 200, 0);
       }
@@ -154,7 +159,6 @@ export default {
         return await handlePushSync(request, env);
       }
 
-      // ✅ Human non-API routes → Cloudflare Assets (index.html, sw.js, logo.png, pages/*)
       if (env.ASSETS) {
         return env.ASSETS.fetch(request);
       }
@@ -183,6 +187,13 @@ export default {
           })
         );
       }
+
+      // ✅ সবসময় pending পুশ পাঠান (নতুন খবর না থাকলেও)
+      ctx.waitUntil(
+        sendPendingPushNotifications(env).catch(error => {
+          console.error("Pending push send error:", error?.message || String(error));
+        })
+      );
 
       ctx.waitUntil(
         cleanExpiredPushNotifications(env).catch(error => {
@@ -493,7 +504,7 @@ async function serveBotHomepage(env) {
 }
 
 /* =========================================================
- * BOT ARTICLE PAGE — Google/Bing সরাসরি article পড়বে
+ * BOT ARTICLE PAGE
  * ========================================================= */
 async function serveBotArticlePage(id, env) {
   const safeId = String(id || "").trim();
@@ -1051,7 +1062,7 @@ async function getComments(url, env) {
   if (!id) return json({ error: "Missing id" }, 400, 0);
 
   const result = await env.DB.prepare(`SELECT id, author_name, comment_text, created_at FROM news_comments WHERE news_id = ? ORDER BY created_at ASC`).bind(id).all();
-  return json({ comments: result.results || [] }, 200, 30);
+  return json({ comments: result.results || [] }, 200, 0);
 }
 
 async function addComment(request, env) {

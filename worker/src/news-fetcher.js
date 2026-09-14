@@ -5,6 +5,7 @@
  * - en: search with English keywords → English West Bengal news
  * - 15s timeout per API call
  * - 2 retries with 2s delay
+ * - ✅ Parallel fetch (bn + en একসাথে)
  */
 
 import { insertCandidate } from "./database.js";
@@ -232,39 +233,47 @@ export async function storeGNewsCandidates(db, articles, language, keywordSetId 
   return { received: articles.length, inserted, skipped };
 }
 
+/*
+ * ✅ Parallel Fetch — bn এবং en একসাথে (৫-৭s সাশ্রয়)
+ */
 export async function runGNewsBatch(db, apiKey, scheduledTime = Date.now()) {
   const keywordSet = getKeywordSetForSlot(scheduledTime);
-  console.log(`[FETCH] Keyword set for this slot: ${keywordSet.id}`);
+  console.log(`[FETCH] Keyword set: ${keywordSet.id}`);
 
-  const results = [];
+  // ✅ Parallel: bn + en একসাথে fetch
+  const [bnSettled, enSettled] = await Promise.allSettled([
+    (async () => {
+      const articles = await fetchGNewsBengali(apiKey);
+      return await storeGNewsCandidates(db, articles, "bn", keywordSet.id);
+    })(),
+    (async () => {
+      const articles = await fetchGNewsEnglish(apiKey, keywordSet);
+      return await storeGNewsCandidates(db, articles, "en", keywordSet.id);
+    })()
+  ]);
 
-  try {
-    const bnArticles = await fetchGNewsBengali(apiKey);
-    const bnResult = await storeGNewsCandidates(db, bnArticles, "bn", keywordSet.id);
-    console.log(`[FETCH] lang=bn received=${bnResult.received} inserted=${bnResult.inserted}`);
-    results.push({ language: "bn", ...bnResult });
-  } catch (error) {
-    console.error(`[FETCH] GNews bn failed:`, error?.message || String(error));
-    results.push({ language: "bn", received: 0, inserted: 0, skipped: 0, error: error?.message });
+  const bnResult = bnSettled.status === "fulfilled"
+    ? { language: "bn", ...bnSettled.value }
+    : { language: "bn", received: 0, inserted: 0, skipped: 0, error: bnSettled.reason?.message };
+
+  const enResult = enSettled.status === "fulfilled"
+    ? { language: "en", ...enSettled.value }
+    : { language: "en", received: 0, inserted: 0, skipped: 0, error: enSettled.reason?.message };
+
+  if (bnSettled.status === "rejected") {
+    console.error(`[FETCH] bn failed:`, bnSettled.reason?.message || String(bnSettled.reason));
+  }
+  if (enSettled.status === "rejected") {
+    console.error(`[FETCH] en failed:`, enSettled.reason?.message || String(enSettled.reason));
   }
 
-  await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_CALLS_MS));
-
-  try {
-    const enArticles = await fetchGNewsEnglish(apiKey, keywordSet);
-    const enResult = await storeGNewsCandidates(db, enArticles, "en", keywordSet.id);
-    console.log(`[FETCH] lang=en received=${enResult.received} inserted=${enResult.inserted}`);
-    results.push({ language: "en", ...enResult });
-  } catch (error) {
-    console.error(`[FETCH] GNews en failed:`, error?.message || String(error));
-    results.push({ language: "en", received: 0, inserted: 0, skipped: 0, error: error?.message });
-  }
+  console.log(`[FETCH] bn=${bnResult.inserted} en=${enResult.inserted}`);
 
   return {
     keywordSet: keywordSet.id,
-    batches: results,
-    totalReceived: results.reduce((sum, r) => sum + (r.received || 0), 0),
-    totalInserted: results.reduce((sum, r) => sum + (r.inserted || 0), 0)
+    batches: [bnResult, enResult],
+    totalReceived: (bnResult.received || 0) + (enResult.received || 0),
+    totalInserted: (bnResult.inserted || 0) + (enResult.inserted || 0)
   };
 }
 

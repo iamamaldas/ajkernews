@@ -2,11 +2,13 @@
  * GNews fetcher — Hybrid approach (Free Tier Safe)
  *
  * - bn: top-headlines (NO keyword) → ALL Bengali news
- * - en: search with English keywords → English West Bengal news
+ * - en: search with English keywords → Top media + trending
  * - 15s timeout per API call
  * - 2 retries with 2s delay
  * - ✅ Parallel fetch (bn + en একসাথে)
  * - ✅ 429 Rate Limit → Stop retrying immediately
+ * - ✅ Quality filter before storing
+ * - ✅ Top media priority
  */
 
 import { insertCandidate } from "./database.js";
@@ -16,31 +18,45 @@ const GNEWS_TOP_HEADLINES_URL = "https://gnews.io/api/v4/top-headlines";
 const GNEWS_SEARCH_URL = "https://gnews.io/api/v4/search";
 
 const MAX_PER_LANGUAGE = 10;
-const DELAY_BETWEEN_CALLS_MS = 1000;
-const GNEWS_TIMEOUT_MS = 15000; // ✅ 15s
+const GNEWS_TIMEOUT_MS = 15000;
 const GNEWS_RETRY_DELAY_MS = 2000;
 
+// ✅ Quality filter thresholds
+const MIN_TITLE_LENGTH = 30;
+const MIN_DESCRIPTION_LENGTH = 80;
+
+/* =========================================================
+ * ✅ NEW KEYWORD SETS — Top Media Priority
+ * ========================================================= */
 const KEYWORD_SETS = [
   {
-    id: "wb-local",
-    en: "Kolkata OR Howrah OR Durgapur OR Asansol OR Siliguri OR Darjeeling"
+    id: "top-media",
+    en: `"ABP Ananda" OR "Aaj Tak" OR "Times of India" OR "TV9 Bangla" OR "The Hindu" OR "NDTV" OR "Hindustan Times" OR "Indian Express" OR "Anandabazar" OR "Bartaman" OR "Ei Samay" OR "News18 Bangla"`
   },
   {
-    id: "wb-schemes",
-    en: "West Bengal scheme OR Annapurna Bhandar OR Lakshmir Bhandar OR Kanyashree"
+    id: "wb-breaking",
+    en: `"West Bengal breaking" OR "Kolkata breaking" OR "Bengal government" OR "Kolkata police" OR "TMC" OR "BJP Bengal" OR "Bengal crime"`
   },
   {
-    id: "wb-politics",
-    en: "West Bengal politics OR Bengal government OR Bengal crime OR Bengal education"
+    id: "india-trending",
+    en: `"India trending" OR "viral news India" OR "breaking India" OR "Supreme Court India" OR "Parliament India" OR "Indian economy"`
   },
   {
-    id: "wb-general",
-    en: "West Bengal OR Kolkata news OR Bengal local OR Bengal district"
+    id: "international",
+    en: `"World news" OR "International breaking" OR "Global news" OR "US news" OR "UK news" OR "Reuters" OR "BBC" OR "Al Jazeera"`
+  },
+  {
+    id: "national-media",
+    en: `"India Today" OR "Economic Times" OR "Livemint" OR "Business Standard" OR "Zee News" OR "Republic" OR "Firstpost" OR "Telegraph India"`
+  },
+  {
+    id: "trending-viral",
+    en: `"viral video" OR "trending now" OR "breaking news" OR "big announcement" OR "emergency news"`
   }
 ];
 
 function getKeywordSetForSlot(scheduledTime = Date.now()) {
-  const slot = Math.floor(scheduledTime / (2 * 60 * 60 * 1000));
+  const slot = Math.floor(scheduledTime / (1 * 60 * 60 * 1000)); // ✅ প্রতি ঘণ্টায় রোটেট
   const index = slot % KEYWORD_SETS.length;
   return KEYWORD_SETS[index];
 }
@@ -66,13 +82,11 @@ async function fetchWithTimeoutAndRetry(url, options = {}, timeoutMs = GNEWS_TIM
         clearTimeout(timeoutId);
       }
 
-      // ✅ 429 (Rate Limit) হলে সাথে সাথে বন্ধ করুন, রিট্রাই করবেন না
       if (response.status === 429) {
         console.warn(`[FETCH] 429 Rate Limit Hit. Stopping retries to save quota.`);
         return response;
       }
 
-      // ✅ 401, 403 (Auth Issues) → Retry করবেন না
       if (response.status === 401 || response.status === 403) {
         console.warn(`[FETCH] ${response.status} Auth Error. Stopping retries.`);
         return response;
@@ -209,13 +223,29 @@ export function normalizeGNewsArticle(article, language, keywordSetId = "general
 
   if (!sourceUrl || !title) return null;
 
-  const score = calculateInitialScore(language, publishedAt, keywordSetId);
+  // ✅ Quality filter — কম কোয়ালিটির নিউজ বাদ
+  if (title.length < MIN_TITLE_LENGTH) {
+    console.log(`[FILTER] Title too short: ${title.slice(0, 40)}...`);
+    return null;
+  }
+  if (description.length < MIN_DESCRIPTION_LENGTH) {
+    console.log(`[FILTER] Description too short: ${title.slice(0, 40)}...`);
+    return null;
+  }
+  if (sourceName.toLowerCase().includes("unknown")) {
+    console.log(`[FILTER] Unknown source: ${title.slice(0, 40)}...`);
+    return null;
+  }
+
+  const score = calculateInitialScore(language, publishedAt, keywordSetId, title, description);
 
   const categoryMap = {
-    "wb-local": "west_bengal",
-    "wb-schemes": "west_bengal",
-    "wb-politics": "politics",
-    "wb-general": "west_bengal"
+    "top-media": "general",
+    "wb-breaking": "west_bengal",
+    "india-trending": "india",
+    "international": "world",
+    "national-media": "india",
+    "trending-viral": "trending"
   };
 
   return {
@@ -227,7 +257,7 @@ export function normalizeGNewsArticle(article, language, keywordSetId = "general
     headline: null,
     summary: null,
     main_topic: null,
-    category: categoryMap[keywordSetId] || "west_bengal",
+    category: categoryMap[keywordSetId] || "general",
     language,
     image_url: image || null,
     published_at: publishedAt,
@@ -267,7 +297,6 @@ export async function runGNewsBatch(db, apiKey, scheduledTime = Date.now()) {
   const keywordSet = getKeywordSetForSlot(scheduledTime);
   console.log(`[FETCH] Keyword set: ${keywordSet.id}`);
 
-  // ✅ Parallel: bn + en একসাথে fetch
   const [bnSettled, enSettled] = await Promise.allSettled([
     (async () => {
       const articles = await fetchGNewsBengali(apiKey);
@@ -307,18 +336,28 @@ export async function runGNewsBatch(db, apiKey, scheduledTime = Date.now()) {
 /* =========================================================
  * Initial Score Calculator
  * ========================================================= */
-function calculateInitialScore(language, publishedAt, keywordSetId) {
+function calculateInitialScore(language, publishedAt, keywordSetId, title = "", description = "") {
   const languageBase = language === "bn" ? 12 : 10;
 
   const categoryBoost =
-    keywordSetId === "wb-local" ? 5 :
-    keywordSetId === "wb-schemes" ? 3 :
-    keywordSetId === "wb-general" ? 3 :
+    keywordSetId === "top-media" ? 8 :
+    keywordSetId === "wb-breaking" ? 6 :
+    keywordSetId === "india-trending" ? 5 :
+    keywordSetId === "international" ? 4 :
+    keywordSetId === "national-media" ? 5 :
+    keywordSetId === "trending-viral" ? 7 :
     0;
 
   const published = new Date(publishedAt).getTime();
   const ageHours = Math.max(0, (Date.now() - published) / (1000 * 60 * 60));
   const freshness = Math.max(0, 10 - Math.min(ageHours, 10));
 
-  return Number((languageBase + categoryBoost + freshness).toFixed(2));
+  // ✅ Title/Description এ trending/viral শব্দ থাকলে বাড়তি স্কোর
+  let viralBonus = 0;
+  const combined = (title + " " + description).toLowerCase();
+  if (combined.includes("breaking") || combined.includes("viral") || combined.includes("trending")) {
+    viralBonus = 8;
+  }
+
+  return Number((languageBase + categoryBoost + freshness + viralBonus).toFixed(2));
 }

@@ -1,20 +1,23 @@
 /*
- * Gemini news writer — FULLY AUTOMATIC
+ * Gemini news writer — FULLY AUTOMATIC (Free Tier Safe)
  *
  * - Auto-discovers all available Flash models
  * - Handles 404 (retired models)
  * - Handles 429 (quota exceeded)
  * - Handles 5xx (server overload)
- * - Future-proof: new models auto-added, old models auto-removed
+ * - 45s timeout per model
+ * - Lower word limit to reduce rejects
  */
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
-const MIN_SUMMARY_WORDS = 150;
-const TARGET_SUMMARY_WORDS = 180;
+// ✅ Free Tier Safe: 100 words minimum
+const MIN_SUMMARY_WORDS = 100;
+const TARGET_SUMMARY_WORDS = 150;
 
 const MAX_RETRIES_5XX = 3;
 const RETRY_DELAY_5XX_MS = 3000;
+const GEMINI_TIMEOUT_MS = 45000; // ✅ 45 সেকেন্ড
 
 const RESPONSE_SCHEMA = {
   type: "ARRAY",
@@ -30,14 +33,6 @@ const RESPONSE_SCHEMA = {
   }
 };
 
-/*
- * Discover all available Flash models from Google.
- * Sorted newest first.
- *
- * No hardcoded list — Google decides which models exist.
- * Retired models auto-disappear from the list.
- * New models auto-appear.
- */
 async function discoverModels(apiKey) {
   const listUrl = `${GEMINI_API_BASE}?key=${encodeURIComponent(apiKey)}`;
 
@@ -93,7 +88,6 @@ async function discoverModels(apiKey) {
 
       console.log(`[AUTO] Available Flash models: ${availableModels.join(", ")}`);
 
-      // Sort newest first
       const versionRegex = /^gemini-(\d+)(?:\.(\d+))?/;
       availableModels.sort((a, b) => {
         const ma = a.match(versionRegex);
@@ -157,9 +151,10 @@ COVERAGE PRIORITY:
 
 CRITICAL LENGTH REQUIREMENT:
 - Each summary MUST be AT LEAST ${MIN_SUMMARY_WORDS} Bengali words.
-- AIM for ${TARGET_SUMMARY_WORDS}-220 Bengali words per summary.
+- AIM for ${TARGET_SUMMARY_WORDS}-200 Bengali words per summary.
+- Write at least 5-6 sentences per summary.
 - If a summary is UNDER ${MIN_SUMMARY_WORDS} words, it will be REJECTED.
-- 180 Bengali words ≈ 900-1100 characters. Count carefully.
+- 150 Bengali words ≈ 750-900 characters. Count carefully.
 - Write full, detailed paragraphs. Do NOT stop early.
 - Cover WHAT happened, WHO was involved, WHERE, WHEN, WHY it matters, and BACKGROUND context.
 - Add relevant context, implications, and public interest angle.
@@ -231,19 +226,29 @@ async function callGeminiAPI(model, prompt, apiKey) {
 
   for (let attempt = 1; attempt <= MAX_RETRIES_5XX; attempt++) {
     try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.2,
-            responseMimeType: "application/json",
-            responseSchema: RESPONSE_SCHEMA,
-            maxOutputTokens: 16000
-          }
-        })
-      });
+      // ✅ 45s timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+
+      let response;
+      try {
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.2,
+              responseMimeType: "application/json",
+              responseSchema: RESPONSE_SCHEMA,
+              maxOutputTokens: 16000
+            }
+          }),
+          signal: controller.signal
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (response.ok) {
         const data = await response.json();
@@ -284,6 +289,12 @@ async function callGeminiAPI(model, prompt, apiKey) {
     } catch (error) {
       const msg = String(error?.message || "");
 
+      // ✅ AbortError handle
+      if (error.name === "AbortError") {
+        console.error(`[MODEL] ${model} timed out after ${GEMINI_TIMEOUT_MS}ms`);
+        throw new Error(`Gemini timeout: ${model}`);
+      }
+
       if (
         attempt < MAX_RETRIES_5XX &&
         !msg.includes("429") &&
@@ -291,7 +302,8 @@ async function callGeminiAPI(model, prompt, apiKey) {
         !msg.includes("NOT_FOUND") &&
         !msg.includes("Gemini API") &&
         !msg.includes("invalid JSON") &&
-        !msg.includes("not an array")
+        !msg.includes("not an array") &&
+        !msg.includes("timeout")
       ) {
         console.warn(`[RETRY ${attempt}/${MAX_RETRIES_5XX}] Network error: ${msg}`);
         lastError = error;
@@ -331,10 +343,6 @@ function validateGeminiResult(result, originalArticles) {
   if (wordCount < MIN_SUMMARY_WORDS) {
     console.warn(`[REJECT] Summary too short (${wordCount} words < ${MIN_SUMMARY_WORDS}) for ID ${id}`);
     return null;
-  }
-
-  if (wordCount < TARGET_SUMMARY_WORDS) {
-    console.warn(`[BELOW TARGET] ${wordCount} words (target ${TARGET_SUMMARY_WORDS}) for ID ${id}`);
   }
 
   if (headline.length > 180) return null;

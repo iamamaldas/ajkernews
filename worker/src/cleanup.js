@@ -1,8 +1,10 @@
 /*
- * News database cleanup — MAX 1000 records
+ * News database cleanup — MAX 1000 records (Free Tier Safe)
+ * Uses db.batch() for fast deletion
  */
 
 const MAX_TOTAL_NEWS = 1000;
+const BATCH_DELETE_SIZE = 100;
 
 export async function getNewsCount(db) {
   const result = await db.prepare(`SELECT COUNT(*) AS total FROM news`).first();
@@ -37,23 +39,35 @@ export async function enforceNewsLimit(db) {
   let deleted = 0;
   const deletedIds = [];
 
-  while (total > MAX_TOTAL_NEWS) {
-    const amountToDelete = Math.min(total - MAX_TOTAL_NEWS, 10);
-    const oldest = await getOldestNews(db, amountToDelete);
+  if (total <= MAX_TOTAL_NEWS) {
+    return { total, deleted: 0, deletedIds: [] };
+  }
 
-    if (oldest.length === 0) break;
+  const excess = total - MAX_TOTAL_NEWS;
+  const toDelete = Math.min(excess, BATCH_DELETE_SIZE);
+  const oldest = await getOldestNews(db, toDelete);
 
-    for (const article of oldest) {
-      const success = await deleteNewsById(db, article.id);
+  if (oldest.length === 0) {
+    return { total, deleted: 0, deletedIds: [] };
+  }
 
-      if (success) {
+  // ✅ Batch delete — একসাথে ১০০টি
+  try {
+    const statements = oldest.map(a =>
+      db.prepare(`DELETE FROM news WHERE id = ?`).bind(a.id)
+    );
+    const results = await db.batch(statements);
+
+    for (let i = 0; i < results.length; i++) {
+      if (Number(results[i]?.meta?.changes || 0) > 0) {
         deleted++;
-        deletedIds.push(article.id);
-        total--;
+        deletedIds.push(oldest[i].id);
       }
-
-      if (total <= MAX_TOTAL_NEWS) break;
     }
+
+    total -= deleted;
+  } catch (error) {
+    console.error("[CLEANUP] Batch delete failed:", error?.message || String(error));
   }
 
   return { total, deleted, deletedIds };

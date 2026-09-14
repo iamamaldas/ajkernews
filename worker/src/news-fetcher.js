@@ -1,8 +1,10 @@
 /*
- * GNews fetcher — Hybrid approach
+ * GNews fetcher — Hybrid approach (Free Tier Safe)
  *
- * - bn: top-headlines (NO keyword) → ALL Bengali news (ABP Ananda, Aaj Tak Bangla, etc.)
+ * - bn: top-headlines (NO keyword) → ALL Bengali news
  * - en: search with English keywords → English West Bengal news
+ * - 15s timeout per API call
+ * - 2 retries with 2s delay
  */
 
 import { insertCandidate } from "./database.js";
@@ -13,11 +15,9 @@ const GNEWS_SEARCH_URL = "https://gnews.io/api/v4/search";
 
 const MAX_PER_LANGUAGE = 10;
 const DELAY_BETWEEN_CALLS_MS = 1000;
+const GNEWS_TIMEOUT_MS = 15000; // ✅ 15s
+const GNEWS_RETRY_DELAY_MS = 2000;
 
-/*
- * ✅ 4 keyword sets — for ENGLISH search only
- * Bengali uses top-headlines (all Bengali news)
- */
 const KEYWORD_SETS = [
   {
     id: "wb-local",
@@ -43,10 +43,43 @@ function getKeywordSetForSlot(scheduledTime = Date.now()) {
   return KEYWORD_SETS[index];
 }
 
-/*
- * ✅ Fetch Bengali news via top-headlines (NO keyword)
- * Returns ALL Bengali news from India
- */
+// ✅ Timeout + Retry wrapper
+async function fetchWithTimeoutAndRetry(url, options = {}, timeoutMs = GNEWS_TIMEOUT_MS) {
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+      let response;
+      try {
+        response = await fetch(url, {
+          ...options,
+          signal: controller.signal
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (error.name === "AbortError") {
+        console.warn(`[FETCH] Timeout after ${timeoutMs}ms (attempt ${attempt}/2)`);
+      } else {
+        console.warn(`[FETCH] Error (attempt ${attempt}/2): ${error?.message || String(error)}`);
+      }
+
+      if (attempt < 2) {
+        await new Promise(r => setTimeout(r, GNEWS_RETRY_DELAY_MS));
+      }
+    }
+  }
+
+  throw lastError || new Error("Fetch failed after retries");
+}
+
 export async function fetchGNewsBengali(apiKey) {
   if (!apiKey) throw new Error("GNEWS_API_KEY is not configured.");
 
@@ -61,7 +94,7 @@ export async function fetchGNewsBengali(apiKey) {
 
   const url = `${GNEWS_TOP_HEADLINES_URL}?${params.toString()}`;
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeoutAndRetry(url, {
     method: "GET",
     headers: { Accept: "application/json" }
   });
@@ -90,9 +123,6 @@ export async function fetchGNewsBengali(apiKey) {
   return data.articles;
 }
 
-/*
- * ✅ Fetch English news via search with keyword
- */
 export async function fetchGNewsEnglish(apiKey, keywordSet) {
   if (!apiKey) throw new Error("GNEWS_API_KEY is not configured.");
 
@@ -110,7 +140,7 @@ export async function fetchGNewsEnglish(apiKey, keywordSet) {
 
   const url = `${GNEWS_SEARCH_URL}?${params.toString()}`;
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeoutAndRetry(url, {
     method: "GET",
     headers: { Accept: "application/json" }
   });
@@ -208,7 +238,6 @@ export async function runGNewsBatch(db, apiKey, scheduledTime = Date.now()) {
 
   const results = [];
 
-  // ✅ Bengali — top-headlines (NO keyword)
   try {
     const bnArticles = await fetchGNewsBengali(apiKey);
     const bnResult = await storeGNewsCandidates(db, bnArticles, "bn", keywordSet.id);
@@ -219,10 +248,8 @@ export async function runGNewsBatch(db, apiKey, scheduledTime = Date.now()) {
     results.push({ language: "bn", received: 0, inserted: 0, skipped: 0, error: error?.message });
   }
 
-  // 1 second delay
   await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_CALLS_MS));
 
-  // ✅ English — search with keyword
   try {
     const enArticles = await fetchGNewsEnglish(apiKey, keywordSet);
     const enResult = await storeGNewsCandidates(db, enArticles, "en", keywordSet.id);

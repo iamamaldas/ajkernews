@@ -333,7 +333,6 @@ const PERSONAL_ADS = [
   { id: "ad1", title: "আপনার বিজ্ঞাপন দিন", description: "বাংলার সবচেয়ে বড় নিউজ প্ল্যাটফর্মে বিজ্ঞাপন দিন। লাখ লাখ দর্শকের কাছে পৌঁছান।", link: "https://your-ad-page.com/contact", image: "https://your-image-url.com/ad-banner.png", category: "sponsored" },
   { id: "ad2", title: "বিশেষ অফার", description: "আজই অর্ডার করুন এবং ৫০% ছাড় পান। সীমিত সময়ের অফার।", link: "https://your-offer-page.com", image: "https://your-image-url.com/offer.png", category: "sponsored" }
 ];
-// ✅ AD_INTERVAL = 4 (২ থেকে বাড়ানো)
 const AD_INTERVAL = 4;
 let adIndex = 0;
 
@@ -679,7 +678,6 @@ function renderNews(newsList, hasMore = false) {
     index++;
     adCounter++;
 
-    // ✅ প্রথম ৩টি খবরে ad দেখাবে না, index > 3 হলেই ad
     if (adCounter === AD_INTERVAL && index > 3 && index < limitedNews.length) {
       const ad = getNextAd();
       if (ad) {
@@ -864,7 +862,8 @@ async function shareNews(id, headline, summary) {
     if (cutIndex === -1) cutIndex = MAX_SUMMARY;
     cleanSummary = cleanSummary.substring(0, cutIndex) + '...';
   }
-  const shareUrl = 'https://ajkernews.in/?id=' + encodeURIComponent(id);
+  // ✅ UPDATED: /news/{id} clean URL
+  const shareUrl = 'https://ajkernews.in/news/' + encodeURIComponent(id);
   const shareText = cleanSummary
     ? `${cleanHeadline}\n\n${cleanSummary}\n\nপূর্ণ খবর দেখতে এই লিঙ্কে ক্লিক করুন\n${shareUrl}`
     : `${cleanHeadline}\n\nপূর্ণ খবর দেখতে এই লিঙ্কে ক্লিক করুন\n${shareUrl}`;
@@ -1042,7 +1041,6 @@ async function submitComment(newsId) {
 
   if (!text) return alert('মন্তব্য লিখুন!');
 
-  // ✅ Optimistic UI: সাথে সাথে কমেন্ট দেখাও
   const commentsList = document.getElementById('commentsList');
   const noCommentMsg = document.getElementById('noCommentsMsg');
   if (noCommentMsg) noCommentMsg.remove();
@@ -1057,7 +1055,6 @@ async function submitComment(newsId) {
   `;
   if (commentsList) commentsList.insertAdjacentHTML('beforeend', tempHtml);
 
-  // ✅ Clear input immediately
   textInput.value = '';
 
   try {
@@ -1069,13 +1066,11 @@ async function submitComment(newsId) {
 
     if (!response.ok) throw new Error('Comment failed');
 
-    // ✅ Success: remove temp, reload fresh list
     const tempEl = document.getElementById(tempId);
     if (tempEl) tempEl.remove();
     await openCommentModal(newsId);
   } catch (error) {
     console.error(error);
-    // ❌ Fail: remove temp comment, show error
     const tempEl = document.getElementById(tempId);
     if (tempEl) tempEl.remove();
     alert('মন্তব্য পাঠানো যায়নি। আবার চেষ্টা করুন।');
@@ -1299,7 +1294,12 @@ window.addEventListener('load', () => {
   const legacyNewsId = urlParams.get('id');
   const goPath = window.location.pathname;
   const goId = goPath.startsWith('/go/') ? decodeURIComponent(goPath.split('/')[2] || '') : null;
-  const sharedId = sharedQueryId || legacyNewsId || goId;
+
+  // ✅ NEW: /news/{id} clean URL support
+  const pathMatch = window.location.pathname.match(/^\/news\/([^\/]+)/);
+  const pathId = pathMatch ? decodeURIComponent(pathMatch[1]) : null;
+
+  const sharedId = sharedQueryId || legacyNewsId || goId || pathId;
 
   if (sharedId) {
     loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: true })

@@ -6,6 +6,7 @@
  * - 15s timeout per API call
  * - 2 retries with 2s delay
  * - ✅ Parallel fetch (bn + en একসাথে)
+ * - ✅ 429 Rate Limit → Stop retrying immediately
  */
 
 import { insertCandidate } from "./database.js";
@@ -44,7 +45,9 @@ function getKeywordSetForSlot(scheduledTime = Date.now()) {
   return KEYWORD_SETS[index];
 }
 
-// ✅ Timeout + Retry wrapper
+/* =========================================================
+ * ✅ Timeout + Retry + 429 Handler
+ * ========================================================= */
 async function fetchWithTimeoutAndRetry(url, options = {}, timeoutMs = GNEWS_TIMEOUT_MS) {
   let lastError = null;
 
@@ -61,6 +64,18 @@ async function fetchWithTimeoutAndRetry(url, options = {}, timeoutMs = GNEWS_TIM
         });
       } finally {
         clearTimeout(timeoutId);
+      }
+
+      // ✅ 429 (Rate Limit) হলে সাথে সাথে বন্ধ করুন, রিট্রাই করবেন না
+      if (response.status === 429) {
+        console.warn(`[FETCH] 429 Rate Limit Hit. Stopping retries to save quota.`);
+        return response;
+      }
+
+      // ✅ 401, 403 (Auth Issues) → Retry করবেন না
+      if (response.status === 401 || response.status === 403) {
+        console.warn(`[FETCH] ${response.status} Auth Error. Stopping retries.`);
+        return response;
       }
 
       return response;
@@ -81,6 +96,9 @@ async function fetchWithTimeoutAndRetry(url, options = {}, timeoutMs = GNEWS_TIM
   throw lastError || new Error("Fetch failed after retries");
 }
 
+/* =========================================================
+ * Fetch Bengali News
+ * ========================================================= */
 export async function fetchGNewsBengali(apiKey) {
   if (!apiKey) throw new Error("GNEWS_API_KEY is not configured.");
 
@@ -124,6 +142,9 @@ export async function fetchGNewsBengali(apiKey) {
   return data.articles;
 }
 
+/* =========================================================
+ * Fetch English News
+ * ========================================================= */
 export async function fetchGNewsEnglish(apiKey, keywordSet) {
   if (!apiKey) throw new Error("GNEWS_API_KEY is not configured.");
 
@@ -170,6 +191,9 @@ export async function fetchGNewsEnglish(apiKey, keywordSet) {
   return data.articles;
 }
 
+/* =========================================================
+ * Normalize GNews Article
+ * ========================================================= */
 export function normalizeGNewsArticle(article, language, keywordSetId = "general") {
   const sourceUrl = String(article?.url || "").trim();
   const title = String(article?.title || "").trim();
@@ -213,6 +237,9 @@ export function normalizeGNewsArticle(article, language, keywordSetId = "general
   };
 }
 
+/* =========================================================
+ * Store Candidates to D1
+ * ========================================================= */
 export async function storeGNewsCandidates(db, articles, language, keywordSetId = "general") {
   let inserted = 0;
   let skipped = 0;
@@ -233,9 +260,9 @@ export async function storeGNewsCandidates(db, articles, language, keywordSetId 
   return { received: articles.length, inserted, skipped };
 }
 
-/*
- * ✅ Parallel Fetch — bn এবং en একসাথে (৫-৭s সাশ্রয়)
- */
+/* =========================================================
+ * ✅ Parallel Fetch — bn + en একসাথে
+ * ========================================================= */
 export async function runGNewsBatch(db, apiKey, scheduledTime = Date.now()) {
   const keywordSet = getKeywordSetForSlot(scheduledTime);
   console.log(`[FETCH] Keyword set: ${keywordSet.id}`);
@@ -277,6 +304,9 @@ export async function runGNewsBatch(db, apiKey, scheduledTime = Date.now()) {
   };
 }
 
+/* =========================================================
+ * Initial Score Calculator
+ * ========================================================= */
 function calculateInitialScore(language, publishedAt, keywordSetId) {
   const languageBase = language === "bn" ? 12 : 10;
 

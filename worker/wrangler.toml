@@ -3,33 +3,23 @@ main = "src/index.js"
 compatibility_date = "2026-09-03"
 compatibility_flags = ["nodejs_compat"]
 
-# =========================================================
-# ✅ STATIC ASSETS — index.html, sw.js, logo.png, etc.
-# =========================================================
 [assets]
 directory = "../"
 binding = "ASSETS"
 run_worker_first = ["/*"]
 not_found_handling = "none"
 
-# =========================================================
-# D1 DATABASE
-# =========================================================
 [[d1_databases]]
 binding = "DB"
 database_name = "ajkernews-db"
 database_id = "f10f96b7-8bed-4c7c-a580-483d2a77e5ae"
 
 # =========================================================
-# CRON TRIGGERS
-# ✅ প্রতি ঘণ্টায় — Free Tier Safe
+# ✅ CRON — প্রতি ঘণ্টায় (Free Tier Safe)
 # =========================================================
 [triggers]
 crons = ["0 * * * *"]
 
-# =========================================================
-# OBSERVABILITY
-# =========================================================
 [observability]
 enabled = true
 

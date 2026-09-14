@@ -1,9 +1,9 @@
 /**
  * Ajker News Service Worker
- * v2026-09-13-1 — Smart notification click + tray clear
+ * v2026-09-13-2 — Smart notification click + tray clear
  */
 
-const CACHE_VERSION = "ajker-news-v2026-09-13-1";
+const CACHE_VERSION = "ajker-news-v2026-09-13-2";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const LOGO_URL = "/logo.png";
 
@@ -100,7 +100,7 @@ self.addEventListener("push", event => {
     tag: data.notificationId || data.url || "ajker-news",
     renotify: true,
     silent: false,
-    requireInteraction: true,
+    requireInteraction: false,  // ✅ changed to false for better delivery
     priority: 2,
     timestamp: Date.now(),
     data: {

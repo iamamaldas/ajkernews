@@ -1,15 +1,13 @@
 /*
- * News selector — 5 bn + 5 en model (Free Tier Safe)
- *
- * Selects the best 5 Bengali and 5 English candidates.
- * English news will be translated to Bengali by Gemini later.
+ * News selector — 2 bn + 2 en = 4 news per slot
+ * + Group similar stories for better context
  */
 
 import { publishNews } from "./database.js";
 import { normalizeText } from "./utils.js";
 
-const MAX_NEWS_PER_SLOT = 6;
-const MAX_PER_LANGUAGE = 5;
+const MAX_NEWS_PER_SLOT = 4;
+const MAX_PER_LANGUAGE = 2;
 
 export function selectBestCandidates(candidates, existingPublished = []) {
   if (!Array.isArray(candidates)) return [];
@@ -17,8 +15,12 @@ export function selectBestCandidates(candidates, existingPublished = []) {
   const bnCandidates = candidates.filter(c => c.language === "bn");
   const enCandidates = candidates.filter(c => c.language === "en");
 
-  const bnSelected = selectTopFromLanguage(bnCandidates, existingPublished, MAX_PER_LANGUAGE);
-  const enSelected = selectTopFromLanguage(enCandidates, existingPublished, MAX_PER_LANGUAGE);
+  // ✅ Group similar stories for richer context
+  const bnGrouped = groupSimilarStories(bnCandidates);
+  const enGrouped = groupSimilarStories(enCandidates);
+
+  const bnSelected = selectTopFromLanguage(bnGrouped, existingPublished, MAX_PER_LANGUAGE);
+  const enSelected = selectTopFromLanguage(enGrouped, existingPublished, MAX_PER_LANGUAGE);
 
   const combined = [...bnSelected, ...enSelected];
 
@@ -27,6 +29,60 @@ export function selectBestCandidates(candidates, existingPublished = []) {
   );
 
   return combined.slice(0, MAX_NEWS_PER_SLOT);
+}
+
+/* =========================================================
+ * Group Similar Stories — Multiple Sources
+ * ========================================================= */
+function groupSimilarStories(candidates) {
+  if (!Array.isArray(candidates)) return [];
+
+  const groups = [];
+
+  for (const article of candidates) {
+    const title = normalizeTitle(article.source_title);
+    if (!title.length) continue;
+
+    let foundGroup = null;
+
+    for (const group of groups) {
+      const groupTitle = normalizeTitle(group.primary.source_title);
+      if (groupTitle.length && areSimilarStories(title, groupTitle)) {
+        foundGroup = group;
+        break;
+      }
+    }
+
+    if (foundGroup) {
+      foundGroup.sources.push(article);
+    } else {
+      groups.push({
+        primary: article,
+        sources: [article]
+      });
+    }
+  }
+
+  // ✅ প্রতিটি group থেকে সবচেয়ে বড় description-এর article primary
+  return groups.map(group => {
+    const sorted = group.sources.slice().sort((a, b) => {
+      const aLen = (a.source_description || "").length;
+      const bLen = (b.source_description || "").length;
+      return bLen - aLen;
+    });
+
+    const primary = sorted[0];
+    const additional_sources = sorted.slice(1, 3).map(s => ({
+      source_title: s.source_title,
+      source_description: s.source_description,
+      source_name: s.source_name
+    }));
+
+    return {
+      ...primary,
+      additional_sources
+    };
+  });
 }
 
 function selectTopFromLanguage(candidates, existingPublished, limit) {
@@ -122,8 +178,7 @@ function areSimilarStories(wordsA, wordsB) {
   const smaller = Math.min(setA.size, setB.size);
   if (!smaller) return false;
 
-  // ✅ 0.80 — কম খবর বাদ পড়বে
-  return (common / smaller) >= 0.80;
+  return (common / smaller) >= 0.60; // ✅ Lower for grouping
 }
 
 function calculateQualityScore(article) {
@@ -137,6 +192,9 @@ function calculateQualityScore(article) {
   if (description.length >= 80) score += 5;
   if (article.image_url) score += 3;
   if (isRecognizedSource(source)) score += 5;
+  if (Array.isArray(article.additional_sources) && article.additional_sources.length) {
+    score += article.additional_sources.length * 3; // ✅ Multiple sources bonus
+  }
 
   score += freshnessScore(article.published_at);
 
@@ -178,8 +236,7 @@ function selectWithCategoryBalance(articles, limit) {
     const category = article.category || "general";
     const count = categoryCount.get(category) || 0;
 
-    // ✅ 3 — একই category থেকে ৩টি পর্যন্ত
-    if (count >= 3) continue;
+    if (count >= 2) continue;
 
     selected.push(article);
     categoryCount.set(category, count + 1);
@@ -198,6 +255,9 @@ function selectWithCategoryBalance(articles, limit) {
   return selected.slice(0, limit);
 }
 
+/* =========================================================
+ * Publish — With Fallback
+ * ========================================================= */
 export async function publishSelectedNews(db, selectedArticles, geminiResults) {
   if (!Array.isArray(selectedArticles)) return { published: 0 };
 
@@ -215,7 +275,7 @@ export async function publishSelectedNews(db, selectedArticles, geminiResults) {
     let headline, summary, mainTopic;
 
     if (generated && generated.headline && generated.summary) {
-      // ✅ Gemini result আছে
+      // ✅ Gemini result
       headline = generated.headline;
       summary = generated.summary;
       mainTopic = generated.main_topic || article.main_topic || article.category || "general";

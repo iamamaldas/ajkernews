@@ -2,7 +2,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v19 — Gemini Timeout Fixed + Promise.race + GNews Safe
+ * FINAL v20 — Candidate Cleanup + Rejected Marking + Gemini Safe
  * =========================================================
  */
 
@@ -13,7 +13,7 @@ import AFFILIATE_CONFIG from "./config-affiliate.js";
 import { processSelectedNews } from "./gemini.js";
 import { runGNewsBatch } from "./news-fetcher.js";
 import { selectBestCandidates, publishSelectedNews } from "./news-selector.js";
-import { enforceNewsLimit } from "./cleanup.js";
+import { enforceNewsLimit, cleanOldCandidates, cleanRejectedNews } from "./cleanup.js";
 import { fastIndexNews } from "./fast-index.js";
 import { cacheNewsApi, purgeNewsApiCache, purgeArticleCache } from "./cache.js";
 
@@ -393,6 +393,22 @@ export default {
           console.error("[CRON-CLEAN] Push cleanup failed:", error?.message || String(error));
         }
 
+        // ✅ 48h+ old candidates delete
+        try {
+          const candidateResult = await cleanOldCandidates(env.DB);
+          console.log(`[CRON-CLEAN] Candidates: ${candidateResult.deleted} deleted`);
+        } catch (error) {
+          console.error("[CRON-CLEAN] Candidate cleanup failed:", error?.message || String(error));
+        }
+
+        // ✅ 24h+ old rejected news delete
+        try {
+          const rejectedResult = await cleanRejectedNews(env.DB);
+          console.log(`[CRON-CLEAN] Rejected: ${rejectedResult.deleted} deleted`);
+        } catch (error) {
+          console.error("[CRON-CLEAN] Rejected cleanup failed:", error?.message || String(error));
+        }
+
         const currentHour = new Date().getUTCHours();
         if ([0, 6, 12, 18].includes(currentHour)) {
           try {
@@ -451,6 +467,16 @@ async function updateNews(env) {
     };
   }
 
+  // ✅ Candidate cleanup — 48h+ old candidates delete
+  try {
+    const candidateCleanup = await cleanOldCandidates(env.DB);
+    if (candidateCleanup.deleted > 0) {
+      console.log(`[NEWS] Cleaned ${candidateCleanup.deleted} old candidates`);
+    }
+  } catch (error) {
+    console.warn("[NEWS] Candidate cleanup failed:", error?.message || String(error));
+  }
+
   let candidates = [];
   try {
     const candidatesResult = await env.DB.prepare(
@@ -494,6 +520,25 @@ async function updateNews(env) {
       candidates: candidates.length, selected: 0, published: 0, deleted: 0, indexed: 0,
       gemini: false, newNewsIds: [], message: "Selection failed"
     };
+  }
+
+  // ✅ সিলেক্ট না হওয়া candidate-গুলোকে 'rejected' মার্ক করো
+  try {
+    const selectedIds = new Set(selected.map(a => String(a.id)));
+    const rejectedCandidates = candidates.filter(c => !selectedIds.has(String(c.id)));
+
+    if (rejectedCandidates.length > 0) {
+      const rejectedIds = rejectedCandidates.map(c => String(c.id));
+      const placeholders = rejectedIds.map(() => "?").join(",");
+
+      await env.DB.prepare(`
+        UPDATE news SET status = 'rejected' WHERE id IN (${placeholders})
+      `).bind(...rejectedIds).run();
+
+      console.log(`[NEWS] Marked ${rejectedIds.length} candidates as rejected`);
+    }
+  } catch (error) {
+    console.warn("[NEWS] Reject marking failed:", error?.message || String(error));
   }
 
   if (selected.length === 0) {

@@ -77,7 +77,7 @@ export async function enforceNewsLimit(db) {
 }
 
 /* =========================================================
- * ✅ Candidate Cleanup — 48h+ old candidates deleted
+ * Candidate Cleanup — 48h+ old candidates deleted
  * ========================================================= */
 export async function cleanOldCandidates(db) {
   try {
@@ -99,7 +99,7 @@ export async function cleanOldCandidates(db) {
 }
 
 /* =========================================================
- * ✅ Rejected Cleanup — 24h+ old rejected news deleted
+ * Rejected Cleanup — 24h+ old rejected news deleted
  * ========================================================= */
 export async function cleanRejectedNews(db) {
   try {

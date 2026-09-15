@@ -1,7 +1,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v17 — SEO Fixed + Latest News First + Smart Notification
+ * FINAL v18 — Sitemap Routing Fixed + SEO + Smart Notification
  * =========================================================
  */
 
@@ -58,6 +58,15 @@ export default {
     try {
       await ensureTablesOnce(env);
 
+      /* =========================================================
+       * ✅ SITEMAPS, ROBOTS, RSS — MUST BE CHECKED FIRST
+       * (এগুলো /news/ প্যাটার্নের আগে থাকতে হবে)
+       * ========================================================= */
+      if (url.pathname === "/sitemap.xml") return await generateSitemap(env);
+      if (url.pathname === "/news-sitemap.xml") return await generateNewsSitemap(env);
+      if (url.pathname === "/rss.xml") return await generateRSS(env);
+      if (url.pathname === "/robots.txt") return generateRobotsTxt();
+
       const userAgent = request.headers.get("User-Agent") || "";
       const isBot = BOT_REGEX.test(userAgent);
 
@@ -109,11 +118,6 @@ export default {
           headers: { "content-type": "text/plain; charset=UTF-8" }
         });
       }
-
-      if (url.pathname === "/robots.txt") return generateRobotsTxt();
-      if (url.pathname === "/sitemap.xml") return await generateSitemap(env);
-      if (url.pathname === "/news-sitemap.xml") return await generateNewsSitemap(env);
-      if (url.pathname === "/rss.xml") return await generateRSS(env);
 
       if (url.pathname.startsWith("/go/")) {
         const id = url.pathname.split("/")[2];
@@ -755,7 +759,6 @@ async function serveBotHomepage(env) {
       </a>`;
     }).join("");
 
-    // ✅ ItemList Schema for homepage
     const itemListLd = JSON.stringify({
       "@context": "https://schema.org",
       "@type": "ItemList",
@@ -1558,7 +1561,7 @@ async function getGoogleAccessToken(env) {
 }
 
 /* =========================================================
- * SITEMAP — FIXED: LIMIT 1000 (no bind)
+ * SITEMAP
  * ========================================================= */
 async function generateSitemap(env) {
   try {

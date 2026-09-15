@@ -1,10 +1,14 @@
 /*
  * News database cleanup — MAX 1000 records (Free Tier Safe)
+ * + 48h+ old candidates deleted
+ * + 24h+ old rejected news deleted
  * Uses db.batch() for fast deletion
  */
 
 const MAX_TOTAL_NEWS = 1000;
 const BATCH_DELETE_SIZE = 100;
+const CANDIDATE_MAX_AGE_HOURS = 48;
+const REJECTED_MAX_AGE_HOURS = 24;
 
 export async function getNewsCount(db) {
   const result = await db.prepare(`SELECT COUNT(*) AS total FROM news`).first();
@@ -51,7 +55,6 @@ export async function enforceNewsLimit(db) {
     return { total, deleted: 0, deletedIds: [] };
   }
 
-  // ✅ Batch delete — একসাথে ১০০টি
   try {
     const statements = oldest.map(a =>
       db.prepare(`DELETE FROM news WHERE id = ?`).bind(a.id)
@@ -73,10 +76,56 @@ export async function enforceNewsLimit(db) {
   return { total, deleted, deletedIds };
 }
 
-export async function emergencyCleanup(db) {
-  const result = await enforceNewsLimit(db);
-  console.log("News cleanup completed:", result);
-  return result;
+/* =========================================================
+ * ✅ Candidate Cleanup — 48h+ old candidates deleted
+ * ========================================================= */
+export async function cleanOldCandidates(db) {
+  try {
+    const result = await db.prepare(`
+      DELETE FROM news 
+      WHERE status = 'candidate' 
+        AND created_at <= datetime('now', '-${CANDIDATE_MAX_AGE_HOURS} hours')
+    `).run();
+
+    const deleted = Number(result?.meta?.changes || 0);
+    if (deleted > 0) {
+      console.log(`[CLEANUP] Deleted ${deleted} old candidates (${CANDIDATE_MAX_AGE_HOURS}h+)`);
+    }
+    return { deleted };
+  } catch (error) {
+    console.error("[CLEANUP] Candidate cleanup failed:", error?.message || String(error));
+    return { deleted: 0 };
+  }
 }
 
-export { MAX_TOTAL_NEWS };
+/* =========================================================
+ * ✅ Rejected Cleanup — 24h+ old rejected news deleted
+ * ========================================================= */
+export async function cleanRejectedNews(db) {
+  try {
+    const result = await db.prepare(`
+      DELETE FROM news 
+      WHERE status = 'rejected' 
+        AND created_at <= datetime('now', '-${REJECTED_MAX_AGE_HOURS} hours')
+    `).run();
+
+    const deleted = Number(result?.meta?.changes || 0);
+    if (deleted > 0) {
+      console.log(`[CLEANUP] Deleted ${deleted} rejected news (${REJECTED_MAX_AGE_HOURS}h+)`);
+    }
+    return { deleted };
+  } catch (error) {
+    console.error("[CLEANUP] Rejected cleanup failed:", error?.message || String(error));
+    return { deleted: 0 };
+  }
+}
+
+export async function emergencyCleanup(db) {
+  const result = await enforceNewsLimit(db);
+  const candidateResult = await cleanOldCandidates(db);
+  const rejectedResult = await cleanRejectedNews(db);
+  console.log("Full cleanup completed:", { ...result, ...candidateResult, ...rejectedResult });
+  return { ...result, candidateDeleted: candidateResult.deleted, rejectedDeleted: rejectedResult.deleted };
+}
+
+export { MAX_TOTAL_NEWS, CANDIDATE_MAX_AGE_HOURS, REJECTED_MAX_AGE_HOURS };

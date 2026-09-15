@@ -5,7 +5,7 @@
  * - 80 words minimum (Free Tier Safe)
  * - 5-7 sentence structure
  * - Widely known context expansion (no invention)
- * - 90s timeout per model
+ * - 20s timeout per model (Cloudflare Worker Safe)
  * - Parallel batch fallback
  */
 
@@ -15,9 +15,9 @@ const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models
 const MIN_SUMMARY_WORDS = 80;
 const TARGET_SUMMARY_WORDS = 130;
 
-const MAX_RETRIES_5XX = 3;
-const RETRY_DELAY_5XX_MS = 3000;
-const GEMINI_TIMEOUT_MS = 90000; // ✅ 90s
+const MAX_RETRIES_5XX = 1;
+const RETRY_DELAY_5XX_MS = 1500;
+const GEMINI_TIMEOUT_MS = 20000; // ✅ 20s (Cloudflare Worker Safe)
 
 const RESPONSE_SCHEMA = {
   type: "ARRAY",
@@ -121,8 +121,8 @@ export async function generateNewsWithGemini(articles, apiKey) {
 
   const models = await discoverModels(apiKey);
 
-  // ✅ Process in batches of 4 to avoid timeout
-  const BATCH_SIZE = 4;
+  // ✅ Process in batches of 2 to avoid timeout
+  const BATCH_SIZE = 2;
   const allResults = [];
 
   for (let i = 0; i < articles.length; i += BATCH_SIZE) {
@@ -418,8 +418,8 @@ function cleanText(value) {
  * ========================================================= */
 export async function processSelectedNews(articles, apiKey) {
   if (!Array.isArray(articles) || articles.length === 0) return [];
-  // ✅ Max 6 articles per call (batched internally)
-  const limitedArticles = articles.slice(0, 6);
+  // ✅ Max 4 articles per call (batched internally)
+  const limitedArticles = articles.slice(0, 4);
   return await generateNewsWithGemini(limitedArticles, apiKey);
 }
 

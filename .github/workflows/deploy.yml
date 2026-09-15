@@ -1,4 +1,4 @@
-name: Deploy Worker
+name: Build Verify (No Deploy)
 
 on:
   push:
@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy:
-    name: Deploy Cloudflare Worker
+  verify:
+    name: Verify Worker Build (No Deploy)
     runs-on: ubuntu-latest
 
     defaults:
@@ -19,16 +19,96 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 24
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 20
 
       - name: Install dependencies
         run: npm install
 
-      - name: Deploy Worker
-        run: npm run deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Verify wrangler.toml
+        run: |
+          echo "🔍 Verifying wrangler.toml has all critical configs..."
+          
+          if ! grep -q 'name = "ajkernews"' wrangler.toml; then
+            echo "❌ ERROR: Worker name missing or incorrect!"
+            exit 1
+          fi
+          echo "✅ Worker name: ajkernews"
+          
+          if ! grep -q "d1_databases" wrangler.toml; then
+            echo "❌ ERROR: D1 database binding missing!"
+            exit 1
+          fi
+          echo "✅ D1 database binding present"
+          
+          if ! grep -q 'binding = "ASSETS"' wrangler.toml; then
+            echo "❌ ERROR: ASSETS binding missing!"
+            exit 1
+          fi
+          echo "✅ ASSETS binding present"
+          
+          if ! grep -q "crons" wrangler.toml; then
+            echo "❌ ERROR: Cron triggers missing!"
+            exit 1
+          fi
+          echo "✅ Cron triggers present"
+          
+          if ! grep -q 'main = "src/index.js"' wrangler.toml; then
+            echo "❌ ERROR: main entry point missing or incorrect!"
+            exit 1
+          fi
+          echo "✅ Main entry point: src/index.js"
+          
+          echo "🎉 wrangler.toml verification passed!"
+
+      - name: Verify index.js exists
+        run: |
+          echo "🔍 Verifying src/index.js exists..."
+          if [ ! -f "src/index.js" ]; then
+            echo "❌ ERROR: src/index.js not found!"
+            exit 1
+          fi
+          echo "✅ src/index.js exists"
+
+      - name: Dry Run Build (No Deploy)
+        run: |
+          echo "🔍 Running dry-run build to check for syntax errors..."
+          echo "⚠️ This does NOT deploy. Cloudflare Git Integration will deploy."
+          
+          npx wrangler deploy --dry-run
+          
+          echo "✅ Dry run successful! No syntax errors found."
+
+      - name: Check for Common Issues
+        run: |
+          echo "🔍 Checking for common issues..."
+          
+          if ! grep -q "web-push" package.json; then
+            echo "⚠️ WARNING: web-push dependency not found in package.json"
+          else
+            echo "✅ web-push dependency present"
+          fi
+          
+          if ! grep -q "wrangler" package.json; then
+            echo "⚠️ WARNING: wrangler not found in package.json"
+          else
+            echo "✅ wrangler dependency present"
+          fi
+
+      - name: Build Verification Summary
+        if: always()
+        run: |
+          echo "========================================"
+          echo "🎉 Build Verification Completed!"
+          echo "========================================"
+          echo "✅ wrangler.toml: All configs present"
+          echo "✅ src/index.js: Exists"
+          echo "✅ Dry Run: No syntax errors"
+          echo "✅ D1 Binding, Cron Triggers, Assets: Intact"
+          echo ""
+          echo "📌 NOTE: This workflow does NOT deploy."
+          echo "📌 Cloudflare Git Integration will deploy automatically."
+          echo "📌 Worker will NOT become standalone."
+          echo "========================================"

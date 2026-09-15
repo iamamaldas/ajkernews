@@ -2,7 +2,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v18 — Sitemap Routing Fixed + SEO + Smart Notification
+ * FINAL v19 — Gemini Timeout Fixed + Promise.race + GNews Safe
  * =========================================================
  */
 
@@ -61,7 +61,6 @@ export default {
 
       /* =========================================================
        * ✅ SITEMAPS, ROBOTS, RSS — MUST BE CHECKED FIRST
-       * (এগুলো /news/ প্যাটার্নের আগে থাকতে হবে)
        * ========================================================= */
       if (url.pathname === "/sitemap.xml") return await generateSitemap(env);
       if (url.pathname === "/news-sitemap.xml") return await generateNewsSitemap(env);
@@ -246,7 +245,7 @@ export default {
   },
 
   /* =========================================================
-   * 4-CRON ARCHITECTURE
+   * 4-CRON ARCHITECTURE — Every 2 hours
    * ========================================================= */
   async scheduled(event, env, ctx) {
     const cron = event.cron;
@@ -255,9 +254,9 @@ export default {
 
     try {
       /* =========================================================
-       * Cron 1: 0 * * * * — News Pipeline + Smart Notification
+       * Cron 1: 0 */2 * * * — News Pipeline + Smart Notification
        * ========================================================= */
-      if (cron === "0 * * * *") {
+      if (cron === "0 */2 * * *") {
         let result;
         try {
           result = await updateNews(env);
@@ -297,14 +296,14 @@ export default {
       }
 
       /* =========================================================
-       * Cron 2: 15 * * * * — Fast Index
+       * Cron 2: 15 */2 * * * — Fast Index
        * ========================================================= */
-      if (cron === "15 * * * *") {
+      if (cron === "15 */2 * * *") {
         try {
           const recent = await env.DB.prepare(
             `SELECT id FROM news 
              WHERE status = 'published'
-               AND created_at >= datetime('now', '-3 hours')
+               AND created_at >= datetime('now', '-6 hours')
              ORDER BY created_at DESC
              LIMIT 20`
           ).all();
@@ -324,15 +323,15 @@ export default {
       }
 
       /* =========================================================
-       * Cron 3: 35 * * * * — Google Indexing API + Push Retry
+       * Cron 3: 35 */2 * * * — Google Indexing API + Push Retry
        * ========================================================= */
-      if (cron === "35 * * * *") {
+      if (cron === "35 */2 * * *") {
         if (env.GOOGLE_SERVICE_ACCOUNT_JSON) {
           try {
             const failed = await env.DB.prepare(
               `SELECT id FROM news
                WHERE status = 'published'
-                 AND created_at >= datetime('now', '-24 hours')
+                 AND created_at >= datetime('now', '-48 hours')
                  AND (indexed_at IS NULL OR indexed_at = '')
                ORDER BY created_at DESC
                LIMIT 5`
@@ -366,7 +365,7 @@ export default {
           const backlog = await env.DB.prepare(
             `SELECT id FROM news 
              WHERE status = 'published'
-               AND created_at >= datetime('now', '-6 hours')
+               AND created_at >= datetime('now', '-12 hours')
              ORDER BY created_at DESC
              LIMIT 10`
           ).all();
@@ -384,9 +383,9 @@ export default {
       }
 
       /* =========================================================
-       * Cron 4: 50 * * * * — Cleanup + Sitemap Ping
+       * Cron 4: 50 */2 * * * — Cleanup + Sitemap Ping
        * ========================================================= */
-      if (cron === "50 * * * *") {
+      if (cron === "50 */2 * * *") {
         try {
           await cleanExpiredPushNotifications(env);
           console.log("[CRON-CLEAN] Expired push cleaned");
@@ -520,7 +519,17 @@ async function updateNews(env) {
         additional_sources: c.additional_sources || []
       }));
 
-      geminiResults = await processSelectedNews(geminiInput, env.GEMINI_API_KEY);
+      // ✅ Race: Gemini 25 সেকেন্ডের মধ্যে শেষ না হলে স্কিপ
+      geminiResults = await Promise.race([
+        processSelectedNews(geminiInput, env.GEMINI_API_KEY),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Gemini timeout - skipping')), 25000)
+        )
+      ]).catch(err => {
+        console.warn('[NEWS] Gemini timeout, using fallback:', err.message);
+        return [];
+      });
+
       usedGemini = Array.isArray(geminiResults) && geminiResults.length > 0;
       console.log(`[NEWS] Gemini returned ${geminiResults.length} results`);
     } catch (error) {

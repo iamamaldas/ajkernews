@@ -60,7 +60,7 @@ export default {
       await ensureTablesOnce(env);
 
       /* =========================================================
-       * ✅ SITEMAPS, ROBOTS, RSS — MUST BE CHECKED FIRST
+       * SITEMAPS, ROBOTS, RSS — MUST BE CHECKED FIRST
        * ========================================================= */
       if (url.pathname === "/sitemap.xml") return await generateSitemap(env);
       if (url.pathname === "/news-sitemap.xml") return await generateNewsSitemap(env);
@@ -254,7 +254,7 @@ export default {
 
     try {
       /* =========================================================
-       * Cron 1: 0 */2 * * * — News Pipeline + Smart Notification
+       * Cron 1: Every 2 hours — News Pipeline + Smart Notification
        * ========================================================= */
       if (cron === "0 */2 * * *") {
         let result;
@@ -296,7 +296,7 @@ export default {
       }
 
       /* =========================================================
-       * Cron 2: 15 */2 * * * — Fast Index
+       * Cron 2: Every 2 hours at 15 min — Fast Index
        * ========================================================= */
       if (cron === "15 */2 * * *") {
         try {
@@ -323,7 +323,7 @@ export default {
       }
 
       /* =========================================================
-       * Cron 3: 35 */2 * * * — Google Indexing API + Push Retry
+       * Cron 3: Every 2 hours at 35 min — Google Indexing API + Push Retry
        * ========================================================= */
       if (cron === "35 */2 * * *") {
         if (env.GOOGLE_SERVICE_ACCOUNT_JSON) {
@@ -383,7 +383,7 @@ export default {
       }
 
       /* =========================================================
-       * Cron 4: 50 */2 * * * — Cleanup + Sitemap Ping
+       * Cron 4: Every 2 hours at 50 min — Cleanup + Sitemap Ping
        * ========================================================= */
       if (cron === "50 */2 * * *") {
         try {
@@ -519,7 +519,6 @@ async function updateNews(env) {
         additional_sources: c.additional_sources || []
       }));
 
-      // ✅ Race: Gemini 25 সেকেন্ডের মধ্যে শেষ না হলে স্কিপ
       geminiResults = await Promise.race([
         processSelectedNews(geminiInput, env.GEMINI_API_KEY),
         new Promise((_, reject) =>

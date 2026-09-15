@@ -59,9 +59,6 @@ export default {
     try {
       await ensureTablesOnce(env);
 
-      /* =========================================================
-       * SITEMAPS, ROBOTS, RSS — MUST BE CHECKED FIRST
-       * ========================================================= */
       if (url.pathname === "/sitemap.xml") return await generateSitemap(env);
       if (url.pathname === "/news-sitemap.xml") return await generateNewsSitemap(env);
       if (url.pathname === "/rss.xml") return await generateRSS(env);
@@ -70,7 +67,6 @@ export default {
       const userAgent = request.headers.get("User-Agent") || "";
       const isBot = BOT_REGEX.test(userAgent);
 
-      /* ===== Clean article URL — /news/{id} ===== */
       if (url.pathname.startsWith("/news/") && request.method === "GET") {
         const articleId = decodeURIComponent(url.pathname.slice(6).split("/")[0] || "").trim();
         if (!articleId) return Response.redirect("https://ajkernews.in/", 302);
@@ -86,7 +82,6 @@ export default {
         return env.ASSETS.fetch(spaRequest);
       }
 
-      /* IndexNow key file */
       if (env.INDEXNOW_KEY && url.pathname === `/${env.INDEXNOW_KEY}.txt`) {
         return new Response(env.INDEXNOW_KEY, {
           status: 200,
@@ -94,7 +89,6 @@ export default {
         });
       }
 
-      /* Bot homepage */
       if (url.pathname === "/" && request.method === "GET" && isBot) {
         const articleId = url.searchParams.get("id");
         if (articleId) {
@@ -103,7 +97,6 @@ export default {
         return await serveBotHomepage(env);
       }
 
-      /* Search Console verification */
       if (ANALYTICS_CONFIG.searchConsole && url.pathname === ANALYTICS_CONFIG.searchConsole.filePath) {
         return new Response(ANALYTICS_CONFIG.searchConsole.content, {
           status: 200,
@@ -111,7 +104,6 @@ export default {
         });
       }
 
-      /* ads.txt */
       if (url.pathname === "/ads.txt") {
         return new Response(ADS_CONFIG.adsTxtContent, {
           status: 200,
@@ -244,18 +236,12 @@ export default {
     }
   },
 
-  /* =========================================================
-   * 4-CRON ARCHITECTURE — Every 2 hours
-   * ========================================================= */
   async scheduled(event, env, ctx) {
     const cron = event.cron;
     const startTime = Date.now();
     console.log(`[CRON] ${cron} started at ${new Date(event.scheduledTime).toISOString()}`);
 
     try {
-      /* =========================================================
-       * Cron 1: Every 2 hours — News Pipeline + Smart Notification
-       * ========================================================= */
       if (cron === "0 */2 * * *") {
         let result;
         try {
@@ -295,9 +281,6 @@ export default {
         return;
       }
 
-      /* =========================================================
-       * Cron 2: Every 2 hours at 15 min — Fast Index
-       * ========================================================= */
       if (cron === "15 */2 * * *") {
         try {
           const recent = await env.DB.prepare(
@@ -322,9 +305,6 @@ export default {
         return;
       }
 
-      /* =========================================================
-       * Cron 3: Every 2 hours at 35 min — Google Indexing API + Push Retry
-       * ========================================================= */
       if (cron === "35 */2 * * *") {
         if (env.GOOGLE_SERVICE_ACCOUNT_JSON) {
           try {
@@ -382,9 +362,6 @@ export default {
         return;
       }
 
-      /* =========================================================
-       * Cron 4: Every 2 hours at 50 min — Cleanup + Sitemap Ping
-       * ========================================================= */
       if (cron === "50 */2 * * *") {
         try {
           await cleanExpiredPushNotifications(env);
@@ -393,7 +370,6 @@ export default {
           console.error("[CRON-CLEAN] Push cleanup failed:", error?.message || String(error));
         }
 
-        // ✅ 48h+ old candidates delete
         try {
           const candidateResult = await cleanOldCandidates(env.DB);
           console.log(`[CRON-CLEAN] Candidates: ${candidateResult.deleted} deleted`);
@@ -401,7 +377,6 @@ export default {
           console.error("[CRON-CLEAN] Candidate cleanup failed:", error?.message || String(error));
         }
 
-        // ✅ 24h+ old rejected news delete
         try {
           const rejectedResult = await cleanRejectedNews(env.DB);
           console.log(`[CRON-CLEAN] Rejected: ${rejectedResult.deleted} deleted`);
@@ -467,7 +442,6 @@ async function updateNews(env) {
     };
   }
 
-  // ✅ Candidate cleanup — 48h+ old candidates delete
   try {
     const candidateCleanup = await cleanOldCandidates(env.DB);
     if (candidateCleanup.deleted > 0) {
@@ -522,7 +496,6 @@ async function updateNews(env) {
     };
   }
 
-  // ✅ সিলেক্ট না হওয়া candidate-গুলোকে 'rejected' মার্ক করো
   try {
     const selectedIds = new Set(selected.map(a => String(a.id)));
     const rejectedCandidates = candidates.filter(c => !selectedIds.has(String(c.id)));
@@ -733,7 +706,7 @@ async function submitToGoogleIndexing(env, newsIds) {
 }
 
 /* =========================================================
- * BOT HOMEPAGE — Latest news first (created_at DESC)
+ * BOT HOMEPAGE
  * ========================================================= */
 async function serveBotHomepage(env) {
   try {
@@ -1175,7 +1148,7 @@ async function handleAffiliate(url, env) {
 }
 
 /* =========================================================
- * API: GET NEWS (with cache)
+ * API: GET NEWS
  * ========================================================= */
 async function handleGetNews(url, env, request) {
   return cacheNewsApi(request, async () => {
@@ -1518,7 +1491,7 @@ async function addComment(request, env) {
 }
 
 /* =========================================================
- * GOOGLE INDEXING API — kept for future use
+ * GOOGLE INDEXING API
  * ========================================================= */
 async function requestGoogleIndexing(url, env) {
   try {
@@ -1772,7 +1745,7 @@ Sitemap: https://ajkernews.in/news-sitemap.xml
 }
 
 /* =========================================================
- * RSS FEED — Latest first
+ * RSS FEED
  * ========================================================= */
 async function generateRSS(env) {
   const result = await env.DB.prepare(

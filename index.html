@@ -328,6 +328,19 @@ let deferredPrompt = null;
 let __prefetchData = null;
 let __prefetchOffset = 0;
 
+// ===== HELPERS =====
+// ✅ Sort by latest (published_at first, then created_at)
+function sortByLatest(newsArray) {
+  if (!Array.isArray(newsArray)) return [];
+  return [...newsArray].sort((a, b) => {
+    const dateA = new Date(a.published_at || a.created_at || 0).getTime();
+    const dateB = new Date(b.published_at || b.created_at || 0).getTime();
+    if (dateB !== dateA) return dateB - dateA;
+    // tie-breaker: higher score first
+    return (Number(b.score) || 0) - (Number(a.score) || 0);
+  });
+}
+
 // ===== ADS =====
 const PERSONAL_ADS = [
   { id: "ad1", title: "আপনার বিজ্ঞাপন দিন", description: "বাংলার সবচেয়ে বড় নিউজ প্ল্যাটফর্মে বিজ্ঞাপন দিন। লাখ লাখ দর্শকের কাছে পৌঁছান।", link: "https://your-ad-page.com/contact", image: "https://your-image-url.com/ad-banner.png", category: "sponsored" },
@@ -550,7 +563,9 @@ async function loadNews(category = 'top', search = '', options = {}) {
     const data = await response.json();
     if (!data || !Array.isArray(data.news)) throw new Error('Invalid news response');
     const normalizedNews = data.news.map(normalizeNews).filter(Boolean);
-    currentNews = search ? rankSearchResults(normalizedNews, search) : normalizedNews;
+    // ✅ Always show latest news first (sort by published_at, then created_at)
+    const sortedNews = sortByLatest(normalizedNews);
+    currentNews = search ? rankSearchResults(sortedNews, search) : sortedNews;
     visibleCount = 10;
     hasMoreNews = data.has_more || false;
     renderNews(currentNews, hasMoreNews);
@@ -729,7 +744,9 @@ async function loadMoreNews() {
       return;
     }
     const newNews = data.news.map(normalizeNews).filter(Boolean);
-    currentNews = [...currentNews, ...newNews];
+    // ✅ Sort new page latest first
+    const sortedNewNews = sortByLatest(newNews);
+    currentNews = [...currentNews, ...sortedNewNews];
     visibleCount = currentNews.length;
     hasMoreNews = data.has_more || false;
     renderNews(currentNews, hasMoreNews);
@@ -758,7 +775,9 @@ async function loadMoreNews() {
       return;
     }
     const newNews = data.news.map(normalizeNews).filter(Boolean);
-    currentNews = [...currentNews, ...newNews];
+    // ✅ Sort new page latest first
+    const sortedNewNews = sortByLatest(newNews);
+    currentNews = [...currentNews, ...sortedNewNews];
     visibleCount = currentNews.length;
     hasMoreNews = data.has_more || false;
     renderNews(currentNews, hasMoreNews);
@@ -862,7 +881,6 @@ async function shareNews(id, headline, summary) {
     if (cutIndex === -1) cutIndex = MAX_SUMMARY;
     cleanSummary = cleanSummary.substring(0, cutIndex) + '...';
   }
-  // ✅ UPDATED: /news/{id} clean URL
   const shareUrl = 'https://ajkernews.in/news/' + encodeURIComponent(id);
   const shareText = cleanSummary
     ? `${cleanHeadline}\n\n${cleanSummary}\n\nপূর্ণ খবর দেখতে এই লিঙ্কে ক্লিক করুন\n${shareUrl}`
@@ -1295,7 +1313,6 @@ window.addEventListener('load', () => {
   const goPath = window.location.pathname;
   const goId = goPath.startsWith('/go/') ? decodeURIComponent(goPath.split('/')[2] || '') : null;
 
-  // ✅ NEW: /news/{id} clean URL support
   const pathMatch = window.location.pathname.match(/^\/news\/([^\/]+)/);
   const pathId = pathMatch ? decodeURIComponent(pathMatch[1]) : null;
 

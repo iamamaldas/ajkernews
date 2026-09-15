@@ -1,7 +1,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v16 — Smart Notification (Latest 1, 2-Hour Interval, Image)
+ * FINAL v17 — SEO Fixed + Latest News First + Smart Notification
  * =========================================================
  */
 
@@ -262,24 +262,21 @@ export default {
           return;
         }
 
-        // ✅ Step 1: চেক করো এখন নোটিফিকেশন পাঠানোর সময় কি না
-        const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000); // IST
+        const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
         const istHour = istNow.getUTCHours();
-        const isNightTime = istHour >= 23 || istHour < 6; // রাত ১১টা - সকাল ৬টা
-        const isEvenHour = istHour % 2 === 0; // জোড় ঘণ্টা (০, ২, ৪, ৬...)
+        const isNightTime = istHour >= 23 || istHour < 6;
+        const isEvenHour = istHour % 2 === 0;
 
         const shouldSendNotification = isEvenHour && !isNightTime;
 
         console.log(`[NOTIF] IST Hour: ${istHour} | Even: ${isEvenHour} | Night: ${isNightTime} | Send: ${shouldSendNotification}`);
 
-        // ✅ Step 2: সবসময় পেন্ডিং নোটিফিকেশন পাঠানোর চেষ্টা (sync)
         ctx.waitUntil(
           sendPendingPushNotifications(env).catch(error => {
             console.error("[CRON-NEWS] Pending push error:", error?.message || String(error));
           })
         );
 
-        // ✅ Step 3: শুধু জোড় ঘণ্টায় ও দিনের বেলায় নতুন নোটিফিকেশন কিউ করো
         if (shouldSendNotification && result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
           ctx.waitUntil(
             queueAndSendPushNotifications(env, result.newNewsIds).catch(error => {
@@ -287,7 +284,7 @@ export default {
             })
           );
         } else if (!shouldSendNotification) {
-          console.log(`[NOTIF] Skipped. ${isNightTime ? 'Night time' : 'Odd hour'}. News published but no notification.`);
+          console.log(`[NOTIF] Skipped. ${isNightTime ? 'Night time' : 'Odd hour'}.`);
         }
 
         console.log(`[CRON-NEWS] Completed in ${Date.now() - startTime}ms`);
@@ -295,7 +292,7 @@ export default {
       }
 
       /* =========================================================
-       * Cron 2: 15 * * * * — Fast Index (IndexNow + WebSub + Bing)
+       * Cron 2: 15 * * * * — Fast Index
        * ========================================================= */
       if (cron === "15 * * * *") {
         try {
@@ -678,16 +675,16 @@ async function submitToGoogleIndexing(env, newsIds) {
 }
 
 /* =========================================================
- * BOT HOMEPAGE
+ * BOT HOMEPAGE — Latest news first (created_at DESC)
  * ========================================================= */
 async function serveBotHomepage(env) {
   try {
     const newsResult = await env.DB.prepare(
-      `SELECT id, headline, summary, published_at, category, image_url,
+      `SELECT id, headline, summary, published_at, created_at, category, image_url,
               source_name, main_topic
        FROM news
        WHERE status = 'published'
-       ORDER BY published_at DESC
+       ORDER BY created_at DESC, published_at DESC
        LIMIT 100`
     ).all();
     const news = newsResult.results || [];
@@ -710,8 +707,9 @@ async function serveBotHomepage(env) {
     for (const item of news) {
       const link = `https://ajkernews.in/news/${encodeURIComponent(item.id)}`;
       const image = item.image_url || "https://ajkernews.in/logo.png";
-      const publishedDate = item.published_at
-        ? new Date(item.published_at).toISOString()
+      const displayDate = item.created_at || item.published_at;
+      const publishedDate = displayDate
+        ? new Date(displayDate).toISOString()
         : new Date().toISOString();
       const cat = catLabel[item.category] || item.category || 'সংবাদ';
 
@@ -740,7 +738,7 @@ async function serveBotHomepage(env) {
             <span itemprop="author" itemscope itemtype="https://schema.org/Organization">
               <span itemprop="name">${escapeHtml(item.source_name || "Ajker News")}</span>
             </span>
-            • <time datetime="${escapeHtml(publishedDate)}">${escapeHtml(item.published_at || "")}</time>
+            • <time datetime="${escapeHtml(publishedDate)}">${escapeHtml(displayDate || "")}</time>
           </div>
           <a itemprop="url" href="${escapeHtml(link)}"
              style="display:inline-block;margin-top:8px;color:#007bff;font-size:14px;text-decoration:none;">
@@ -756,6 +754,18 @@ async function serveBotHomepage(env) {
         ${escapeHtml(label)} (${c.cnt})
       </a>`;
     }).join("");
+
+    // ✅ ItemList Schema for homepage
+    const itemListLd = JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "ItemList",
+      "itemListElement": news.slice(0, 10).map((item, index) => ({
+        "@type": "ListItem",
+        "position": index + 1,
+        "url": `https://ajkernews.in/news/${encodeURIComponent(item.id)}`,
+        "name": item.headline || "News"
+      }))
+    });
 
     const html = `<!DOCTYPE html>
 <html lang="bn">
@@ -788,6 +798,7 @@ async function serveBotHomepage(env) {
   }
 }
 </script>
+<script type="application/ld+json">${itemListLd}</script>
 </head>
 <body style="max-width:820px;margin:0 auto;padding:20px;font-family:Inter,-apple-system,sans-serif;color:#111;">
 <header>
@@ -831,7 +842,7 @@ async function serveBotArticlePage(id, env) {
   if (!safeId) return Response.redirect("https://ajkernews.in/", 302);
 
   const result = await env.DB.prepare(
-    `SELECT headline, summary, main_topic, image_url, published_at,
+    `SELECT headline, summary, main_topic, image_url, published_at, created_at,
             source_name, source_url, category
      FROM news
      WHERE id = ? AND status = 'published'
@@ -844,7 +855,8 @@ async function serveBotArticlePage(id, env) {
   const description = cleanText(result.summary || "").slice(0, 160);
   const fullSummary = cleanText(result.summary || result.main_topic || "");
   const image = result.image_url || "https://ajkernews.in/logo.png";
-  const publishedAt = result.published_at || new Date().toISOString();
+  const displayDate = result.created_at || result.published_at || new Date().toISOString();
+  const publishedAt = displayDate;
   const canonical = `https://ajkernews.in/news/${encodeURIComponent(safeId)}`;
 
   const newsArticleLd = JSON.stringify({
@@ -977,6 +989,7 @@ async function ensureTables(env) {
     `CREATE TABLE IF NOT EXISTS affiliate_clicks (id TEXT PRIMARY KEY, affiliate_name TEXT, click_url TEXT, device_id TEXT, created_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS indexing_log (id TEXT PRIMARY KEY, news_id TEXT, url TEXT, status TEXT, response TEXT, created_at TEXT)`,
     `CREATE INDEX IF NOT EXISTS idx_news_status_published ON news(status, published_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_news_status_created ON news(status, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_category_published ON news(category, published_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_score_published ON news(score DESC, published_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_loves_news_id ON news_loves(news_id)`,
@@ -1008,7 +1021,6 @@ async function ensureTables(env) {
     console.error("Column migration failed:", error?.message || String(error));
   }
 
-  // ✅ Push notifications table migration for image_url
   try {
     const pushColumns = await env.DB.prepare(`PRAGMA table_info(push_notifications)`).all();
     const pushColNames = (pushColumns.results || []).map(c => c.name);
@@ -1149,7 +1161,7 @@ async function handleGetNewsInternal(url, env) {
       WHERE news.status = 'published'
         AND (news.search_text LIKE ? OR news.headline LIKE ? OR news.summary LIKE ? OR news.main_topic LIKE ?)
       GROUP BY news.id
-      ORDER BY news.published_at DESC
+      ORDER BY news.created_at DESC, news.published_at DESC
       LIMIT ? OFFSET ?
     `).bind(`%${transliterated}%`, `%${query}%`, `%${query}%`, `%${query}%`, queryLimit, offset).all();
   } else if (category === "trending") {
@@ -1169,7 +1181,7 @@ async function handleGetNewsInternal(url, env) {
       LEFT JOIN news_loves nl ON nl.news_id = news.id
       WHERE news.status = 'published' AND news.category = ?
       GROUP BY news.id
-      ORDER BY news.published_at DESC
+      ORDER BY news.created_at DESC, news.published_at DESC
       LIMIT ? OFFSET ?
     `).bind(category, queryLimit, offset).all();
   } else {
@@ -1179,7 +1191,7 @@ async function handleGetNewsInternal(url, env) {
       LEFT JOIN news_loves nl ON nl.news_id = news.id
       WHERE news.status = 'published'
       GROUP BY news.id
-      ORDER BY news.published_at DESC
+      ORDER BY news.created_at DESC, news.published_at DESC
       LIMIT ? OFFSET ?
     `).bind(queryLimit, offset).all();
   }
@@ -1264,7 +1276,6 @@ async function queueAndSendPushNotifications(env, newsIds) {
     env.VAPID_PRIVATE_KEY
   );
 
-  // ✅ Step 1: শুধু লেটেস্ট ১টি নিউজ বাছাই (published_at DESC, score DESC)
   const placeholders = ids.map(() => "?").join(",");
   const latestNews = await env.DB.prepare(`
     SELECT id, headline, summary, image_url
@@ -1296,14 +1307,12 @@ async function queueAndSendPushNotifications(env, newsIds) {
   const targetUrl = `https://ajkernews.in/news/${encodeURIComponent(latestNews.id)}`;
   const image = latestNews.image_url || null;
 
-  // Insert notification with image
   await env.DB.prepare(`
     INSERT OR IGNORE INTO push_notifications
     (id, news_id, title, body, url, image_url, created_at, expires_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(notificationId, latestNews.id, title, body, targetUrl, image, now.toISOString(), expires).run();
 
-  // Queue deliveries for all subscribers
   for (const sub of subs.results) {
     await env.DB.prepare(`
       INSERT OR IGNORE INTO push_notification_deliveries
@@ -1312,7 +1321,6 @@ async function queueAndSendPushNotifications(env, newsIds) {
     `).bind(crypto.randomUUID(), notificationId, sub.endpoint, now.toISOString()).run();
   }
 
-  // ✅ সাথে সাথে পাঠাও
   await sendPendingPushNotifications(env);
 }
 
@@ -1349,7 +1357,7 @@ async function sendPendingPushNotifications(env, endpointFilter = null) {
           notificationId: row.notification_id,
           icon: "/logo.png",
           badge: "/logo.png",
-          image: row.image_url || null  // ✅ ছবি যোগ
+          image: row.image_url || null
         });
 
         await webPush.sendNotification(
@@ -1550,16 +1558,16 @@ async function getGoogleAccessToken(env) {
 }
 
 /* =========================================================
- * SITEMAP
+ * SITEMAP — FIXED: LIMIT 1000 (no bind)
  * ========================================================= */
 async function generateSitemap(env) {
   try {
     const result = await env.DB.prepare(
-      `SELECT id, published_at FROM news 
+      `SELECT id, published_at, created_at FROM news 
        WHERE status = 'published' 
-       ORDER BY published_at DESC 
-       LIMIT ?`
-    ).bind(MAX_NEWS).all();
+       ORDER BY created_at DESC, published_at DESC 
+       LIMIT 1000`
+    ).all();
 
     const news = result.results || [];
     const baseUrl = "https://ajkernews.in";
@@ -1573,8 +1581,9 @@ async function generateSitemap(env) {
   </url>`;
 
     for (const item of news) {
-      const lastmod = item.published_at
-        ? new Date(item.published_at).toISOString().split("T")[0]
+      const displayDate = item.created_at || item.published_at;
+      const lastmod = displayDate
+        ? new Date(displayDate).toISOString().split("T")[0]
         : new Date().toISOString().split("T")[0];
 
       xml += `
@@ -1588,11 +1597,13 @@ async function generateSitemap(env) {
 
     xml += `\n</urlset>`;
 
+    console.log(`[SITEMAP] Generated ${news.length} URLs`);
+
     return new Response(xml, {
       status: 200,
       headers: {
         "Content-Type": "application/xml; charset=UTF-8",
-        "Cache-Control": "public, max-age=3600, s-maxage=3600",
+        "Cache-Control": "public, max-age=1800, s-maxage=1800",
         ...corsHeaders()
       }
     });
@@ -1611,10 +1622,10 @@ async function generateSitemap(env) {
 async function generateNewsSitemap(env) {
   try {
     const result = await env.DB.prepare(
-      `SELECT id, headline, published_at FROM news
+      `SELECT id, headline, published_at, created_at FROM news
        WHERE status = 'published'
-         AND published_at >= datetime('now', '-2 days')
-       ORDER BY published_at DESC
+         AND created_at >= datetime('now', '-2 days')
+       ORDER BY created_at DESC
        LIMIT 1000`
     ).all();
 
@@ -1626,8 +1637,9 @@ async function generateNewsSitemap(env) {
         xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">`;
 
     for (const n of news) {
-      const publishedAt = n.published_at 
-        ? new Date(n.published_at).toISOString() 
+      const displayDate = n.created_at || n.published_at;
+      const publishedAt = displayDate 
+        ? new Date(displayDate).toISOString() 
         : new Date().toISOString();
       const safeTitle = String(n.headline || "News").slice(0, 110);
 
@@ -1646,6 +1658,8 @@ async function generateNewsSitemap(env) {
     }
 
     xml += `\n</urlset>`;
+
+    console.log(`[NEWS-SITEMAP] Generated ${news.length} URLs`);
 
     return new Response(xml, {
       status: 200,
@@ -1701,20 +1715,21 @@ Sitemap: https://ajkernews.in/news-sitemap.xml
 }
 
 /* =========================================================
- * RSS FEED
+ * RSS FEED — Latest first
  * ========================================================= */
 async function generateRSS(env) {
   const result = await env.DB.prepare(
-    `SELECT id, headline, summary, published_at, image_url, source_name
+    `SELECT id, headline, summary, published_at, created_at, image_url, source_name
      FROM news WHERE status='published'
-     ORDER BY published_at DESC LIMIT 50`
+     ORDER BY created_at DESC, published_at DESC LIMIT 50`
   ).all();
   const news = result.results || [];
   const base = "https://ajkernews.in";
 
   const items = news.map(n => {
     const link = `${base}/news/${encodeURIComponent(n.id)}`;
-    const pubDate = n.published_at ? new Date(n.published_at).toUTCString() : new Date().toUTCString();
+    const displayDate = n.created_at || n.published_at;
+    const pubDate = displayDate ? new Date(displayDate).toUTCString() : new Date().toUTCString();
     const safeDesc = String(n.summary || "").replace(/]]>/g, "]]]]><![CDATA[>");
     return `<item>
   <title>${escapeHtml(n.headline)}</title>

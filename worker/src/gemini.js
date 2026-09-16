@@ -6,7 +6,7 @@
  * - 5-7 sentence structure
  * - Widely known context expansion (no invention)
  * - 20s timeout per model (Cloudflare Worker Safe)
- * - Parallel batch fallback
+ * - ✅ Single batch processing (no chunking) — Worker timeout safe
  */
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -18,6 +18,9 @@ const TARGET_SUMMARY_WORDS = 130;
 const MAX_RETRIES_5XX = 1;
 const RETRY_DELAY_5XX_MS = 1500;
 const GEMINI_TIMEOUT_MS = 20000; // ✅ 20s (Cloudflare Worker Safe)
+
+// ✅ FIX: maxOutputTokens lowered to 4000 (Gemini Flash max is 8192, was 16000 → silent truncate)
+const MAX_OUTPUT_TOKENS = 4000;
 
 const RESPONSE_SCHEMA = {
   type: "ARRAY",
@@ -113,7 +116,7 @@ async function discoverModels(apiKey) {
 }
 
 /* =========================================================
- * Main Entry
+ * Main Entry — ✅ SINGLE BATCH (no chunking)
  * ========================================================= */
 export async function generateNewsWithGemini(articles, apiKey) {
   if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
@@ -121,22 +124,12 @@ export async function generateNewsWithGemini(articles, apiKey) {
 
   const models = await discoverModels(apiKey);
 
-  // ✅ Process in batches of 2 to avoid timeout
-  const BATCH_SIZE = 2;
-  const allResults = [];
+  // ✅ FIX: Single batch — Cloudflare Worker 25s timeout safe
+  // আগে 2 batch ছিল, প্রতিটা 20s → 40s+ → Promise.race reject → সব English fallback
+  console.log(`[GEMINI] Single batch: ${articles.length} articles`);
+  const results = await processBatch(articles, models, apiKey);
 
-  for (let i = 0; i < articles.length; i += BATCH_SIZE) {
-    const batch = articles.slice(i, i + BATCH_SIZE);
-    console.log(`[BATCH] Processing ${i + 1}-${i + batch.length} of ${articles.length}`);
-
-    const batchResults = await processBatch(batch, models, apiKey);
-
-    if (Array.isArray(batchResults)) {
-      allResults.push(...batchResults);
-    }
-  }
-
-  return validateAndCleanResults(allResults, articles);
+  return validateAndCleanResults(results || [], articles);
 }
 
 async function processBatch(articles, models, apiKey) {
@@ -148,7 +141,6 @@ async function processBatch(articles, models, apiKey) {
     published_at: String(article.published_at || "").trim(),
     category: String(article.category || "general").trim(),
     language: String(article.language || "en").trim(),
-    // ✅ Multiple sources support
     additional_sources: Array.isArray(article.additional_sources)
       ? article.additional_sources.map(s => ({
           title: String(s.source_title || "").trim(),
@@ -204,7 +196,7 @@ async function processBatch(articles, models, apiKey) {
 }
 
 /* =========================================================
- * Prompt Builder — Content Quality Optimized
+ * Prompt Builder
  * ========================================================= */
 function buildPrompt(sourceArticles) {
   return `You are the senior Bengali news editor for Ajker News, an Indian Bengali news website.
@@ -300,7 +292,7 @@ async function callGeminiAPI(model, prompt, apiKey) {
               temperature: 0.2,
               responseMimeType: "application/json",
               responseSchema: RESPONSE_SCHEMA,
-              maxOutputTokens: 16000
+              maxOutputTokens: MAX_OUTPUT_TOKENS   // ✅ FIX: 4000
             }
           }),
           signal: controller.signal
@@ -418,7 +410,6 @@ function cleanText(value) {
  * ========================================================= */
 export async function processSelectedNews(articles, apiKey) {
   if (!Array.isArray(articles) || articles.length === 0) return [];
-  // ✅ Max 4 articles per call (batched internally)
   const limitedArticles = articles.slice(0, 4);
   return await generateNewsWithGemini(limitedArticles, apiKey);
 }

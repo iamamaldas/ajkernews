@@ -1,8 +1,8 @@
-// auto-deploy test - 2026-09-15
+// auto-deploy test - 2026-09-16
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v20 — Candidate Cleanup + Rejected Marking + Gemini Safe
+ * FINAL v21 — Cache fix + Multi-key purge + Relative URLs
  * =========================================================
  */
 
@@ -438,6 +438,7 @@ async function updateNews(env) {
     return {
       success: false, fetched: 0, inserted: 0, candidates: 0, selected: 0,
       published: 0, deleted: 0, indexed: 0, gemini: false, newNewsIds: [],
+      batches: [],
       message: "GNews fetch failed: " + (error?.message || String(error))
     };
   }
@@ -462,7 +463,8 @@ async function updateNews(env) {
     return {
       success: false, fetched: batchResult.totalReceived, inserted: batchResult.totalInserted,
       candidates: 0, selected: 0, published: 0, deleted: 0, indexed: 0,
-      gemini: false, newNewsIds: [], message: "Candidate fetch failed"
+      gemini: false, newNewsIds: [], batches: batchResult.batches,
+      message: "Candidate fetch failed"
     };
   }
 
@@ -470,7 +472,8 @@ async function updateNews(env) {
     return {
       success: true, fetched: batchResult.totalReceived, inserted: batchResult.totalInserted,
       candidates: 0, selected: 0, published: 0, deleted: 0, indexed: 0,
-      gemini: false, newNewsIds: [], message: "No candidates available"
+      gemini: false, newNewsIds: [], batches: batchResult.batches,
+      message: "No candidates available"
     };
   }
 
@@ -492,7 +495,8 @@ async function updateNews(env) {
     return {
       success: false, fetched: batchResult.totalReceived, inserted: batchResult.totalInserted,
       candidates: candidates.length, selected: 0, published: 0, deleted: 0, indexed: 0,
-      gemini: false, newNewsIds: [], message: "Selection failed"
+      gemini: false, newNewsIds: [], batches: batchResult.batches,
+      message: "Selection failed"
     };
   }
 
@@ -518,7 +522,8 @@ async function updateNews(env) {
     return {
       success: true, fetched: batchResult.totalReceived, inserted: batchResult.totalInserted,
       candidates: candidates.length, selected: 0, published: 0, deleted: 0, indexed: 0,
-      gemini: false, newNewsIds: [], message: "No selectable news"
+      gemini: false, newNewsIds: [], batches: batchResult.batches,
+      message: "No selectable news"
     };
   }
 
@@ -642,6 +647,7 @@ async function updateNews(env) {
     success: true,
     fetched: batchResult.totalReceived,
     inserted: batchResult.totalInserted,
+    batches: batchResult.batches,
     candidates: candidates.length,
     selected: selected.length,
     published: publishResult.published,
@@ -1178,7 +1184,7 @@ async function handleGetNewsInternal(url, env) {
       LIMIT 1
     `).bind(specificId).all();
     const news = result.results || [];
-    return json({ success: true, count: news.length, news }, 200, 300);
+    return json({ success: true, count: news.length, news }, 200, 0);
   }
 
   let result;
@@ -1230,7 +1236,8 @@ async function handleGetNewsInternal(url, env) {
   const hasMore = rawNews.length > limit;
   const news = rawNews.slice(0, limit);
 
-  return json({ success: true, count: news.length, offset, limit, has_more: hasMore, news }, 200, 30);
+  // ✅ FIXED: cacheSeconds = 0 → CDN cache prevent (worker cache API handles it separately)
+  return json({ success: true, count: news.length, offset, limit, has_more: hasMore, news }, 200, 0);
 }
 
 /* =========================================================

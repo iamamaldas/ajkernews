@@ -1,13 +1,14 @@
 /**
  * Ajker News Service Worker
- * v2026-09-14 — Latest single notification + image support
+ * v2026-09-16-1 — Cache fix + navigation-first
  */
 
-const CACHE_VERSION = "ajker-news-v2026-09-14";
+const CACHE_VERSION = "ajker-news-v2026-09-16-1";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const LOGO_URL = "/logo.png";
 
-const APP_SHELL = ["/", "/index.html", "/manifest.json", LOGO_URL];
+// ✅ index.html বাদ — সেটা dynamic (Worker থেকে আসে)
+const APP_SHELL = ["/", "/manifest.json", LOGO_URL];
 
 self.addEventListener("install", event => {
   event.waitUntil(
@@ -49,6 +50,7 @@ self.addEventListener("fetch", event => {
   if (request.method !== "GET") return;
   const url = new URL(request.url);
 
+  // ✅ API, /go/, /news — always network (no cache)
   if (url.pathname.startsWith("/api/") ||
       url.pathname.startsWith("/go/") ||
       url.pathname === "/news") {
@@ -56,11 +58,15 @@ self.addEventListener("fetch", event => {
     return;
   }
 
+  // ✅ HTML navigation — network first, no stale index.html
   if (request.mode === "navigate" || request.destination === "document") {
-    event.respondWith(fetch(request).catch(() => caches.match(request)));
+    event.respondWith(
+      fetch(request).catch(() => caches.match("/"))
+    );
     return;
   }
 
+  // ✅ Static assets — cache first
   if (["script", "style", "image", "font"].includes(request.destination) ||
       url.pathname.startsWith("/assets/")) {
     event.respondWith(caches.match(request).then(c => c || fetch(request)));
@@ -71,7 +77,7 @@ self.addEventListener("fetch", event => {
 });
 
 /* =========================================================
- * ✅ Push Notification — Latest single + Image
+ * Push Notification — Latest single + Image
  * ========================================================= */
 self.addEventListener("push", event => {
   let data = {
@@ -100,9 +106,9 @@ self.addEventListener("push", event => {
     body: data.body,
     icon: data.icon || LOGO_URL,
     badge: data.badge || LOGO_URL,
-    image: data.image || undefined,  // ✅ বড় ছবি (BigPicture)
+    image: data.image || undefined,
     vibrate: [200, 100, 200],
-    tag: "ajker-news-latest",        // ✅ একই tag — পুরোনোটি রিপ্লেস হবে
+    tag: "ajker-news-latest",
     renotify: true,
     silent: false,
     requireInteraction: false,

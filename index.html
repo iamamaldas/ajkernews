@@ -321,7 +321,8 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
 </button>
 <script>
 // ===== CONFIG =====
-const WORKER_BASE = 'https://ajkernews.in';
+// ✅ FIXED: Relative origin — www.ajkernews.in, ajkernews.in, workers.dev সব domain এ কাজ করবে
+const WORKER_BASE = window.location.origin;
 const API_URL = `${WORKER_BASE}/api/news`;
 
 // ===== STATE =====
@@ -393,6 +394,7 @@ function escapeHtml(value) {
 function formatDate(dateString) {
   if (!dateString) return '';
   const date = new Date(dateString);
+  if (isNaN(date.getTime())) return '';
   return date.toLocaleDateString('bn-BD', { day: 'numeric', month: 'long', year: 'numeric' }) + ' ' + date.toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' });
 }
 function normalizeNews(news) {
@@ -887,7 +889,7 @@ async function shareNews(id, headline, summary) {
     if (cutIndex === -1) cutIndex = MAX_SUMMARY;
     cleanSummary = cleanSummary.substring(0, cutIndex) + '...';
   }
-  const shareUrl = 'https://ajkernews.in/news/' + encodeURIComponent(id);
+  const shareUrl = WORKER_BASE + '/news/' + encodeURIComponent(id);
   const shareText = cleanSummary
     ? `${cleanHeadline}\n\n${cleanSummary}\n\nপূর্ণ খবর দেখতে এই লিঙ্কে ক্লিক করুন\n${shareUrl}`
     : `${cleanHeadline}\n\nপূর্ণ খবর দেখতে এই লিঙ্কে ক্লিক করুন\n${shareUrl}`;

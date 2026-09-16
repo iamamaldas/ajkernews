@@ -2,6 +2,7 @@
  * News selector — 2 bn + 2 en = 4 news per slot
  * + Group similar stories for better context
  * + Top media priority scoring
+ * + ✅ FIX: English fallback skip (Bangla only)
  */
 
 import { publishNews } from "./database.js";
@@ -32,7 +33,7 @@ export function selectBestCandidates(candidates, existingPublished = []) {
 }
 
 /* =========================================================
- * Group Similar Stories — Multiple Sources
+ * Group Similar Stories
  * ========================================================= */
 function groupSimilarStories(candidates) {
   if (!Array.isArray(candidates)) return [];
@@ -150,7 +151,7 @@ function removeSimilarStories(candidates, existingPublished) {
 }
 
 function normalizeTitle(title = "") {
-  return normalizeText(title)
+  return normalizeText(String(title || ""))
     .split(/\s+/)
     .filter(word => word.length >= 3)
     .filter(word => !STOP_WORDS.has(word));
@@ -177,11 +178,12 @@ function areSimilarStories(wordsA, wordsB) {
   const smaller = Math.min(setA.size, setB.size);
   if (!smaller) return false;
 
-  return (common / smaller) >= 0.60;
+  // ✅ Raised threshold to reduce false positives
+  return (common / smaller) >= 0.75;
 }
 
 /* =========================================================
- * ✅ Enhanced Quality Scoring — Top Media Priority
+ * Quality Scoring
  * ========================================================= */
 function calculateQualityScore(article) {
   let score = Number(article.score || 0);
@@ -192,21 +194,17 @@ function calculateQualityScore(article) {
 
   if (title.length >= 35 && title.length <= 180) score += 5;
 
-  // ✅ Description length bonus
   if (description.length >= 200) score += 8;
   else if (description.length >= 100) score += 4;
 
   if (article.image_url) score += 3;
 
-  // ✅ Top media bonus — বড় মিডিয়া হলে +১৫
   if (isRecognizedSource(source)) score += 15;
 
-  // ✅ Additional sources bonus
   if (Array.isArray(article.additional_sources) && article.additional_sources.length) {
     score += article.additional_sources.length * 3;
   }
 
-  // ✅ Viral/trending keyword bonus
   const combined = (title + " " + description).toLowerCase();
   if (combined.includes("breaking") || combined.includes("viral") || combined.includes("trending") || combined.includes("big")) {
     score += 10;
@@ -231,24 +229,16 @@ function freshnessScore(publishedAt) {
   return 0;
 }
 
-/* =========================================================
- * ✅ Expanded Recognized Sources List
- * ========================================================= */
 function isRecognizedSource(source) {
   const value = source.toLowerCase();
   const trustedPatterns = [
-    // বাংলা মিডিয়া
     "abp", "anandabazar", "bartaman", "ei samay", "sangbad pratidin",
     "tv9 bangla", "zee 24 ghanta", "kolkata tv", "news18 bangla",
     "republic bangla", "abp ananda",
-
-    // জাতীয় মিডিয়া (India)
     "aaj tak", "ndtv", "times of india", "hindustan times",
     "indian express", "the hindu", "news18", "india today",
     "economic times", "livemint", "business standard", "zee news",
     "republic", "firstpost", "the wire", "scroll", "telegraph india",
-
-    // আন্তর্জাতিক মিডিয়া
     "reuters", "associated press", "ap news", "bbc", "cnn",
     "al jazeera", "the guardian", "new york times", "washington post",
     "bloomberg", "forbes"
@@ -286,7 +276,7 @@ function selectWithCategoryBalance(articles, limit) {
 }
 
 /* =========================================================
- * Publish — With Fallback
+ * Publish — ✅ FIX: Skip English-only fallback
  * ========================================================= */
 export async function publishSelectedNews(db, selectedArticles, geminiResults) {
   if (!Array.isArray(selectedArticles)) return { published: 0 };
@@ -305,13 +295,28 @@ export async function publishSelectedNews(db, selectedArticles, geminiResults) {
     let headline, summary, mainTopic;
 
     if (generated && generated.headline && generated.summary) {
+      // ✅ Gemini success — use Bangla rewrite
       headline = generated.headline;
       summary = generated.summary;
       mainTopic = generated.main_topic || article.main_topic || article.category || "general";
     } else {
-      console.warn(`[FALLBACK] No Gemini result for ${article.id}, using source data`);
-      headline = cleanText(article.source_title || article.headline || "সংবাদ");
-      summary = cleanText(article.source_description || article.summary || "");
+      // ✅ FIX: No Gemini result — skip English-only fallback
+      console.warn(`[FALLBACK] No Gemini result for ${article.id}, checking source language`);
+
+      const originalHeadline = String(article.source_title || "").trim();
+      const originalSummary = String(article.source_description || "").trim();
+
+      // ✅ Bangla unicode check: U+0980 to U+09FF
+      const isBangla = /[\u0980-\u09FF]/.test(originalHeadline + " " + originalSummary);
+
+      if (!isBangla) {
+        console.warn(`[SKIP] English-only source rejected (no Bangla char): ${article.id}`);
+        continue;   // ← Skip — English headline save হবে না
+      }
+
+      console.log(`[FALLBACK] Bangla source accepted: ${article.id}`);
+      headline = cleanText(originalHeadline || "সংবাদ");
+      summary = cleanText(originalSummary);
       mainTopic = article.category || "general";
 
       if (summary.length < 100) {

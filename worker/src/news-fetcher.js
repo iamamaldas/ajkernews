@@ -1,7 +1,14 @@
 /*
  * GNews fetcher — GNews-only, quota-optimized
- * Free tier safe: 24 req/day (limit 100)
- * Serial fetch (bn → 3s → en) to avoid burst 429
+ *
+ * - Free tier safe: 24 req/day (limit 100)
+ * - Serial fetch (bn → 3s gap → en) to avoid burst 429
+ * - MAX_PER_LANGUAGE = 5 (optimal)
+ * - 429-safe: returns empty list instead of throwing
+ * - 15s timeout per API call
+ * - 2 retries with 2s delay
+ * - Quality filter before storing
+ * - Top media priority + Expanded Keyword Sets
  */
 
 import { insertCandidate } from "./database.js";
@@ -10,34 +17,67 @@ import { makeId, getDayKey } from "./utils.js";
 const GNEWS_TOP_HEADLINES_URL = "https://gnews.io/api/v4/top-headlines";
 const GNEWS_SEARCH_URL = "https://gnews.io/api/v4/search";
 
-// ✅ Quota-safe: 5 per language (before 10)
+// ✅ Quota-safe: 5 per language (was 10)
 const MAX_PER_LANGUAGE = 5;
 const GNEWS_TIMEOUT_MS = 15000;
 const GNEWS_RETRY_DELAY_MS = 2000;
-const GNEWS_SERIAL_GAP_MS = 3000; // bn → en gap
+const GNEWS_SERIAL_GAP_MS = 3000; // ✅ bn → en gap (burst-safe)
 
+// ✅ Quality filter thresholds
 const MIN_TITLE_LENGTH = 30;
 const MIN_DESCRIPTION_LENGTH = 80;
 
+/* =========================================================
+ * ✅ EXPANDED KEYWORD SETS — rotates every 2 hours
+ * ========================================================= */
 const KEYWORD_SETS = [
-  { id: "top-media",        en: `"ABP Ananda" OR "Aaj Tak" OR "Times of India" OR "NDTV" OR "Hindustan Times" OR "Anandabazar" OR "Bartaman"` },
-  { id: "wb-breaking",      en: `"West Bengal breaking news" OR "Kolkata breaking" OR "Bengal government" OR "Kolkata police"` },
-  { id: "wb-politics",      en: `"West Bengal politics" OR "TMC BJP" OR "Mamata Banerjee"` },
-  { id: "india-trending",   en: `"India trending news" OR "viral news India" OR "breaking India" OR "Supreme Court India"` },
-  { id: "national-media",   en: `"India Today" OR "Economic Times" OR "Livemint" OR "Zee News" OR "Republic"` },
-  { id: "india-national",   en: `"India government scheme" OR "Parliament India" OR "Indian economy" OR "Indian railways"` },
-  { id: "international",    en: `"World news" OR "Global news" OR "Reuters" OR "BBC" OR "Al Jazeera"` },
-  { id: "trending-viral",   en: `"viral video" OR "trending now" OR "breaking news" OR "big announcement"` },
-  { id: "general-important",en: `"important news India" OR "big update India" OR "government announcement"` }
+  {
+    id: "top-media",
+    en: `"ABP Ananda" OR "Aaj Tak" OR "Times of India" OR "TV9 Bangla" OR "The Hindu" OR "NDTV" OR "Hindustan Times" OR "Indian Express" OR "Anandabazar" OR "Bartaman" OR "Ei Samay" OR "News18 Bangla"`
+  },
+  {
+    id: "wb-breaking",
+    en: `"West Bengal breaking news" OR "Kolkata breaking" OR "Bengal government" OR "Kolkata police"`
+  },
+  {
+    id: "wb-politics",
+    en: `"West Bengal politics" OR "TMC BJP" OR "Bengal election" OR "Mamata Banerjee"`
+  },
+  {
+    id: "india-trending",
+    en: `"India trending news" OR "viral news India" OR "breaking India" OR "Supreme Court India"`
+  },
+  {
+    id: "national-media",
+    en: `"India Today" OR "Economic Times" OR "Livemint" OR "Business Standard" OR "Zee News" OR "Republic" OR "Firstpost" OR "Telegraph India"`
+  },
+  {
+    id: "india-national",
+    en: `"India government scheme" OR "Parliament India" OR "Indian economy" OR "Indian education" OR "Indian railways"`
+  },
+  {
+    id: "international",
+    en: `"World news" OR "International breaking" OR "Global news" OR "US news" OR "UK news" OR "Reuters" OR "BBC" OR "Al Jazeera"`
+  },
+  {
+    id: "trending-viral",
+    en: `"viral video" OR "trending now" OR "breaking news" OR "big announcement" OR "emergency news"`
+  },
+  {
+    id: "general-important",
+    en: `"important news India" OR "big update India" OR "government announcement" OR "public interest news"`
+  }
 ];
 
 function getKeywordSetForSlot(scheduledTime = Date.now()) {
-  const slot = Math.floor(scheduledTime / (2 * 60 * 60 * 1000)); // প্রতি ২ ঘণ্টায় rotate
-  return KEYWORD_SETS[slot % KEYWORD_SETS.length];
+  // ✅ Rotates every 2 hours (matches cron "0 */2 * * *")
+  const slot = Math.floor(scheduledTime / (2 * 60 * 60 * 1000));
+  const index = slot % KEYWORD_SETS.length;
+  return KEYWORD_SETS[index];
 }
 
 /* =========================================================
- * Fetch with timeout + retry (429-safe)
+ * ✅ Timeout + Retry + 429 Handler
  * ========================================================= */
 async function fetchWithTimeoutAndRetry(url, options = {}, timeoutMs = GNEWS_TIMEOUT_MS) {
   let lastError = null;
@@ -49,20 +89,23 @@ async function fetchWithTimeoutAndRetry(url, options = {}, timeoutMs = GNEWS_TIM
 
       let response;
       try {
-        response = await fetch(url, { ...options, signal: controller.signal });
+        response = await fetch(url, {
+          ...options,
+          signal: controller.signal
+        });
       } finally {
         clearTimeout(timeoutId);
       }
 
-      // ✅ 429 → stop immediately (burst বা daily limit)
+      // ✅ 429 → stop immediately (burst or daily limit)
       if (response.status === 429) {
-        console.warn(`[FETCH] 429 hit — stopping retries`);
+        console.warn(`[FETCH] 429 Rate Limit Hit. Stopping retries to save quota.`);
         return response;
       }
 
       // ✅ 401/403 → auth error, stop
       if (response.status === 401 || response.status === 403) {
-        console.warn(`[FETCH] ${response.status} auth error — stopping`);
+        console.warn(`[FETCH] ${response.status} Auth Error. Stopping retries.`);
         return response;
       }
 
@@ -70,11 +113,14 @@ async function fetchWithTimeoutAndRetry(url, options = {}, timeoutMs = GNEWS_TIM
     } catch (error) {
       lastError = error;
       if (error.name === "AbortError") {
-        console.warn(`[FETCH] timeout (attempt ${attempt}/2)`);
+        console.warn(`[FETCH] Timeout after ${timeoutMs}ms (attempt ${attempt}/2)`);
       } else {
-        console.warn(`[FETCH] error (attempt ${attempt}/2): ${error?.message || String(error)}`);
+        console.warn(`[FETCH] Error (attempt ${attempt}/2): ${error?.message || String(error)}`);
       }
-      if (attempt < 2) await new Promise(r => setTimeout(r, GNEWS_RETRY_DELAY_MS));
+
+      if (attempt < 2) {
+        await new Promise(r => setTimeout(r, GNEWS_RETRY_DELAY_MS));
+      }
     }
   }
 
@@ -82,21 +128,25 @@ async function fetchWithTimeoutAndRetry(url, options = {}, timeoutMs = GNEWS_TIM
 }
 
 /* =========================================================
- * Parse GNews response (429-safe)
+ * ✅ 429-safe response parser
  * ========================================================= */
 async function parseGNewsResponse(response, label) {
-  // ✅ 429 → empty list, throw করবেন না
+  // ✅ 429 → empty list, no throw (next cycle retries)
   if (response.status === 429) {
-    console.warn(`[FETCH] ${label} 429 — returning empty list`);
+    console.warn(`[FETCH] ${label} 429 rate limit — returning empty list`);
     return [];
   }
 
   if (!response.ok) {
-    let errorMessage = `GNews ${label} HTTP ${response.status}`;
+    let errorMessage = `GNews ${label} request failed: HTTP ${response.status}`;
     try {
       const errorData = await response.json();
       if (errorData?.errors) {
-        errorMessage += ` - ${Array.isArray(errorData.errors) ? errorData.errors.join(", ") : JSON.stringify(errorData.errors)}`;
+        errorMessage += ` - ${
+          Array.isArray(errorData.errors)
+            ? errorData.errors.join(", ")
+            : JSON.stringify(errorData.errors)
+        }`;
       }
     } catch {}
     throw new Error(errorMessage);
@@ -104,20 +154,20 @@ async function parseGNewsResponse(response, label) {
 
   const data = await response.json();
   if (!Array.isArray(data.articles)) {
-    throw new Error(`GNews ${label} invalid articles response`);
+    throw new Error(`GNews ${label} returned an invalid articles response.`);
   }
 
-  console.log(`[FETCH] ${label} returned ${data.articles.length} articles`);
+  console.log(`[FETCH] GNews ${label} returned ${data.articles.length} articles`);
   return data.articles;
 }
 
 /* =========================================================
- * Fetch Bengali (top-headlines, no keyword)
+ * Fetch Bengali News (top-headlines, no keyword)
  * ========================================================= */
 export async function fetchGNewsBengali(apiKey) {
-  if (!apiKey) throw new Error("GNEWS_API_KEY missing");
+  if (!apiKey) throw new Error("GNEWS_API_KEY is not configured.");
 
-  console.log(`[FETCH] Bengali top-headlines`);
+  console.log(`[FETCH] Fetching Bengali news (top-headlines, no keyword)`);
 
   const params = new URLSearchParams({
     lang: "bn",
@@ -127,6 +177,7 @@ export async function fetchGNewsBengali(apiKey) {
   });
 
   const url = `${GNEWS_TOP_HEADLINES_URL}?${params.toString()}`;
+
   const response = await fetchWithTimeoutAndRetry(url, {
     method: "GET",
     headers: { Accept: "application/json" }
@@ -136,15 +187,16 @@ export async function fetchGNewsBengali(apiKey) {
 }
 
 /* =========================================================
- * Fetch English (search with keyword set)
+ * Fetch English News (search with keyword set)
  * ========================================================= */
 export async function fetchGNewsEnglish(apiKey, keywordSet) {
-  if (!apiKey) throw new Error("GNEWS_API_KEY missing");
+  if (!apiKey) throw new Error("GNEWS_API_KEY is not configured.");
 
-  console.log(`[FETCH] EN query: ${keywordSet.en.slice(0, 80)}...`);
+  const query = keywordSet.en;
+  console.log(`[FETCH] GNews EN query: ${query.slice(0, 80)}...`);
 
   const params = new URLSearchParams({
-    q: keywordSet.en,
+    q: query,
     lang: "en",
     country: "in",
     max: String(MAX_PER_LANGUAGE),
@@ -153,6 +205,7 @@ export async function fetchGNewsEnglish(apiKey, keywordSet) {
   });
 
   const url = `${GNEWS_SEARCH_URL}?${params.toString()}`;
+
   const response = await fetchWithTimeoutAndRetry(url, {
     method: "GET",
     headers: { Accept: "application/json" }
@@ -162,7 +215,7 @@ export async function fetchGNewsEnglish(apiKey, keywordSet) {
 }
 
 /* =========================================================
- * Normalize
+ * Normalize GNews Article
  * ========================================================= */
 export function normalizeGNewsArticle(article, language, keywordSetId = "general") {
   const sourceUrl = String(article?.url || "").trim();
@@ -178,9 +231,20 @@ export function normalizeGNewsArticle(article, language, keywordSetId = "general
   const id = String(article?.id || "").trim() || makeId();
 
   if (!sourceUrl || !title) return null;
-  if (title.length < MIN_TITLE_LENGTH) return null;
-  if (description.length < MIN_DESCRIPTION_LENGTH) return null;
-  if (sourceName.toLowerCase().includes("unknown")) return null;
+
+  // ✅ Quality filter
+  if (title.length < MIN_TITLE_LENGTH) {
+    console.log(`[FILTER] Title too short: ${title.slice(0, 40)}...`);
+    return null;
+  }
+  if (description.length < MIN_DESCRIPTION_LENGTH) {
+    console.log(`[FILTER] Description too short: ${title.slice(0, 40)}...`);
+    return null;
+  }
+  if (sourceName.toLowerCase().includes("unknown")) {
+    console.log(`[FILTER] Unknown source: ${title.slice(0, 40)}...`);
+    return null;
+  }
 
   const score = calculateInitialScore(language, publishedAt, keywordSetId, title, description);
 
@@ -216,19 +280,21 @@ export function normalizeGNewsArticle(article, language, keywordSetId = "general
 }
 
 /* =========================================================
- * Store
+ * Store Candidates to D1
  * ========================================================= */
 export async function storeGNewsCandidates(db, articles, language, keywordSetId = "general") {
-  let inserted = 0, skipped = 0;
+  let inserted = 0;
+  let skipped = 0;
 
   for (const article of articles) {
     const normalized = normalizeGNewsArticle(article, language, keywordSetId);
     if (!normalized) { skipped++; continue; }
+
     try {
       await insertCandidate(db, normalized);
       inserted++;
     } catch (error) {
-      console.error("Store error:", error?.message || String(error));
+      console.error("Failed to store GNews candidate:", error?.message || String(error));
       skipped++;
     }
   }
@@ -237,7 +303,9 @@ export async function storeGNewsCandidates(db, articles, language, keywordSetId 
 }
 
 /* =========================================================
- * ✅ MAIN: Serial fetch (bn → 3s → en) — burst-safe
+ * ✅ MAIN: Serial fetch (bn → 3s gap → en) — burst-safe
+ *
+ * Daily quota: 12 runs × 2 req = 24 req/day (GNews limit = 100)
  * ========================================================= */
 export async function runGNewsBatch(db, apiKey, scheduledTime = Date.now()) {
   const keywordSet = getKeywordSetForSlot(scheduledTime);
@@ -245,7 +313,7 @@ export async function runGNewsBatch(db, apiKey, scheduledTime = Date.now()) {
 
   const results = [];
 
-  // 1️⃣ Bengali first
+  // 1️⃣ Bengali first (top-headlines)
   try {
     const articles = await fetchGNewsBengali(apiKey);
     const stored = await storeGNewsCandidates(db, articles, "bn", keywordSet.id);
@@ -260,7 +328,7 @@ export async function runGNewsBatch(db, apiKey, scheduledTime = Date.now()) {
   console.log(`[FETCH] Waiting ${GNEWS_SERIAL_GAP_MS}ms before EN fetch...`);
   await new Promise(r => setTimeout(r, GNEWS_SERIAL_GAP_MS));
 
-  // 2️⃣ English second
+  // 2️⃣ English second (search)
   try {
     const articles = await fetchGNewsEnglish(apiKey, keywordSet);
     const stored = await storeGNewsCandidates(db, articles, "en", keywordSet.id);
@@ -285,7 +353,7 @@ export async function runGNewsBatch(db, apiKey, scheduledTime = Date.now()) {
 }
 
 /* =========================================================
- * Score
+ * Initial Score Calculator
  * ========================================================= */
 function calculateInitialScore(language, publishedAt, keywordSetId, title = "", description = "") {
   const languageBase = language === "bn" ? 12 : 10;
@@ -299,12 +367,14 @@ function calculateInitialScore(language, publishedAt, keywordSetId, title = "", 
     keywordSetId === "india-national" ? 6 :
     keywordSetId === "international" ? 4 :
     keywordSetId === "trending-viral" ? 7 :
-    keywordSetId === "general-important" ? 5 : 0;
+    keywordSetId === "general-important" ? 5 :
+    0;
 
   const published = new Date(publishedAt).getTime();
   const ageHours = Math.max(0, (Date.now() - published) / (1000 * 60 * 60));
   const freshness = Math.max(0, 10 - Math.min(ageHours, 10));
 
+  // ✅ Trending/viral bonus
   let viralBonus = 0;
   const combined = (title + " " + description).toLowerCase();
   if (combined.includes("breaking") || combined.includes("viral") || combined.includes("trending")) {

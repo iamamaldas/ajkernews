@@ -1,5 +1,5 @@
 /*
- * Cloudflare Cache API helper
+ * Cloudflare Cache API helper — Multi-key purge
  */
 
 const NEWS_API_TTL = 120;
@@ -99,10 +99,39 @@ export async function purgeArticleCache(origin, id) {
   return purgeCache(request);
 }
 
+/**
+ * ✅ FIXED: Purge ALL common /api/news variations
+ * Query string mismatch problem solved
+ */
 export async function purgeNewsApiCache(origin) {
-  const url = new URL("/api/news", origin);
-  const request = new Request(url.toString(), { method: "GET" });
-  return purgeCache(request);
+  const cache = getCache();
+  const variations = [
+    `/api/news`,
+    `/api/news?category=top&limit=10`,
+    `/api/news?category=top&limit=20`,
+    `/api/news?category=all&limit=10`,
+    `/api/news?category=all&limit=20`,
+    `/api/news?category=trending&limit=10`,
+    `/api/news?category=trending&limit=20`,
+    `/api/news?limit=10`,
+    `/api/news?limit=20`,
+    `/api/news?offset=0&limit=10`,
+    `/api/news?category=top&limit=10&offset=0`
+  ];
+
+  let purged = 0;
+  for (const path of variations) {
+    try {
+      const url = new URL(path, origin);
+      const request = new Request(url.toString(), { method: "GET" });
+      const ok = await cache.delete(request);
+      if (ok) purged++;
+    } catch (e) {
+      console.warn(`[CACHE] Purge failed for ${path}:`, e?.message);
+    }
+  }
+  console.log(`[CACHE] Purged ${purged}/${variations.length} API cache keys`);
+  return purged > 0;
 }
 
 export const CACHE_CONFIG = {

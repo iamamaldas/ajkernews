@@ -2,7 +2,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v21 — Cache fix + Multi-key purge + Relative URLs
+ * FINAL v22 — Single Batch Gemini + Skip English Fallback + 3-Day Dedup
  * =========================================================
  */
 
@@ -477,10 +477,14 @@ async function updateNews(env) {
     };
   }
 
+  // ✅ FIX: 3-day dedup window (was 50 items only)
   let existingPublished = [];
   try {
     const publishedResult = await env.DB.prepare(
-      `SELECT source_title, headline FROM news WHERE status = 'published' ORDER BY published_at DESC LIMIT 50`
+      `SELECT source_title, headline FROM news 
+       WHERE status = 'published' 
+         AND created_at >= datetime('now', '-3 days')
+       ORDER BY created_at DESC LIMIT 300`
     ).all();
     existingPublished = publishedResult.results || [];
   } catch (error) {
@@ -542,10 +546,11 @@ async function updateNews(env) {
         additional_sources: c.additional_sources || []
       }));
 
+      // ✅ FIX: Gemini timeout 25s → 20s (single batch, safe)
       geminiResults = await Promise.race([
         processSelectedNews(geminiInput, env.GEMINI_API_KEY),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Gemini timeout - skipping')), 25000)
+          setTimeout(() => reject(new Error('Gemini timeout - skipping')), 20000)
         )
       ]).catch(err => {
         console.warn('[NEWS] Gemini timeout, using fallback:', err.message);
@@ -676,7 +681,7 @@ async function pingSitemaps(env) {
 }
 
 /* =========================================================
- * GOOGLE INDEXING — Kept for future use
+ * GOOGLE INDEXING
  * ========================================================= */
 async function submitToGoogleIndexing(env, newsIds) {
   if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) {
@@ -1236,7 +1241,6 @@ async function handleGetNewsInternal(url, env) {
   const hasMore = rawNews.length > limit;
   const news = rawNews.slice(0, limit);
 
-  // ✅ FIXED: cacheSeconds = 0 → CDN cache prevent (worker cache API handles it separately)
   return json({ success: true, count: news.length, offset, limit, has_more: hasMore, news }, 200, 0);
 }
 

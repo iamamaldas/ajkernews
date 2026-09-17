@@ -17,18 +17,18 @@ import { makeId, getDayKey } from "./utils.js";
 const GNEWS_TOP_HEADLINES_URL = "https://gnews.io/api/v4/top-headlines";
 const GNEWS_SEARCH_URL = "https://gnews.io/api/v4/search";
 
-// ✅ Quota-safe: 5 per language (was 10)
+// Quota-safe: 5 per language (was 10)
 const MAX_PER_LANGUAGE = 5;
 const GNEWS_TIMEOUT_MS = 15000;
 const GNEWS_RETRY_DELAY_MS = 2000;
-const GNEWS_SERIAL_GAP_MS = 3000; // ✅ bn → en gap (burst-safe)
+const GNEWS_SERIAL_GAP_MS = 3000; // bn → en gap (burst-safe)
 
-// ✅ Quality filter thresholds
+// Quality filter thresholds
 const MIN_TITLE_LENGTH = 30;
 const MIN_DESCRIPTION_LENGTH = 80;
 
 /* =========================================================
- * ✅ EXPANDED KEYWORD SETS — rotates every 2 hours
+ * EXPANDED KEYWORD SETS — rotates every 2 hours
  * ========================================================= */
 const KEYWORD_SETS = [
   {
@@ -70,14 +70,14 @@ const KEYWORD_SETS = [
 ];
 
 function getKeywordSetForSlot(scheduledTime = Date.now()) {
-  // ✅ Rotates every 2 hours (matches cron "0 */2 * * *")
+  // Rotates every 2 hours (matches cron "0 */2 * * *")
   const slot = Math.floor(scheduledTime / (2 * 60 * 60 * 1000));
   const index = slot % KEYWORD_SETS.length;
   return KEYWORD_SETS[index];
 }
 
 /* =========================================================
- * ✅ Timeout + Retry + 429 Handler
+ * Timeout + Retry + 429 Handler
  * ========================================================= */
 async function fetchWithTimeoutAndRetry(url, options = {}, timeoutMs = GNEWS_TIMEOUT_MS) {
   let lastError = null;
@@ -97,13 +97,13 @@ async function fetchWithTimeoutAndRetry(url, options = {}, timeoutMs = GNEWS_TIM
         clearTimeout(timeoutId);
       }
 
-      // ✅ 429 → stop immediately (burst or daily limit)
+      // 429 → stop immediately (burst or daily limit)
       if (response.status === 429) {
         console.warn(`[FETCH] 429 Rate Limit Hit. Stopping retries to save quota.`);
         return response;
       }
 
-      // ✅ 401/403 → auth error, stop
+      // 401/403 → auth error, stop
       if (response.status === 401 || response.status === 403) {
         console.warn(`[FETCH] ${response.status} Auth Error. Stopping retries.`);
         return response;
@@ -128,10 +128,10 @@ async function fetchWithTimeoutAndRetry(url, options = {}, timeoutMs = GNEWS_TIM
 }
 
 /* =========================================================
- * ✅ 429-safe response parser
+ * 429-safe response parser
  * ========================================================= */
 async function parseGNewsResponse(response, label) {
-  // ✅ 429 → empty list, no throw (next cycle retries)
+  // 429 → empty list, no throw (next cycle retries)
   if (response.status === 429) {
     console.warn(`[FETCH] ${label} 429 rate limit — returning empty list`);
     return [];
@@ -232,7 +232,7 @@ export function normalizeGNewsArticle(article, language, keywordSetId = "general
 
   if (!sourceUrl || !title) return null;
 
-  // ✅ Quality filter
+  // Quality filter
   if (title.length < MIN_TITLE_LENGTH) {
     console.log(`[FILTER] Title too short: ${title.slice(0, 40)}...`);
     return null;
@@ -303,7 +303,7 @@ export async function storeGNewsCandidates(db, articles, language, keywordSetId 
 }
 
 /* =========================================================
- * ✅ MAIN: Serial fetch (bn → 3s gap → en) — burst-safe
+ * MAIN: Serial fetch (bn → 3s gap → en) — burst-safe
  *
  * Daily quota: 12 runs × 2 req = 24 req/day (GNews limit = 100)
  * ========================================================= */
@@ -324,7 +324,7 @@ export async function runGNewsBatch(db, apiKey, scheduledTime = Date.now()) {
     results.push({ language: "bn", received: 0, inserted: 0, skipped: 0, error: error?.message });
   }
 
-  // ✅ 3-second gap — burst throttling এড়াতে
+  // 3-second gap — burst throttling এড়াতে
   console.log(`[FETCH] Waiting ${GNEWS_SERIAL_GAP_MS}ms before EN fetch...`);
   await new Promise(r => setTimeout(r, GNEWS_SERIAL_GAP_MS));
 
@@ -374,7 +374,7 @@ function calculateInitialScore(language, publishedAt, keywordSetId, title = "", 
   const ageHours = Math.max(0, (Date.now() - published) / (1000 * 60 * 60));
   const freshness = Math.max(0, 10 - Math.min(ageHours, 10));
 
-  // ✅ Trending/viral bonus
+  // Trending/viral bonus
   let viralBonus = 0;
   const combined = (title + " " + description).toLowerCase();
   if (combined.includes("breaking") || combined.includes("viral") || combined.includes("trending")) {

@@ -16,11 +16,18 @@ database_id = "f10f96b7-8bed-4c7c-a580-483d2a77e5ae"
 
 [triggers]
 crons = [
-"0 */2 * * *",
-"15 */2 * * *",
-"35 */2 * * *",
-"50 */2 * * *"
+  "0 */2 * * *",
+  "15 */2 * * *",
+  "35 */2 * * *",
+  "50 */2 * * *"
 ]
+
+# ✅ FIX: Added [assets] block to resolve the "ASSETS binding missing!" CI error.
+# Please make sure 'directory' matches your frontend build output folder.
+# Common values: "./dist" (Vite/React), "./build" (Create React App), or "./public".
+[assets]
+directory = "./dist"
+binding = "ASSETS"
 
 [observability]
 enabled = true

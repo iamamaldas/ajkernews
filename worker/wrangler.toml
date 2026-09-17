@@ -3,17 +3,37 @@ main = "src/index.js"
 compatibility_date = "2026-09-03"
 compatibility_flags = ["nodejs_compat"]
 
+# =========================================================
+# STATIC ASSETS
+# =========================================================
+[assets]
+directory = "../"
+binding = "ASSETS"
+run_worker_first = ["/*"]
+not_found_handling = "none"
+
+# =========================================================
+# D1 DATABASE
+# =========================================================
 [[d1_databases]]
 binding = "DB"
 database_name = "ajkernews-db"
 database_id = "f10f96b7-8bed-4c7c-a580-483d2a77e5ae"
 
-# The Worker scheduled() handler has four matching jobs.
+# =========================================================
+# PUBLIC VARS
+# =========================================================
+[vars]
+SITE_ORIGIN = "https://ajkernews.in"
+WORKER_ORIGIN = "https://ajkernews.ajkernews-1c0.workers.dev"
+
+# =========================================================
+# CRONS — Every 2 hours (GNews Free Tier Safe)
 # 00 = news fetch/publish + notifications
 # 15 = fast discovery submission
 # 35 = retry discovery + pending push
 # 50 = cleanup/maintenance
-
+# =========================================================
 [triggers]
 crons = [
   "0 */2 * * *",
@@ -22,13 +42,9 @@ crons = [
   "50 */2 * * *"
 ]
 
-# ✅ FIX: Added [assets] block to resolve the "ASSETS binding missing!" CI error.
-# Please make sure 'directory' matches your frontend build output folder.
-# Common values: "./dist" (Vite/React), "./build" (Create React App), or "./public".
-[assets]
-directory = "./dist"
-binding = "ASSETS"
-
+# =========================================================
+# OBSERVABILITY
+# =========================================================
 [observability]
 enabled = true
 
@@ -40,9 +56,3 @@ persist = true
 [observability.traces]
 enabled = true
 persist = true
-
-# Keep VAPID secrets/public configuration in Cloudflare as appropriate.
-# Do not put the private VAPID key in this file.
-
-# [vars]
-# VAPID_EMAIL = "mailto:info@ajkernews.in"

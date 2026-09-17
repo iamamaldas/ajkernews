@@ -1,9 +1,8 @@
-// auto-deploy test - 2026-09-16
-
+// auto-deploy test - 2026-09-17
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v23 --- Reliable 2-Hour Publishing + Multi-Channel Discovery + 3-Day Dedup
+ * FINAL v23 — Reliable 2-Hour Publishing + Multi-Channel Discovery + 3-Day Dedup
  * =========================================================
  */
 
@@ -53,7 +52,6 @@ const BOT_REGEX = /googlebot|google-inspectiontool|apis-google|mediapartners-goo
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders() });
     }
@@ -135,19 +133,20 @@ export default {
         if (request.method !== "POST") {
           return json({ success: false, error: "POST method required" }, 405, 0);
         }
-
         const result = await updateNews(env);
-
         if (result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
           ctx.waitUntil(
-            queueAndSendPushNotifications(env, result.newNewsIds).catch(error => console.error("Push queue error:", error?.message || String(error)))
+            queueAndSendPushNotifications(env, result.newNewsIds).catch(error =>
+              console.error("Push queue error:", error?.message || String(error))
+            )
           );
         } else {
           ctx.waitUntil(
-            sendPendingPushNotifications(env).catch(error => console.error("Pending push error:", error?.message || String(error)))
+            sendPendingPushNotifications(env).catch(error =>
+              console.error("Pending push error:", error?.message || String(error))
+            )
           );
         }
-
         return json(result, 200, 0);
       }
 
@@ -223,7 +222,6 @@ export default {
         status: 200,
         headers: { "content-type": "text/plain; charset=UTF-8" }
       });
-
     } catch (error) {
       console.error("Worker error:", error?.message || error?.stack || String(error));
       return json({ success: false, error: error?.message || "Internal server error" }, 500, 0);
@@ -237,7 +235,6 @@ export default {
 
     try {
       // Main news publishing slot.
-      // IMPORTANT: wrangler.toml must contain this exact cron.
       if (cron === "0 */2 * * *") {
         let result;
         try {
@@ -248,7 +245,6 @@ export default {
           return;
         }
 
-        // Always retry any pending push notifications after the news run.
         ctx.waitUntil(
           sendPendingPushNotifications(env).catch(error => {
             console.error("[CRON-NEWS] Pending push error:", error?.message || String(error));
@@ -275,7 +271,7 @@ export default {
             })
           );
         } else if (!shouldSendNotification) {
-          console.log(`[NOTIF] Skipped. ${isNightTime ? "Night time" : "Odd hour"}.`);
+          console.log(`[NOTIF] Skipped. ${isNightTime ? 'Night time' : 'Odd hour'}.`);
         }
 
         console.log(`[CRON-NEWS] Completed in ${Date.now() - startTime}ms`);
@@ -288,11 +284,12 @@ export default {
           const recent = await env.DB.prepare(
             `SELECT id FROM news
              WHERE status = 'published'
-             AND created_at >= datetime('now', '-6 hours')
+               AND created_at >= datetime('now', '-6 hours')
              ORDER BY created_at DESC
              LIMIT 50`
           ).all();
           const ids = (recent.results || []).map(r => r.id);
+
           if (ids.length) {
             const result = await fastIndexNews(env, ids);
             console.log(`[CRON-FAST-INDEX] ${ids.length} URLs processed:`, JSON.stringify(result));
@@ -306,11 +303,7 @@ export default {
         return;
       }
 
-      // Retry fast-index discovery for a recent backlog.
-      // Google Indexing API is intentionally NOT used here because Google
-      // documents it for JobPosting and BroadcastEvent-in-VideoObject pages,
-      // not ordinary news articles. News discovery uses sitemap/news-sitemap,
-      // internal links, RSS/WebSub and supported fast-index channels.
+      // Retry fast-index discovery for a recent backlog + pending push.
       if (cron === "35 */2 * * *") {
         try {
           await sendPendingPushNotifications(env);
@@ -323,7 +316,7 @@ export default {
           const backlog = await env.DB.prepare(
             `SELECT id FROM news
              WHERE status = 'published'
-             AND created_at >= datetime('now', '-24 hours')
+               AND created_at >= datetime('now', '-24 hours')
              ORDER BY created_at DESC
              LIMIT 50`
           ).all();
@@ -337,6 +330,7 @@ export default {
         } catch (error) {
           console.error("[CRON-RETRY] Backlog failed:", error?.message || String(error));
         }
+
         console.log(`[CRON-RETRY] Completed in ${Date.now() - startTime}ms`);
         return;
       }
@@ -369,6 +363,7 @@ export default {
           try {
             const cleanupResult = await enforceNewsLimit(env.DB);
             console.log(`[CRON-CLEAN] News: ${cleanupResult.deleted} deleted, ${cleanupResult.total} total`);
+
             if (cleanupResult.deleted > 0) {
               try {
                 await purgeNewsApiCache("https://ajkernews.in");
@@ -398,7 +393,6 @@ export default {
 /* =========================================================
  * NEWS UPDATE PIPELINE
  * ========================================================= */
-
 async function updateNews(env) {
   if (!env.DB) throw new Error("D1 binding DB is missing");
   if (!env.GNEWS_API_KEY) throw new Error("GNEWS_API_KEY secret is missing");
@@ -451,13 +445,13 @@ async function updateNews(env) {
     };
   }
 
-  // ✅ FIX: 3-day dedup window (was 50 items only)
+  // 3-day dedup window
   let existingPublished = [];
   try {
     const publishedResult = await env.DB.prepare(
       `SELECT source_title, headline FROM news
        WHERE status = 'published'
-       AND created_at >= datetime('now', '-3 days')
+         AND created_at >= datetime('now', '-3 days')
        ORDER BY created_at DESC LIMIT 300`
     ).all();
     existingPublished = publishedResult.results || [];
@@ -481,12 +475,15 @@ async function updateNews(env) {
   try {
     const selectedIds = new Set(selected.map(a => String(a.id)));
     const rejectedCandidates = candidates.filter(c => !selectedIds.has(String(c.id)));
+
     if (rejectedCandidates.length > 0) {
       const rejectedIds = rejectedCandidates.map(c => String(c.id));
       const placeholders = rejectedIds.map(() => "?").join(",");
+
       await env.DB.prepare(`
         UPDATE news SET status = 'rejected' WHERE id IN (${placeholders})
       `).bind(...rejectedIds).run();
+
       console.log(`[NEWS] Marked ${rejectedIds.length} candidates as rejected`);
     }
   } catch (error) {
@@ -517,7 +514,7 @@ async function updateNews(env) {
         additional_sources: c.additional_sources || []
       }));
 
-      // ✅ FIX: Gemini timeout 25s → 20s (single batch, safe)
+      // Gemini timeout 20s (single batch)
       geminiResults = await Promise.race([
         processSelectedNews(geminiInput, env.GEMINI_API_KEY),
         new Promise((_, reject) =>
@@ -527,6 +524,7 @@ async function updateNews(env) {
         console.warn('[NEWS] Gemini timeout, using fallback:', err.message);
         return [];
       });
+
       usedGemini = Array.isArray(geminiResults) && geminiResults.length > 0;
       console.log(`[NEWS] Gemini returned ${geminiResults.length} results`);
     } catch (error) {
@@ -558,10 +556,13 @@ async function updateNews(env) {
       const row = await env.DB.prepare(
         `SELECT headline, summary, main_topic, category FROM news WHERE id = ? AND status = 'published'`
       ).bind(id).first();
+
       if (!row) continue;
+
       const searchText = toTransliterated(
         [row.headline, row.summary, row.main_topic, row.category].filter(Boolean).join(" ")
       );
+
       searchUpdates.push(
         env.DB.prepare(`UPDATE news SET search_text = ? WHERE id = ?`).bind(searchText, id)
       );
@@ -634,7 +635,6 @@ async function updateNews(env) {
 /* =========================================================
  * BOT HOMEPAGE
  * ========================================================= */
-
 async function serveBotHomepage(env) {
   try {
     const newsResult = await env.DB.prepare(
@@ -665,7 +665,7 @@ async function serveBotHomepage(env) {
     for (const item of news) {
       const link = `https://ajkernews.in/news/${encodeURIComponent(item.id)}`;
       const image = item.image_url || "https://ajkernews.in/logo.png";
-      const displayDate = item.published_at || item.created_at;
+      const displayDate = item.created_at || item.published_at;
       const publishedDate = displayDate
         ? new Date(displayDate).toISOString()
         : new Date().toISOString();
@@ -673,7 +673,7 @@ async function serveBotHomepage(env) {
 
       newsHtml += `
         <article itemscope itemtype="https://schema.org/NewsArticle"
-          style="margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid #eee;">
+                 style="margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid #eee;">
           <meta itemprop="datePublished" content="${escapeHtml(publishedDate)}">
           <meta itemprop="dateModified" content="${escapeHtml(publishedDate)}">
           <meta itemprop="mainEntityOfPage" content="${escapeHtml(link)}">
@@ -684,7 +684,7 @@ async function serveBotHomepage(env) {
           </div>
           <p style="font-size:12px;color:#f44336;font-weight:700;margin:0 0 6px;">
             <a href="https://ajkernews.in/?category=${encodeURIComponent(item.category || 'top')}"
-              style="color:#f44336;text-decoration:none;">${escapeHtml(cat)}</a>
+               style="color:#f44336;text-decoration:none;">${escapeHtml(cat)}</a>
           </p>
           <h2 itemprop="headline" style="font-size:20px;margin:0 0 8px;line-height:1.4;">
             <a href="${escapeHtml(link)}" style="color:#111;text-decoration:none;">${escapeHtml(item.headline)}</a>
@@ -699,7 +699,7 @@ async function serveBotHomepage(env) {
             • <time datetime="${escapeHtml(publishedDate)}">${escapeHtml(displayDate || "")}</time>
           </div>
           <a itemprop="url" href="${escapeHtml(link)}"
-            style="display:inline-block;margin-top:8px;color:#007bff;font-size:14px;text-decoration:none;">
+             style="display:inline-block;margin-top:8px;color:#007bff;font-size:14px;text-decoration:none;">
             পূর্ণ খবর পড়ুন →
           </a>
         </article>`;
@@ -708,7 +708,7 @@ async function serveBotHomepage(env) {
     const catNavHtml = categories.map(c => {
       const label = catLabel[c.category] || c.category;
       return `<a href="https://ajkernews.in/?category=${encodeURIComponent(c.category)}"
-        style="display:inline-block;margin:0 6px 6px 0;padding:6px 12px;background:#f5f5f5;border-radius:16px;color:#111;text-decoration:none;font-size:13px;">
+                 style="display:inline-block;margin:0 6px 6px 0;padding:6px 12px;background:#f5f5f5;border-radius:16px;color:#111;text-decoration:none;font-size:13px;">
         ${escapeHtml(label)} (${c.cnt})
       </a>`;
     }).join("");
@@ -725,57 +725,57 @@ async function serveBotHomepage(env) {
     });
 
     const html = `<!DOCTYPE html>
-      <html lang="bn">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>আজকের নিউজ | কলকাতা, পশ্চিমবঙ্গ ও ভারতের সর্বশেষ খবর</title>
-        <meta name="description" content="কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ বাংলা খবর। প্রতিদিনের রাজনীতি, খেলা, বিনোদন, ব্যবসা, প্রযুক্তির আপডেট — আজকের নিউজে।">
-        <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1">
-        <link rel="canonical" href="https://ajkernews.in/">
-        <meta property="og:type" content="website">
-        <meta property="og:title" content="আজকের নিউজ | সর্বশেষ বাংলা খবর">
-        <meta property="og:description" content="কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ বাংলা খবর।">
-        <meta property="og:url" content="https://ajkernews.in/">
-        <meta property="og:image" content="https://ajkernews.in/logo.png">
-        <meta name="twitter:card" content="summary_large_image">
-        <script type="application/ld+json">
-          {
-            "@context":"https://schema.org",
-            "@type":"WebSite",
-            "name":"আজকের নিউজ",
-            "alternateName":["Ajker News","ajkernews.in"],
-            "url":"https://ajkernews.in/",
-            "inLanguage":"bn-IN",
-            "publisher":{"@type":"NewsMediaOrganization","name":"Ajker News","logo":{"@type":"ImageObject","url":"https://ajkernews.in/logo.png"}},
-            "potentialAction":{
-              "@type":"SearchAction",
-              "target":"https://ajkernews.in/?q={search_term_string}",
-              "query-input":"required name=search_term_string"
-            }
-          }
-        </script>
-        <script type="application/ld+json">${itemListLd}</script>
-      </head>
-      <body style="max-width:820px;margin:0 auto;padding:20px;font-family:Inter,-apple-system,sans-serif;color:#111;">
-        <header>
-          <h1 style="font-size:28px;margin:0 0 6px;">
-            <a href="/" style="color:#111;text-decoration:none;">আজকের নিউজ</a>
-          </h1>
-          <p style="color:#666;font-size:15px;margin:0 0 16px;">কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর</p>
-          <nav style="margin-bottom:24px;">${catNavHtml}</nav>
-        </header>
-        <main>${newsHtml}</main>
-        <footer style="margin-top:40px;padding-top:20px;border-top:1px solid #eee;text-align:center;color:#888;font-size:13px;">
-          <p>&copy; ${new Date().getFullYear()} Ajker News — All rights reserved.</p>
-          <p>
-            <a href="https://ajkernews.in/sitemap.xml" style="color:#007bff;">Sitemap</a> ·
-            <a href="https://ajkernews.in/news-sitemap.xml" style="color:#007bff;">News Sitemap</a> ·
-            <a href="https://ajkernews.in/rss.xml" style="color:#007bff;">RSS</a>
-          </p>
-        </footer>
-      </body>
-      </html>`;
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>আজকের নিউজ | কলকাতা, পশ্চিমবঙ্গ ও ভারতের সর্বশেষ খবর</title>
+<meta name="description" content="কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ বাংলা খবর। প্রতিদিনের রাজনীতি, খেলা, বিনোদন, ব্যবসা, প্রযুক্তির আপডেট — আজকের নিউজে।">
+<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1">
+<link rel="canonical" href="https://ajkernews.in/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="আজকের নিউজ | সর্বশেষ বাংলা খবর">
+<meta property="og:description" content="কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ বাংলা খবর।">
+<meta property="og:url" content="https://ajkernews.in/">
+<meta property="og:image" content="https://ajkernews.in/logo.png">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context":"https://schema.org",
+  "@type":"WebSite",
+  "name":"আজকের নিউজ",
+  "alternateName":["Ajker News","ajkernews.in"],
+  "url":"https://ajkernews.in/",
+  "inLanguage":"bn-IN",
+  "publisher":{"@type":"NewsMediaOrganization","name":"Ajker News","logo":{"@type":"ImageObject","url":"https://ajkernews.in/logo.png"}},
+  "potentialAction":{
+    "@type":"SearchAction",
+    "target":"https://ajkernews.in/?q={search_term_string}",
+    "query-input":"required name=search_term_string"
+  }
+}
+</script>
+<script type="application/ld+json">${itemListLd}</script>
+</head>
+<body style="max-width:820px;margin:0 auto;padding:20px;font-family:Inter,-apple-system,sans-serif;color:#111;">
+<header>
+  <h1 style="font-size:28px;margin:0 0 6px;">
+    <a href="/" style="color:#111;text-decoration:none;">আজকের নিউজ</a>
+  </h1>
+  <p style="color:#666;font-size:15px;margin:0 0 16px;">কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর</p>
+  <nav style="margin-bottom:24px;">${catNavHtml}</nav>
+</header>
+<main>${newsHtml}</main>
+<footer style="margin-top:40px;padding-top:20px;border-top:1px solid #eee;text-align:center;color:#888;font-size:13px;">
+  <p>&copy; ${new Date().getFullYear()} Ajker News — All rights reserved.</p>
+  <p>
+    <a href="https://ajkernews.in/sitemap.xml" style="color:#007bff;">Sitemap</a> ·
+    <a href="https://ajkernews.in/news-sitemap.xml" style="color:#007bff;">News Sitemap</a> ·
+    <a href="https://ajkernews.in/rss.xml" style="color:#007bff;">RSS</a>
+  </p>
+</footer>
+</body>
+</html>`;
 
     return new Response(html, {
       status: 200,
@@ -794,7 +794,6 @@ async function serveBotHomepage(env) {
 /* =========================================================
  * BOT ARTICLE PAGE
  * ========================================================= */
-
 async function serveBotArticlePage(id, env) {
   const safeId = String(id || "").trim();
   if (!safeId) return Response.redirect("https://ajkernews.in/", 302);
@@ -813,7 +812,7 @@ async function serveBotArticlePage(id, env) {
   const description = cleanText(result.summary || "").slice(0, 160);
   const fullSummary = cleanText(result.summary || result.main_topic || "");
   const image = result.image_url || "https://ajkernews.in/logo.png";
-  const displayDate = result.published_at || result.created_at || new Date().toISOString();
+  const displayDate = result.created_at || result.published_at || new Date().toISOString();
   const publishedAt = displayDate;
   const canonical = `https://ajkernews.in/news/${encodeURIComponent(safeId)}`;
 
@@ -858,68 +857,68 @@ async function serveBotArticlePage(id, env) {
   });
 
   const html = `<!DOCTYPE html>
-    <html lang="bn">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width,initial-scale=1">
-      <title>${escapeHtml(title)} - Ajker News</title>
-      <meta name="description" content="${escapeHtml(description)}">
-      <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1">
-      <link rel="canonical" href="${escapeHtml(canonical)}">
-      <meta property="og:type" content="article">
-      <meta property="og:title" content="${escapeHtml(title)}">
-      <meta property="og:description" content="${escapeHtml(description)}">
-      <meta property="og:url" content="${escapeHtml(canonical)}">
-      <meta property="og:image" content="${escapeHtml(image)}">
-      <meta property="og:site_name" content="Ajker News">
-      <meta property="article:published_time" content="${escapeHtml(publishedAt)}">
-      <meta name="twitter:card" content="summary_large_image">
-      <meta name="twitter:title" content="${escapeHtml(title)}">
-      <meta name="twitter:description" content="${escapeHtml(description)}">
-      <meta name="twitter:image" content="${escapeHtml(image)}">
-      <script type="application/ld+json">${newsArticleLd}</script>
-      <script type="application/ld+json">${breadcrumbLd}</script>
-    </head>
-    <body style="max-width:780px;margin:0 auto;padding:20px;font-family:Inter,-apple-system,sans-serif;color:#111;line-height:1.7;">
-      <header style="margin-bottom:20px;">
-        <p style="margin:0 0 12px;">
-          <a href="https://ajkernews.in/" style="color:#007bff;text-decoration:none;font-size:14px;">← আজকের নিউজ হোম</a>
-        </p>
-      </header>
-      <article itemscope itemtype="https://schema.org/NewsArticle">
-        <meta itemprop="datePublished" content="${escapeHtml(publishedAt)}">
-        <meta itemprop="dateModified" content="${escapeHtml(publishedAt)}">
-        <meta itemprop="mainEntityOfPage" content="${escapeHtml(canonical)}">
-        <h1 itemprop="headline" style="font-size:28px;line-height:1.35;margin:0 0 12px;color:#111;">${escapeHtml(title)}</h1>
-        <div style="font-size:13px;color:#888;margin-bottom:16px;">
-          <span itemprop="author" itemscope itemtype="https://schema.org/Organization">
-            <span itemprop="name">${escapeHtml(result.source_name || "Ajker News")}</span>
-          </span>
-          • <time datetime="${escapeHtml(publishedAt)}">${escapeHtml(publishedAt)}</time>
-        </div>
-        <div itemprop="image" itemscope itemtype="https://schema.org/ImageObject" style="margin-bottom:18px;">
-          <img itemprop="url" src="${escapeHtml(image)}" alt="${escapeHtml(title)}"
-            style="width:100%;height:auto;border-radius:8px;display:block;"
-            width="1200" height="675">
-        </div>
-        <div itemprop="articleBody" style="font-size:16px;color:#222;">
-          <p>${escapeHtml(fullSummary)}</p>
-        </div>
-        ${result.source_url ? `
-          <p style="margin-top:20px;">
-            <a href="${escapeHtml(result.source_url)}" rel="noopener noreferrer nofollow"
-              style="color:#007bff;text-decoration:none;font-size:14px;">মূল উৎস দেখুন →</a>
-          </p>` : ""}
-      </article>
-      <footer style="margin-top:40px;padding-top:20px;border-top:1px solid #eee;text-align:center;color:#888;font-size:13px;">
-        <p>&copy; ${new Date().getFullYear()} Ajker News</p>
-        <p>
-          <a href="https://ajkernews.in/sitemap.xml" style="color:#007bff;">Sitemap</a> ·
-          <a href="https://ajkernews.in/news-sitemap.xml" style="color:#007bff;">News Sitemap</a>
-        </p>
-      </footer>
-    </body>
-    </html>`;
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtml(title)} - Ajker News</title>
+<meta name="description" content="${escapeHtml(description)}">
+<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1">
+<link rel="canonical" href="${escapeHtml(canonical)}">
+<meta property="og:type" content="article">
+<meta property="og:title" content="${escapeHtml(title)}">
+<meta property="og:description" content="${escapeHtml(description)}">
+<meta property="og:url" content="${escapeHtml(canonical)}">
+<meta property="og:image" content="${escapeHtml(image)}">
+<meta property="og:site_name" content="Ajker News">
+<meta property="article:published_time" content="${escapeHtml(publishedAt)}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${escapeHtml(title)}">
+<meta name="twitter:description" content="${escapeHtml(description)}">
+<meta name="twitter:image" content="${escapeHtml(image)}">
+<script type="application/ld+json">${newsArticleLd}</script>
+<script type="application/ld+json">${breadcrumbLd}</script>
+</head>
+<body style="max-width:780px;margin:0 auto;padding:20px;font-family:Inter,-apple-system,sans-serif;color:#111;line-height:1.7;">
+<header style="margin-bottom:20px;">
+  <p style="margin:0 0 12px;">
+    <a href="https://ajkernews.in/" style="color:#007bff;text-decoration:none;font-size:14px;">← আজকের নিউজ হোম</a>
+  </p>
+</header>
+<article itemscope itemtype="https://schema.org/NewsArticle">
+  <meta itemprop="datePublished" content="${escapeHtml(publishedAt)}">
+  <meta itemprop="dateModified" content="${escapeHtml(publishedAt)}">
+  <meta itemprop="mainEntityOfPage" content="${escapeHtml(canonical)}">
+  <h1 itemprop="headline" style="font-size:28px;line-height:1.35;margin:0 0 12px;color:#111;">${escapeHtml(title)}</h1>
+  <div style="font-size:13px;color:#888;margin-bottom:16px;">
+    <span itemprop="author" itemscope itemtype="https://schema.org/Organization">
+      <span itemprop="name">${escapeHtml(result.source_name || "Ajker News")}</span>
+    </span>
+    • <time datetime="${escapeHtml(publishedAt)}">${escapeHtml(publishedAt)}</time>
+  </div>
+  <div itemprop="image" itemscope itemtype="https://schema.org/ImageObject" style="margin-bottom:18px;">
+    <img itemprop="url" src="${escapeHtml(image)}" alt="${escapeHtml(title)}"
+         style="width:100%;height:auto;border-radius:8px;display:block;"
+         width="1200" height="675">
+  </div>
+  <div itemprop="articleBody" style="font-size:16px;color:#222;">
+    <p>${escapeHtml(fullSummary)}</p>
+  </div>
+  ${result.source_url ? `
+  <p style="margin-top:20px;">
+    <a href="${escapeHtml(result.source_url)}" rel="noopener noreferrer nofollow"
+       style="color:#007bff;text-decoration:none;font-size:14px;">মূল উৎস দেখুন →</a>
+  </p>` : ""}
+</article>
+<footer style="margin-top:40px;padding-top:20px;border-top:1px solid #eee;text-align:center;color:#888;font-size:13px;">
+  <p>&copy; ${new Date().getFullYear()} Ajker News</p>
+  <p>
+    <a href="https://ajkernews.in/sitemap.xml" style="color:#007bff;">Sitemap</a> ·
+    <a href="https://ajkernews.in/news-sitemap.xml" style="color:#007bff;">News Sitemap</a>
+  </p>
+</footer>
+</body>
+</html>`;
 
   return new Response(html, {
     status: 200,
@@ -934,7 +933,6 @@ async function serveBotArticlePage(id, env) {
 /* =========================================================
  * TABLES SETUP
  * ========================================================= */
-
 async function ensureTables(env) {
   const queries = [
     `CREATE TABLE IF NOT EXISTS news (id TEXT PRIMARY KEY, source_url TEXT UNIQUE, source_name TEXT, source_title TEXT, source_description TEXT, headline TEXT, summary TEXT, main_topic TEXT, category TEXT, language TEXT DEFAULT 'bn', image_url TEXT, published_at TEXT, created_at TEXT, day_key TEXT, status TEXT DEFAULT 'published', score INTEGER DEFAULT 0, search_text TEXT, indexed_at TEXT)`,
@@ -967,6 +965,7 @@ async function ensureTables(env) {
   try {
     const columns = await env.DB.prepare(`PRAGMA table_info(news)`).all();
     const colNames = (columns.results || []).map(c => c.name);
+
     if (!colNames.includes("language")) {
       console.log("[MIGRATION] Adding language column");
       await env.DB.prepare(`ALTER TABLE news ADD COLUMN language TEXT DEFAULT 'bn'`).run();
@@ -1006,13 +1005,13 @@ async function ensureTablesOnce(env) {
 /* =========================================================
  * SHARE / NEWS PAGE
  * ========================================================= */
-
 async function serveSharePage(id, env, requestUserAgentFromContext = "", requestUrl = null) {
   const safeId = String(id || "").trim();
   if (!safeId) return Response.redirect("https://ajkernews.in/", 302);
 
   const userAgent = (requestUserAgentFromContext || "").toLowerCase();
   const socialCrawlerPatterns = ["facebookexternalhit","facebot","twitterbot","linkedinbot","whatsapp","telegrambot","discordbot","slackbot","pinterest","skypeuripreview"];
+
   if (socialCrawlerPatterns.some(pattern => userAgent.includes(pattern))) {
     return new Response(null, {
       status: 204,
@@ -1062,7 +1061,6 @@ async function handleAffiliate(url, env) {
   if (!targetUrl && AFFILIATE_CONFIG.redirectMap && AFFILIATE_CONFIG.redirectMap[ref]) {
     targetUrl = AFFILIATE_CONFIG.redirectMap[ref];
   }
-
   if (!targetUrl) targetUrl = AFFILIATE_CONFIG.defaultRedirect;
 
   if (AFFILIATE_CONFIG.trackClicks) {
@@ -1073,14 +1071,12 @@ async function handleAffiliate(url, env) {
       console.error("Affiliate log error:", error?.message || String(error));
     }
   }
-
   return Response.redirect(targetUrl, 302);
 }
 
 /* =========================================================
  * API: GET NEWS
  * ========================================================= */
-
 async function handleGetNews(url, env, request) {
   return cacheNewsApi(request, async () => {
     return await handleGetNewsInternal(url, env);
@@ -1092,6 +1088,7 @@ async function handleGetNewsInternal(url, env) {
   const query = (url.searchParams.get("q") || "").trim();
   const specificId = url.searchParams.get("id");
   const offset = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10));
+
   const requestedLimit = parseInt(url.searchParams.get("limit") || "10", 10);
   const limit = Math.min(Math.max(requestedLimit, 1), 20);
   const queryLimit = limit + 1;
@@ -1107,13 +1104,11 @@ async function handleGetNewsInternal(url, env) {
       GROUP BY news.id
       LIMIT 1
     `).bind(specificId).all();
-
     const news = result.results || [];
     return json({ success: true, count: news.length, news }, 200, 0);
   }
 
   let result;
-
   if (query) {
     const transliterated = toTransliterated(query);
     result = await env.DB.prepare(`
@@ -1121,7 +1116,7 @@ async function handleGetNewsInternal(url, env) {
       FROM news
       LEFT JOIN news_loves nl ON nl.news_id = news.id
       WHERE news.status = 'published'
-      AND (news.search_text LIKE ? OR news.headline LIKE ? OR news.summary LIKE ? OR news.main_topic LIKE ?)
+        AND (news.search_text LIKE ? OR news.headline LIKE ? OR news.summary LIKE ? OR news.main_topic LIKE ?)
       GROUP BY news.id
       ORDER BY news.created_at DESC, news.published_at DESC
       LIMIT ? OFFSET ?
@@ -1168,7 +1163,6 @@ async function handleGetNewsInternal(url, env) {
 /* =========================================================
  * PUSH NOTIFICATIONS
  * ========================================================= */
-
 async function handleSubscribe(request, env) {
   try {
     const subscription = await request.json();
@@ -1180,7 +1174,6 @@ async function handleSubscribe(request, env) {
     const keys = JSON.stringify(subscription.keys || {});
 
     const existing = await env.DB.prepare(`SELECT id FROM push_subscriptions WHERE endpoint = ? LIMIT 1`).bind(endpoint).first();
-
     if (existing) {
       await env.DB.prepare(`UPDATE push_subscriptions SET keys_json = ? WHERE endpoint = ?`).bind(keys, endpoint).run();
       return json({ success: true, message: "Subscription updated" }, 200, 0);
@@ -1202,7 +1195,6 @@ async function handleUnsubscribe(request, env) {
     if (!endpoint) return json({ error: "Missing endpoint" }, 400, 0);
 
     const result = await env.DB.prepare(`DELETE FROM push_subscriptions WHERE endpoint = ?`).bind(endpoint).run();
-
     if (result.meta?.rows_written > 0) {
       return json({ success: true, message: "Unsubscribed successfully" }, 200, 0);
     } else {
@@ -1265,6 +1257,7 @@ async function queueAndSendPushNotifications(env, newsIds) {
 
   const now = new Date();
   const expires = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+
   const notificationId = `news:${latestNews.id}`;
   const title = String(latestNews.headline || "নতুন খবর").slice(0, 180);
   const body = "বিস্তারিত জানতে ক্লিক করুন...";
@@ -1292,7 +1285,6 @@ async function sendPendingPushNotifications(env, endpointFilter = null) {
   if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return;
 
   await cleanExpiredPushNotifications(env);
-
   webPush.setVapidDetails(
     env.VAPID_EMAIL || "mailto:info@ajkernews.in",
     env.VAPID_PUBLIC_KEY,
@@ -1306,7 +1298,6 @@ async function sendPendingPushNotifications(env, endpointFilter = null) {
     query += ` AND d.endpoint = ?`;
     binds.push(endpointFilter);
   }
-
   query += ` ORDER BY n.created_at ASC`;
 
   const rows = await env.DB.prepare(query).bind(...binds).all();
@@ -1380,7 +1371,6 @@ async function handlePushSync(request, env) {
 /* =========================================================
  * LOVE + COMMENTS
  * ========================================================= */
-
 async function toggleLove(request, env) {
   try {
     const { id, deviceId } = await request.json();
@@ -1397,6 +1387,7 @@ async function toggleLove(request, env) {
     }
 
     const count = await env.DB.prepare(`SELECT COUNT(*) AS count FROM news_loves WHERE news_id = ?`).bind(id).first();
+
     return json({ success: true, love_count: Number(count?.count || 0) }, 200, 0);
   } catch (error) {
     return json({ success: false, error: error?.message || "Love error" }, 500, 0);
@@ -1429,7 +1420,6 @@ async function addComment(request, env) {
 /* =========================================================
  * SITEMAP
  * ========================================================= */
-
 async function generateSitemap(env) {
   try {
     const result = await env.DB.prepare(
@@ -1438,30 +1428,31 @@ async function generateSitemap(env) {
        ORDER BY created_at DESC, published_at DESC
        LIMIT 1000`
     ).all();
+
     const news = result.results || [];
     const baseUrl = "https://ajkernews.in";
 
     let xml = `<?xml version="1.0" encoding="UTF-8"?>
-      <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-      <url>
-        <loc>${baseUrl}/</loc>
-        <changefreq>hourly</changefreq>
-        <priority>1.0</priority>
-      </url>`;
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>${baseUrl}/</loc>
+    <changefreq>hourly</changefreq>
+    <priority>1.0</priority>
+  </url>`;
 
     for (const item of news) {
-      const displayDate = item.published_at || item.created_at;
+      const displayDate = item.created_at || item.published_at;
       const lastmod = displayDate
         ? new Date(displayDate).toISOString().split("T")[0]
         : new Date().toISOString().split("T")[0];
 
       xml += `
-        <url>
-          <loc>${baseUrl}/news/${encodeURIComponent(item.id)}</loc>
-          <lastmod>${lastmod}</lastmod>
-          <changefreq>daily</changefreq>
-          <priority>0.8</priority>
-        </url>`;
+  <url>
+    <loc>${baseUrl}/news/${encodeURIComponent(item.id)}</loc>
+    <lastmod>${lastmod}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>`;
     }
 
     xml += `\n</urlset>`;
@@ -1479,9 +1470,9 @@ async function generateSitemap(env) {
   } catch (error) {
     console.error("[SITEMAP] Error:", error?.message || String(error));
     return new Response(`<?xml version="1.0" encoding="UTF-8"?>
-      <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-      <url><loc>https://ajkernews.in/</loc></url>
-      </urlset>`, {
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://ajkernews.in/</loc></url>
+</urlset>`, {
       status: 200,
       headers: { "Content-Type": "application/xml; charset=UTF-8" }
     });
@@ -1493,36 +1484,37 @@ async function generateNewsSitemap(env) {
     const result = await env.DB.prepare(
       `SELECT id, headline, published_at, created_at FROM news
        WHERE status = 'published'
-       AND created_at >= datetime('now', '-2 days')
+         AND created_at >= datetime('now', '-2 days')
        ORDER BY created_at DESC
        LIMIT 1000`
     ).all();
+
     const news = result.results || [];
     const base = "https://ajkernews.in";
 
     let xml = `<?xml version="1.0" encoding="UTF-8"?>
-      <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
-              xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">`;
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">`;
 
     for (const n of news) {
-      const displayDate = n.published_at || n.created_at;
+      const displayDate = n.created_at || n.published_at;
       const publishedAt = displayDate
         ? new Date(displayDate).toISOString()
         : new Date().toISOString();
       const safeTitle = String(n.headline || "News").slice(0, 110);
 
       xml += `
-        <url>
-          <loc>${base}/news/${encodeURIComponent(n.id)}</loc>
-          <news:news>
-            <news:publication>
-              <news:name>Ajker News</news:name>
-              <news:language>bn</news:language>
-            </news:publication>
-            <news:publication_date>${publishedAt}</news:publication_date>
-            <news:title>${escapeHtml(safeTitle)}</news:title>
-          </news:news>
-        </url>`;
+  <url>
+    <loc>${base}/news/${encodeURIComponent(n.id)}</loc>
+    <news:news>
+      <news:publication>
+        <news:name>Ajker News</news:name>
+        <news:language>bn</news:language>
+      </news:publication>
+      <news:publication_date>${publishedAt}</news:publication_date>
+      <news:title>${escapeHtml(safeTitle)}</news:title>
+    </news:news>
+  </url>`;
     }
 
     xml += `\n</urlset>`;
@@ -1540,9 +1532,9 @@ async function generateNewsSitemap(env) {
   } catch (error) {
     console.error("[NEWS-SITEMAP] Error:", error?.message || String(error));
     return new Response(`<?xml version="1.0" encoding="UTF-8"?>
-      <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
-              xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">
-      </urlset>`, {
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">
+</urlset>`, {
       status: 200,
       headers: { "Content-Type": "application/xml; charset=UTF-8" }
     });
@@ -1552,7 +1544,6 @@ async function generateNewsSitemap(env) {
 /* =========================================================
  * ROBOTS.TXT
  * ========================================================= */
-
 function generateRobotsTxt() {
   const text = `User-agent: *
 Allow: /
@@ -1564,9 +1555,11 @@ Allow: /
 
 User-agent: Googlebot
 Allow: /
+Crawl-delay: 1
 
 User-agent: Bingbot
 Allow: /
+Crawl-delay: 1
 
 Sitemap: https://ajkernews.in/sitemap.xml
 Sitemap: https://ajkernews.in/news-sitemap.xml
@@ -1584,7 +1577,6 @@ Sitemap: https://ajkernews.in/news-sitemap.xml
 /* =========================================================
  * RSS FEED
  * ========================================================= */
-
 async function generateRSS(env) {
   const result = await env.DB.prepare(
     `SELECT id, headline, summary, published_at, created_at, image_url, source_name
@@ -1596,32 +1588,31 @@ async function generateRSS(env) {
 
   const items = news.map(n => {
     const link = `${base}/news/${encodeURIComponent(n.id)}`;
-    const displayDate = n.published_at || n.created_at;
+    const displayDate = n.created_at || n.published_at;
     const pubDate = displayDate ? new Date(displayDate).toUTCString() : new Date().toUTCString();
     const safeDesc = String(n.summary || "").replace(/]]>/g, "]]]]><![CDATA[>");
-
     return `<item>
-      <title>${escapeHtml(n.headline)}</title>
-      <link>${link}</link>
-      <guid isPermaLink="true">${link}</guid>
-      <pubDate>${pubDate}</pubDate>
-      <description><![CDATA[${safeDesc}]]></description>
-      ${n.image_url ? `<enclosure url="${escapeHtml(n.image_url)}" type="image/jpeg"/>` : ""}
-    </item>`;
+  <title>${escapeHtml(n.headline)}</title>
+  <link>${link}</link>
+  <guid isPermaLink="true">${link}</guid>
+  <pubDate>${pubDate}</pubDate>
+  <description><![CDATA[${safeDesc}]]></description>
+  ${n.image_url ? `<enclosure url="${escapeHtml(n.image_url)}" type="image/jpeg"/>` : ""}
+</item>`;
   }).join("\n");
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
-    <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
-    <channel>
-      <title>আজকের নিউজ</title>
-      <link>${base}/</link>
-      <description>কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ বাংলা খবর</description>
-      <language>bn-IN</language>
-      <atom:link href="${base}/rss.xml" rel="self" type="application/rss+xml"/>
-      <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
-      ${items}
-    </channel>
-    </rss>`;
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<channel>
+  <title>আজকের নিউজ</title>
+  <link>${base}/</link>
+  <description>কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ বাংলা খবর</description>
+  <language>bn-IN</language>
+  <atom:link href="${base}/rss.xml" rel="self" type="application/rss+xml"/>
+  <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
+${items}
+</channel>
+</rss>`;
 
   return new Response(xml, {
     headers: {
@@ -1634,25 +1625,8 @@ async function generateRSS(env) {
 /* =========================================================
  * HELPERS
  * ========================================================= */
-
 function cleanText(value) {
   return String(value || "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
-}
-
-function base64UrlEncode(str) {
-  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function pemToArrayBuffer(pem) {
-  const lines = String(pem || "").split("\n");
-  let base64 = "";
-  for (const line of lines) {
-    if (!line.includes("-----")) base64 += line.trim();
-  }
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes.buffer;
 }
 
 function corsHeaders() {

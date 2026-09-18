@@ -1,26 +1,18 @@
 /*
- * Gemini news writer — FULLY AUTOMATIC (Content Quality Optimized)
- *
- * - Auto-discovers Flash models
- * - 80 words minimum (Free Tier Safe)
- * - 5-7 sentence structure
- * - Widely known context expansion (no invention)
- * - 20s timeout per model (Cloudflare Worker Safe)
- * - ✅ Single batch processing (no chunking) — Worker timeout safe
+ * Gemini news writer — PARALLEL INDIVIDUAL CALLS
+ * Strict Gemini-only (no fallback)
  */
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
-// ✅ Content Quality Optimized
 const MIN_SUMMARY_WORDS = 80;
 const TARGET_SUMMARY_WORDS = 130;
 
-const MAX_RETRIES_5XX = 1;
+const MAX_RETRIES_5XX = 2;
 const RETRY_DELAY_5XX_MS = 1500;
-const GEMINI_TIMEOUT_MS = 20000; // ✅ 20s (Cloudflare Worker Safe)
-
-// ✅ FIX: maxOutputTokens lowered to 4000 (Gemini Flash max is 8192, was 16000 → silent truncate)
+const GEMINI_TIMEOUT_MS = 18000;
 const MAX_OUTPUT_TOKENS = 4000;
+const MAX_PARALLEL = 6;
 
 const RESPONSE_SCHEMA = {
   type: "ARRAY",
@@ -36,104 +28,95 @@ const RESPONSE_SCHEMA = {
   }
 };
 
-/* =========================================================
- * Model Discovery
- * ========================================================= */
+let cachedModels = null;
+let cacheTime = 0;
+const MODEL_CACHE_TTL = 60 * 60 * 1000;
+
 async function discoverModels(apiKey) {
+  if (cachedModels && (Date.now() - cacheTime) < MODEL_CACHE_TTL) {
+    return cachedModels;
+  }
+
   const listUrl = `${GEMINI_API_BASE}?key=${encodeURIComponent(apiKey)}`;
+  const response = await fetch(listUrl, { method: "GET", headers: { accept: "application/json" } });
 
-  console.log("[AUTO] Discovering Gemini Flash models...");
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(`ListModels ${response.status}: ${errText}`);
+  }
 
-  let lastError = null;
+  const data = await response.json();
+  const allModels = Array.isArray(data?.models) ? data.models : [];
 
-  for (let attempt = 1; attempt <= MAX_RETRIES_5XX; attempt++) {
-    try {
-      const response = await fetch(listUrl, {
-        method: "GET",
-        headers: { accept: "application/json" }
-      });
+  const available = allModels
+    .map(m => ({
+      name: String(m?.name || "").replace(/^models\//, ""),
+      methods: Array.isArray(m?.supportedGenerationMethods) ? m.supportedGenerationMethods : []
+    }))
+    .filter(m => m.name.includes("flash"))
+    .filter(m => m.methods.includes("generateContent"))
+    .filter(m => /^gemini-\d/.test(m.name))
+    .map(m => m.name);
 
-      if (!response.ok) {
-        const errText = await response.text().catch(() => "Unknown error");
-        if ([500, 502, 503, 504].includes(response.status)) {
-          lastError = new Error(`ListModels API ${response.status}: ${errText}`);
-          if (attempt < MAX_RETRIES_5XX) {
-            await new Promise(r => setTimeout(r, RETRY_DELAY_5XX_MS));
-            continue;
-          }
-          throw lastError;
-        }
-        throw new Error(`ListModels API ${response.status}: ${errText}`);
-      }
+  if (!available.length) throw new Error("No Flash models available");
 
-      const data = await response.json();
-      const allModels = Array.isArray(data?.models) ? data.models : [];
-      if (!allModels.length) throw new Error("ListModels returned no models.");
+  const versionRegex = /^gemini-(\d+)(?:\.(\d+))?/;
+  available.sort((a, b) => {
+    const ma = a.match(versionRegex);
+    const mb = b.match(versionRegex);
+    const aMaj = ma ? Number(ma[1]) : 0;
+    const bMaj = mb ? Number(mb[1]) : 0;
+    const aMin = ma && ma[2] ? Number(ma[2]) : 0;
+    const bMin = mb && mb[2] ? Number(mb[2]) : 0;
+    if (aMaj !== bMaj) return bMaj - aMaj;
+    return bMin - aMin;
+  });
 
-      const availableModels = allModels
-        .map(m => {
-          const name = String(m?.name || "").replace(/^models\//, "");
-          const methods = Array.isArray(m?.supportedGenerationMethods)
-            ? m.supportedGenerationMethods
-            : [];
-          return { name, methods };
-        })
-        .filter(m => m.name.includes("flash"))
-        .filter(m => m.methods.includes("generateContent"))
-        .filter(m => /^gemini-\d/.test(m.name))
-        .map(m => m.name);
+  console.log(`[GEMINI] Models: ${available.join(" → ")}`);
+  cachedModels = available;
+  cacheTime = Date.now();
+  return available;
+}
 
-      if (!availableModels.length) throw new Error("No Flash models available.");
+export async function processSelectedNews(articles, apiKey) {
+  if (!apiKey) {
+    console.warn("[GEMINI] No API key");
+    return [];
+  }
+  if (!Array.isArray(articles) || articles.length === 0) return [];
 
-      console.log(`[AUTO] Available Flash models: ${availableModels.join(", ")}`);
+  const limited = articles.slice(0, MAX_PARALLEL);
+  console.log(`[GEMINI] Parallel processing ${limited.length} articles`);
 
-      const versionRegex = /^gemini-(\d+)(?:\.(\d+))?/;
-      availableModels.sort((a, b) => {
-        const ma = a.match(versionRegex);
-        const mb = b.match(versionRegex);
-        const aMaj = ma ? Number(ma[1]) : 0;
-        const bMaj = mb ? Number(mb[1]) : 0;
-        const aMin = ma && ma[2] ? Number(ma[2]) : 0;
-        const bMin = mb && mb[2] ? Number(mb[2]) : 0;
-        if (aMaj !== bMaj) return bMaj - aMaj;
-        return bMin - aMin;
-      });
+  let models;
+  try {
+    models = await discoverModels(apiKey);
+  } catch (error) {
+    console.error("[GEMINI] Model discovery failed:", error?.message || String(error));
+    return [];
+  }
 
-      console.log(`[AUTO] Priority order: ${availableModels.join(" → ")}`);
-      return availableModels;
+  const settled = await Promise.allSettled(
+    limited.map(article => processOneArticle(article, models, apiKey))
+  );
 
-    } catch (error) {
-      lastError = error;
-      if (attempt < MAX_RETRIES_5XX) {
-        await new Promise(r => setTimeout(r, RETRY_DELAY_5XX_MS));
-        continue;
-      }
-      throw error;
+  const results = [];
+  for (let i = 0; i < settled.length; i++) {
+    const r = settled[i];
+    if (r.status === "fulfilled" && r.value) {
+      results.push(r.value);
+      console.log(`[GEMINI] ✅ ${limited[i].id}`);
+    } else {
+      console.warn(`[GEMINI] ❌ ${limited[i].id}: ${r.reason?.message || "failed"}`);
     }
   }
 
-  throw lastError || new Error("Model discovery failed after retries");
+  console.log(`[GEMINI] Success: ${results.length}/${limited.length}`);
+  return results;
 }
 
-/* =========================================================
- * Main Entry — ✅ SINGLE BATCH (no chunking)
- * ========================================================= */
-export async function generateNewsWithGemini(articles, apiKey) {
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
-  if (!Array.isArray(articles) || articles.length === 0) return [];
-
-  const models = await discoverModels(apiKey);
-
-  // ✅ FIX: Single batch — Cloudflare Worker 25s timeout safe
-  // আগে 2 batch ছিল, প্রতিটা 20s → 40s+ → Promise.race reject → সব English fallback
-  console.log(`[GEMINI] Single batch: ${articles.length} articles`);
-  const results = await processBatch(articles, models, apiKey);
-
-  return validateAndCleanResults(results || [], articles);
-}
-
-async function processBatch(articles, models, apiKey) {
-  const sourceArticles = articles.map(article => ({
+async function processOneArticle(article, models, apiKey) {
+  const sourceArticles = [{
     id: String(article.id),
     title: String(article.source_title || "").trim(),
     description: String(article.source_description || "").trim(),
@@ -148,129 +131,69 @@ async function processBatch(articles, models, apiKey) {
           source: String(s.source_name || "").trim()
         }))
       : []
-  }));
+  }];
 
   const prompt = buildPrompt(sourceArticles);
 
-  let lastError = null;
-
   for (const model of models) {
     try {
-      console.log(`[MODEL] Trying ${model} with ${articles.length} articles...`);
       const results = await callGeminiAPI(model, prompt, apiKey);
-
       if (Array.isArray(results) && results.length > 0) {
-        console.log(`[MODEL] ✅ ${model} succeeded (${results.length} results)`);
-        return results;
+        return validateGeminiResult(results[0], article);
       }
-
-      console.warn(`[MODEL] ${model} returned empty results`);
     } catch (error) {
-      lastError = error;
       const msg = String(error?.message || "");
-
-      if (msg.includes("429")) {
-        console.warn(`[MODEL] ${model} quota exceeded`);
+      if (msg.includes("429") || msg.includes("404") || msg.includes("NOT_FOUND")) {
         continue;
       }
-      if (msg.includes("404") || msg.includes("NOT_FOUND")) {
-        console.warn(`[MODEL] ${model} retired`);
-        continue;
-      }
-      if (msg.includes("503") || msg.includes("500") || msg.includes("502") || msg.includes("504")) {
-        console.warn(`[MODEL] ${model} server error`);
-        continue;
-      }
-      if (msg.includes("timeout")) {
-        console.warn(`[MODEL] ${model} timed out`);
-        continue;
-      }
-
-      console.error(`[MODEL] ${model} failed:`, msg);
+      console.warn(`[GEMINI] ${model} error: ${msg.slice(0, 100)}`);
       continue;
     }
   }
 
-  console.warn(`[BATCH] All models failed for batch of ${articles.length}`);
-  return [];
+  return null;
 }
 
-/* =========================================================
- * Prompt Builder
- * ========================================================= */
 function buildPrompt(sourceArticles) {
-  return `You are the senior Bengali news editor for Ajker News, an Indian Bengali news website.
+  return `You are a senior Bengali news editor for Ajker News.
 
-PRIMARY AUDIENCE: Bengali readers in India, especially West Bengal.
+TASK: Rewrite the supplied source into detailed, factual Bengali news.
 
-TASK: Rewrite the supplied source information into detailed, factual Bengali news.
+LANGUAGE: Some sources are English. Translate and rewrite into natural Bengali.
 
-LANGUAGE: Some sources are in English. You MUST translate and rewrite them into natural Bengali.
-
-=========================================================
-COVERAGE PRIORITY:
-=========================================================
-1. West Bengal: Kolkata, Bengal government, Bengal politics, Bengal crime, Bengal development, Bengal education, Bengal jobs, Bengal weather, Bengal public-interest news.
-2. India: Indian government, Delhi, Parliament, Prime Minister, Supreme Court, national politics, economy, jobs, education, public-interest events.
-3. Other Indian states.
-4. Major world news affecting India.
-5. Business, Technology, Sports, Entertainment.
-
-=========================================================
-CRITICAL LENGTH REQUIREMENT:
-=========================================================
+LENGTH REQUIREMENT (MANDATORY):
 - Each summary MUST be AT LEAST ${MIN_SUMMARY_WORDS} Bengali words.
-- AIM for ${TARGET_SUMMARY_WORDS}-180 Bengali words per summary.
+- AIM for ${TARGET_SUMMARY_WORDS}-180 Bengali words.
 - Write 5-7 FULL sentences minimum.
-- If a summary is UNDER ${MIN_SUMMARY_WORDS} words, it will be REJECTED.
+- If summary is UNDER ${MIN_SUMMARY_WORDS} words, it will be REJECTED.
 
-=========================================================
-SENTENCE STRUCTURE (MANDATORY):
-=========================================================
-Follow this structure exactly:
-- Sentence 1: WHAT happened (main event)
-- Sentence 2: WHO was involved + WHERE + WHEN (if available in source)
-- Sentence 3: WHY it matters (background context)
-- Sentence 4-5: Implications / public interest angle
+SENTENCE STRUCTURE:
+- Sentence 1: WHAT happened
+- Sentence 2: WHO + WHERE + WHEN (if available)
+- Sentence 3: WHY it matters
+- Sentence 4-5: Implications / public interest
 - Sentence 6-7: Additional facts from source
 
-=========================================================
-HANDLING SHORT SOURCES:
-=========================================================
-If the source description is short (under 200 characters):
-- Expand using WIDELY KNOWN context about the topic.
-- DO NOT invent specific names, numbers, quotes, or dates.
-- Focus on WHAT and WHY using general knowledge.
-- Never fabricate details that are not in the source.
-
-=========================================================
-IMPORTANT RULES:
-=========================================================
+RULES:
 1. Use ONLY facts from the supplied source data.
-2. Do NOT invent names, numbers, quotes, locations, dates, causes, reactions.
+2. Do NOT invent names, numbers, quotes, locations, dates.
 3. Do NOT add opinions or speculation.
-4. Do NOT copy the source headline word-for-word.
-5. Write natural, clear Bengali suitable for mobile.
+4. Do NOT copy source headline word-for-word.
+5. Write natural, clear Bengali.
 6. Preserve important names, organisations, places, numbers, dates.
 7. Do not mention AI.
 8. No promotional or clickbait language.
-9. Do not create facts merely to reach word count.
-10. Return one result for EVERY supplied article.
-11. Keep the original article ID unchanged.
-12. main_topic = short Bengali topic label.
-13. Headline = under 180 characters.
-14. If "additional_sources" is provided, use them to enrich the story with more facts.
+9. Return one result for EVERY supplied article.
+10. Keep original article ID unchanged.
+11. main_topic = short Bengali topic label.
+12. Headline = under 180 characters.
+13. If "additional_sources" provided, use them to enrich.
 
-=========================================================
 SOURCE ARTICLES:
-=========================================================
 ${JSON.stringify(sourceArticles, null, 2)}
 `;
 }
 
-/* =========================================================
- * Gemini API Call
- * ========================================================= */
 async function callGeminiAPI(model, prompt, apiKey) {
   const endpoint = `${GEMINI_API_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
@@ -292,7 +215,7 @@ async function callGeminiAPI(model, prompt, apiKey) {
               temperature: 0.2,
               responseMimeType: "application/json",
               responseSchema: RESPONSE_SCHEMA,
-              maxOutputTokens: MAX_OUTPUT_TOKENS   // ✅ FIX: 4000
+              maxOutputTokens: MAX_OUTPUT_TOKENS
             }
           }),
           signal: controller.signal
@@ -304,27 +227,22 @@ async function callGeminiAPI(model, prompt, apiKey) {
       if (response.ok) {
         const data = await response.json();
         const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (!text) throw new Error("Gemini returned no text output.");
+        if (!text) throw new Error("No text output");
 
         let results;
         try {
           results = JSON.parse(text);
         } catch {
-          throw new Error("Gemini returned invalid JSON.");
+          throw new Error("Invalid JSON");
         }
 
-        if (!Array.isArray(results)) {
-          throw new Error("Gemini response is not an array.");
-        }
-
+        if (!Array.isArray(results)) throw new Error("Not an array");
         return results;
       }
 
       if ([500, 502, 503, 504].includes(response.status)) {
         const errText = await response.text().catch(() => "");
-        lastError = new Error(`Gemini API ${response.status}: ${errText}`);
-
+        lastError = new Error(`API ${response.status}: ${errText.slice(0, 200)}`);
         if (attempt < MAX_RETRIES_5XX) {
           await new Promise(r => setTimeout(r, RETRY_DELAY_5XX_MS));
           continue;
@@ -333,26 +251,14 @@ async function callGeminiAPI(model, prompt, apiKey) {
       }
 
       const errText = await response.text().catch(() => "");
-      throw new Error(`Gemini API ${response.status}: ${errText}`);
+      throw new Error(`API ${response.status}: ${errText.slice(0, 200)}`);
 
     } catch (error) {
-      const msg = String(error?.message || "");
-
       if (error.name === "AbortError") {
-        console.error(`[MODEL] ${model} timed out after ${GEMINI_TIMEOUT_MS}ms`);
-        throw new Error(`Gemini timeout: ${model}`);
+        throw new Error(`Timeout after ${GEMINI_TIMEOUT_MS}ms`);
       }
-
-      if (
-        attempt < MAX_RETRIES_5XX &&
-        !msg.includes("429") &&
-        !msg.includes("404") &&
-        !msg.includes("NOT_FOUND") &&
-        !msg.includes("Gemini API") &&
-        !msg.includes("invalid JSON") &&
-        !msg.includes("not an array") &&
-        !msg.includes("timeout")
-      ) {
+      const msg = String(error?.message || "");
+      if (attempt < MAX_RETRIES_5XX && !msg.includes("429") && !msg.includes("404") && !msg.includes("Invalid JSON")) {
         lastError = error;
         await new Promise(r => setTimeout(r, RETRY_DELAY_5XX_MS));
         continue;
@@ -361,26 +267,16 @@ async function callGeminiAPI(model, prompt, apiKey) {
     }
   }
 
-  throw lastError || new Error("Gemini call failed after retries");
+  throw lastError || new Error("Gemini call failed");
 }
 
-/* =========================================================
- * Validation
- * ========================================================= */
-function validateAndCleanResults(results, originalArticles) {
-  return results
-    .map(result => validateGeminiResult(result, originalArticles))
-    .filter(Boolean);
-}
-
-function validateGeminiResult(result, originalArticles) {
+function validateGeminiResult(result, originalArticle) {
   if (!result || typeof result !== "object") return null;
 
   const id = String(result.id || "").trim();
   if (!id) return null;
 
-  const original = originalArticles.find(article => String(article.id) === id);
-  if (!original) return null;
+  if (String(originalArticle.id) !== id) return null;
 
   const headline = cleanText(result.headline);
   const summary = cleanText(result.summary);
@@ -389,14 +285,19 @@ function validateGeminiResult(result, originalArticles) {
   if (!headline || !summary || !mainTopic) return null;
 
   const wordCount = summary.split(/\s+/).filter(Boolean).length;
-
   if (wordCount < MIN_SUMMARY_WORDS) {
-    console.warn(`[REJECT] Summary too short (${wordCount} words < ${MIN_SUMMARY_WORDS}) for ID ${id}`);
+    console.warn(`[GEMINI] Reject: summary ${wordCount} words < ${MIN_SUMMARY_WORDS}`);
     return null;
   }
 
   if (headline.length > 180) return null;
   if (summary.length > 2500) return null;
+
+  const isBangla = /[\u0980-\u09FF]/.test(headline + " " + summary);
+  if (!isBangla) {
+    console.warn(`[GEMINI] Reject: not Bangla`);
+    return null;
+  }
 
   return { id, headline, summary, main_topic: mainTopic };
 }
@@ -405,19 +306,10 @@ function cleanText(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
-/* =========================================================
- * Public API
- * ========================================================= */
-export async function processSelectedNews(articles, apiKey) {
-  if (!Array.isArray(articles) || articles.length === 0) return [];
-  const limitedArticles = articles.slice(0, 4);
-  return await generateNewsWithGemini(limitedArticles, apiKey);
-}
-
 export function geminiStatus(apiKey) {
   return {
     configured: Boolean(apiKey),
-    mode: "fully-automatic-discovery-and-rotation",
+    mode: "parallel-individual-calls",
     minWords: MIN_SUMMARY_WORDS,
     targetWords: TARGET_SUMMARY_WORDS
   };

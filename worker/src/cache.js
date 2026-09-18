@@ -2,8 +2,8 @@
  * Cloudflare Cache API helper — Multi-key purge
  */
 
-const NEWS_API_TTL = 120;
-const ARTICLE_TTL = 600;
+const NEWS_API_TTL = 60;
+const ARTICLE_TTL = 300;
 
 export function getCache() {
   return caches.default;
@@ -99,10 +99,6 @@ export async function purgeArticleCache(origin, id) {
   return purgeCache(request);
 }
 
-/**
- * ✅ FIXED: Purge ALL common /api/news variations
- * Query string mismatch problem solved
- */
 export async function purgeNewsApiCache(origin) {
   const cache = getCache();
   const variations = [

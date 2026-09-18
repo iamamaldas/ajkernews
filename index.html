@@ -16,213 +16,113 @@
 <meta name="apple-mobile-web-app-title" content="Ajker News">
 <link rel="apple-touch-icon" href="/logo.png">
 <link rel="icon" type="image/png" sizes="512x512" href="/logo.png">
-<link rel="shortcut icon" type="image/png" href="/logo.png">
-<meta property="og:title" content="Ajker News | আজকের নিউজ - কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর">
-<meta property="og:description" content="ajkernews.in-এ পড়ুন কলকাতা, পশ্চিমবঙ্গের সমস্ত জেলা ও ব্লকের খবর, ভারতের রাজনীতি, অর্থনীতি, খেলা, বিনোদন, এবং দেশ-বিদেশের গুরুত্বপূর্ণ সংবাদ।">
+<meta property="og:title" content="Ajker News | আজকের নিউজ">
+<meta property="og:description" content="কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ বাংলা খবর।">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://ajkernews.in/">
 <meta property="og:image" content="https://ajkernews.in/logo.png">
-<meta property="og:image:width" content="512">
-<meta property="og:image:height" content="512">
-<meta property="og:site_name" content="Ajker News">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Ajker News | আজকের নিউজ - কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর">
-<meta name="twitter:description" content="ajkernews.in-এ পড়ুন কলকাতা, পশ্চিমবঙ্গের সমস্ত জেলা ও ব্লকের খবর, ভারতের রাজনীতি, অর্থনীতি, খেলা, বিনোদন, এবং দেশ-বিদেশের গুরুত্বপূর্ণ সংবাদ।">
-<meta name="twitter:image" content="https://ajkernews.in/logo.png">
 <script type="application/ld+json">
-{ "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in/logo.png", "description": "কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর বাংলায়।" }
-</script>
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "WebSite",
-  "name": "আজকের নিউজ",
-  "alternateName": ["Ajker News", "ajkernews.in"],
-  "url": "https://ajkernews.in/",
-  "potentialAction": {
-    "@type": "SearchAction",
-    "target": "https://ajkernews.in/?q={search_term_string}",
-    "query-input": "required name=search_term_string"
-  }
-}
+{ "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in/logo.png" }
 </script>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
 html { scroll-behavior: smooth; }
 body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoothing:antialiased; }
 .header { position:sticky; top:0; z-index:1000; display:flex; align-items:center; justify-content:space-between; padding:12px 16px; min-height:60px; background:#ffffff; border-bottom:1px solid #e0e0e0; }
-.header-left { display:flex; align-items:center; gap:10px; min-width:0; flex-shrink:0; }
-.header-home-link { display:flex; align-items:center; gap:10px; color:inherit; text-decoration:none; min-width:0; }
-.header-logo { height:28px; width:auto; border:none; border-radius:0; object-fit:contain; }
+.header-left { display:flex; align-items:center; gap:10px; }
+.header-home-link { display:flex; align-items:center; gap:10px; color:inherit; text-decoration:none; }
+.header-logo { height:28px; width:auto; object-fit:contain; }
 .header-left h1 { font-size:24px; line-height:1; font-weight:700; color:#111111; white-space:nowrap; letter-spacing:-0.3px; }
-.header-right { display:flex; align-items:center; gap:10px; flex-shrink:0; }
-.refresh-btn { width:36px; height:36px; padding:4px; display:flex; align-items:center; justify-content:center; background:transparent; border:none; cursor:pointer; -webkit-tap-highlight-color:transparent; color:#000000; transition:opacity 0.2s ease, transform 0.15s ease; }
-.refresh-btn:hover { opacity:0.7; }
-.refresh-btn:active { opacity:1; transform:scale(0.92); }
+.header-right { display:flex; align-items:center; gap:10px; }
+.refresh-btn { width:36px; height:36px; padding:4px; display:flex; align-items:center; justify-content:center; background:transparent; border:none; cursor:pointer; -webkit-tap-highlight-color:transparent; color:#000000; }
 .refresh-btn.spinning svg { animation: refresh-spin 0.9s linear infinite; transform-origin: 50% 50%; }
 @keyframes refresh-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-.notif-btn { width:36px; height:36px; padding:4px; display:flex; align-items:center; justify-content:center; background:transparent; border:none; cursor:pointer; -webkit-tap-highlight-color:transparent; }
-.notif-btn svg { width:24px; height:24px; stroke:#000000; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; transition:fill 0.25s ease, stroke-width 0.25s ease; }
+.notif-btn { width:36px; height:36px; padding:4px; display:flex; align-items:center; justify-content:center; background:transparent; border:none; cursor:pointer; }
+.notif-btn svg { width:24px; height:24px; stroke:#000000; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; transition:fill 0.25s ease; }
 .notif-btn.subscribed svg { fill:#000000; stroke:#000000; stroke-width:2.2; }
-.search-btn { width:36px; height:36px; padding:4px; display:flex; align-items:center; justify-content:center; background:transparent; border:none; cursor:pointer; -webkit-tap-highlight-color:transparent; }
-.search-svg { width:20px; height:20px; display:block; overflow:visible; }
+.search-btn { width:36px; height:36px; padding:4px; display:flex; align-items:center; justify-content:center; background:transparent; border:none; cursor:pointer; }
+.search-svg { width:20px; height:20px; display:block; }
 .search-svg circle, .search-svg line { fill:none; stroke:#222222; stroke-width:2; stroke-linecap:round; }
-.hamburger { width:36px; height:36px; padding:6px; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:4px; background:transparent; border:none; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+.hamburger { width:36px; height:36px; padding:6px; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:4px; background:transparent; border:none; cursor:pointer; }
 .hamburger span { display:block; width:20px; height:2.5px; background:#222222; border-radius:2px; }
 .trending-banner { display:flex; align-items:center; justify-content:space-between; min-height:46px; padding:10px 16px; background:#f44336; color:#ffffff; }
 .trending-banner span { font-size:17px; line-height:1.2; font-weight:700; }
 .banner-right-btn { display:inline-flex; align-items:center; justify-content:center; padding:6px 14px; border-radius:20px; background:#000000; color:#ffffff; text-decoration:none; font-size:13px; font-weight:600; white-space:nowrap; border:none; cursor:pointer; }
 .search-modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; padding-top:80px; justify-content:center; background:rgba(0,0,0,0.4); z-index:1000; }
 .search-modal.active { display:flex; }
-.search-modal-box { position:relative; width:90%; max-width:420px; height:fit-content; padding:20px 20px 25px; background:#ffffff; border-radius:12px; box-shadow:0 4px 20px rgba(0,0,0,0.15); }
-.close-search { position:absolute; top:4px; right:10px; color:#666666; font-size:28px; font-weight:300; cursor:pointer; line-height:1; transition:0.2s; z-index:5; }
-.close-search:hover { color:#000000; }
+.search-modal-box { position:relative; width:90%; max-width:420px; padding:20px; background:#ffffff; border-radius:12px; box-shadow:0 4px 20px rgba(0,0,0,0.15); }
+.close-search { position:absolute; top:4px; right:10px; color:#666666; font-size:28px; font-weight:300; cursor:pointer; line-height:1; }
 .search-input-wrapper { display:flex; flex-direction:column; align-items:center; gap:12px; margin-top:8px; }
-.search-modal-box input { width:100%; padding:12px 14px; border:1px solid #e0e0e0; border-radius:8px; outline:none; background:#ffffff; color:#111111; font-size:16px; }
-.search-modal-box input:focus { border-color:#aaaaaa; }
-.search-modal-box .search-submit-btn { padding:8px 22px; background:#000000; color:#ffffff; border:none; border-radius:6px; font-size:14px; font-weight:600; cursor:pointer; transition:0.2s; width:auto; margin:0 auto; }
-.search-modal-box .search-submit-btn:hover { background:#333333; }
+.search-modal-box input { width:100%; padding:12px 14px; border:1px solid #e0e0e0; border-radius:8px; outline:none; font-size:16px; }
+.search-modal-box .search-submit-btn { padding:8px 22px; background:#000000; color:#ffffff; border:none; border-radius:6px; font-size:14px; font-weight:600; cursor:pointer; }
 .overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.4); opacity:0; visibility:hidden; transition:0.3s; z-index:900; }
 .overlay.active { opacity:1; visibility:visible; }
 .sidebar { position:fixed; top:0; right:-280px; width:280px; height:100%; overflow-y:auto; background:#ffffff; border-left:1px solid #e0e0e0; transition:right 0.3s ease; z-index:1000; }
 .sidebar.open { right:0; }
 .sidebar-header { display:flex; align-items:center; justify-content:space-between; padding:16px; border-bottom:1px solid #e0e0e0; }
-.sidebar-header h2 { font-size:18px; font-weight:700; color:#111111; }
+.sidebar-header h2 { font-size:18px; font-weight:700; }
 .close-btn { background:none; border:none; color:#888888; font-size:28px; cursor:pointer; }
 .sidebar-menu a { display:block; padding:16px; border-bottom:1px solid #f5f5f5; color:#333333; text-decoration:none; font-size:16px; font-weight:500; }
-.sidebar-menu a:hover, .sidebar-menu a:active { background:#f7f7f7; }
-.copy-toast { position:fixed; left:50%; bottom:28px; transform:translateX(-50%); z-index:3000; background:#111111; color:#ffffff; padding:10px 18px; border-radius:8px; font-size:15px; box-shadow:0 4px 16px rgba(0,0,0,.2); display:none; }
+.copy-toast { position:fixed; left:50%; bottom:28px; transform:translateX(-50%); z-index:3000; background:#111111; color:#ffffff; padding:10px 18px; border-radius:8px; font-size:15px; display:none; }
 .copy-toast.show { display:block; }
 .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.4); z-index:1100; overflow:hidden; }
-.modal-content { position:relative; width:90%; max-width:800px; margin:3% auto; padding:24px; background:#fefefe; border:1px solid #888888; border-radius:8px; max-height:90vh; display:flex; flex-direction:column; overflow:hidden; }
-.close-modal { float:right; color:#aaaaaa; font-size:28px; font-weight:bold; cursor:pointer; align-self:flex-end; flex-shrink:0; margin-bottom:8px; line-height:1; }
-#modal-body { flex:1; overflow-y:auto; padding-right:4px; display:flex; flex-direction:column; }
-#modal-body::-webkit-scrollbar { width:4px; }
-#modal-body::-webkit-scrollbar-track { background:#f1f1f1; border-radius:4px; }
-#modal-body::-webkit-scrollbar-thumb { background:#ccc; border-radius:4px; }
-#modal-body::-webkit-scrollbar-thumb:hover { background:#aaa; }
-.comment-form-container { position:sticky; top:0; background:#fefefe; z-index:10; padding-bottom:12px; border-bottom:1px solid #eee; margin-bottom:4px; flex-shrink:0; }
-.comments-list { flex:1; overflow-y:auto; padding-right:4px; }
-.comments-list::-webkit-scrollbar { width:4px; }
-.comments-list::-webkit-scrollbar-track { background:#f1f1f1; border-radius:4px; }
-.comments-list::-webkit-scrollbar-thumb { background:#ccc; border-radius:4px; }
-.comments-list::-webkit-scrollbar-thumb:hover { background:#aaa; }
-.main-content { padding:16px; background:#ffffff; }
-#newsContainer { min-height:200px; display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start; gap:12px; }
-.news-skeleton { display:block; width:100%; padding:0; background:#fff; border:1px solid #e5e5e5; border-radius:12px; overflow:hidden; }
+.modal-content { position:relative; width:90%; max-width:800px; margin:3% auto; padding:24px; background:#fefefe; border-radius:8px; max-height:90vh; display:flex; flex-direction:column; overflow:hidden; }
+.close-modal { float:right; color:#aaaaaa; font-size:28px; font-weight:bold; cursor:pointer; align-self:flex-end; margin-bottom:8px; line-height:1; }
+#modal-body { flex:1; overflow-y:auto; padding-right:4px; }
+.main-content { padding:16px; }
+#newsContainer { min-height:200px; display:flex; flex-direction:column; gap:12px; }
+.news-skeleton { display:block; width:100%; background:#fff; border:1px solid #e5e5e5; border-radius:12px; overflow:hidden; }
 .skeleton-image { width:100%; aspect-ratio:16/9; background:linear-gradient(90deg,#f0f0f0 25%,#e8e8e8 50%,#f0f0f0 75%); background-size:200% 100%; animation:shimmer 1.5s infinite; }
 .skeleton-body { padding:13px 14px 15px; }
 .skeleton-line { height:14px; background:linear-gradient(90deg,#f0f0f0 25%,#e8e8e8 50%,#f0f0f0 75%); background-size:200% 100%; animation:shimmer 1.5s infinite; border-radius:4px; margin-bottom:8px; }
 .skeleton-line.title { height:22px; width:85%; }
 .skeleton-line.title-2 { height:22px; width:60%; }
-.skeleton-line.text { height:14px; width:100%; }
-.skeleton-line.text-2 { height:14px; width:90%; }
-.skeleton-line.text-3 { height:14px; width:75%; }
-.skeleton-line.meta { height:12px; width:40%; margin-top:12px; }
 @keyframes shimmer { 0%{background-position:-200% 0;} 100%{background-position:200% 0;} }
-.news-card { display:block; width:100%; padding:0; background:#ffffff; border:1px solid #e5e5e5; border-radius:12px; overflow:hidden; text-decoration:none; color:#111111; opacity:0; transform:translateY(20px); transition:opacity 0.5s ease, transform 0.5s ease; }
+.news-card { display:block; width:100%; background:#ffffff; border:1px solid #e5e5e5; border-radius:12px; overflow:hidden; text-decoration:none; color:#111111; opacity:0; transform:translateY(20px); transition:opacity 0.5s ease, transform 0.5s ease; }
 .news-card.visible { opacity:1; transform:translateY(0); }
 .news-image-wrapper { position:relative; width:100%; aspect-ratio:16/9; background:#f3f3f3; overflow:hidden; }
-.news-image-wrapper::before { content:''; position:absolute; inset:0; background:linear-gradient(90deg,#f0f0f0 25%,#e8e8e8 50%,#f0f0f0 75%); background-size:200% 100%; animation:shimmer 1.5s infinite; z-index:1; }
-.news-image-wrapper.loaded::before { display:none; }
-.news-image { display:block; width:100%; aspect-ratio:16/9; object-fit:cover; background:#f3f3f3; opacity:0; transition:opacity 0.4s ease; }
-.news-image.loaded { opacity:1; }
-.ad-card { display:block; width:100%; padding:0; background:#f8f9fa; border:2px dashed #ff6b6b; border-radius:12px; overflow:hidden; text-decoration:none; color:#111111; }
-.ad-card .news-body { background:#fff9f9; }
-.ad-card .news-category { color:#ff6b6b; font-weight:700; }
-.ad-badge { display:inline-block; background:#ff6b6b; color:#fff; font-size:10px; padding:2px 10px; border-radius:12px; margin-bottom:6px; font-weight:600; letter-spacing:0.5px; }
+.news-image { display:block; width:100%; aspect-ratio:16/9; object-fit:cover; }
 .news-body { padding:13px 14px 15px; }
 .news-category { display:inline-block; margin-bottom:6px; font-size:12px; font-weight:700; color:#f44336; }
-.news-title { font-size:19px; line-height:1.4; font-weight:700; color:#111111; margin-bottom:12px; }
+.news-title { font-size:19px; line-height:1.4; font-weight:700; margin-bottom:12px; }
 .news-summary { font-size:15px; line-height:1.65; color:#444444; }
 .news-meta { display:flex; align-items:center; justify-content:space-between; margin-top:9px; font-size:12px; color:#888888; }
-.news-source a { color:#007bff; text-decoration:none; font-weight:500; }
-.news-source a:hover { text-decoration:underline; }
-.news-actions { display:flex; justify-content:flex-start; gap:20px; margin-top:12px; padding-top:10px; border-top:1px solid #f0f0f0; }
-.action-btn { display:flex; align-items:center; gap:5px; background:none; border:none; color:#666; font-size:14px; cursor:pointer; padding:0; transition:color 0.2s; -webkit-tap-highlight-color:transparent; }
-.action-btn:hover { color:#000; }
-.action-btn svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
-.action-count { display:inline-flex !important; align-items:center; justify-content:center; min-width:18px; height:20px; padding:0 2px; margin-left:1px; font-size:12px; line-height:20px; color:#555 !important; visibility:visible !important; opacity:1 !important; text-align:center; }
+.news-actions { display:flex; gap:20px; margin-top:12px; padding-top:10px; border-top:1px solid #f0f0f0; }
+.action-btn { display:flex; align-items:center; gap:5px; background:none; border:none; color:#666; font-size:14px; cursor:pointer; padding:0; }
+.action-btn svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:2; }
+.action-count { font-size:12px; color:#555; }
 .love-btn.loved svg { fill:#e74c3c !important; stroke:#e74c3c !important; }
-#loadMoreBtn { display:none; width:100%; padding:14px; background:#000000; color:#ffffff; border:none; border-radius:8px; font-size:16px; font-weight:600; cursor:pointer; margin-top:20px; transition:background 0.2s; }
-#loadMoreBtn:hover { background:#333333; }
-.floating-app-btn { position:fixed; right:16px; bottom:20px; width:60px; height:60px; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#ffffff; border:1px solid #e0e0e0; border-radius:50%; box-shadow:0 2px 10px rgba(0,0,0,0.10); cursor:pointer; z-index:700; -webkit-tap-highlight-color:transparent; text-decoration:none; }
+#loadMoreBtn { display:none; width:100%; padding:14px; background:#000000; color:#ffffff; border:none; border-radius:8px; font-size:16px; font-weight:600; cursor:pointer; margin-top:20px; }
+.floating-app-btn { position:fixed; right:16px; bottom:20px; width:60px; height:60px; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#ffffff; border:1px solid #e0e0e0; border-radius:50%; box-shadow:0 2px 10px rgba(0,0,0,0.10); cursor:pointer; z-index:700; text-decoration:none; }
 .floating-app-btn svg { width:24px; height:24px; margin-bottom:2px; }
-.floating-app-btn span { font-size:9px; font-weight:600; color:#222222; }
-.footer { position:relative; width:100%; padding:20px 12px 10px; text-align:center; background:#ffffff; border-top:1px solid #e0e0e0; display:flex; flex-direction:column; align-items:center; gap:4px; margin-top:20px; }
-.footer-links { display:flex; justify-content:center; gap:6px; flex-wrap:wrap; }
-.footer-links a { color:#000000; text-decoration:none; font-size:14px; font-weight:500; }
-.footer-links a:hover { text-decoration:underline; }
-.footer-links .sep { color:#000000; font-size:14px; font-weight:300; }
-.footer-copy { color:#000000; font-size:11px; font-weight:400; letter-spacing:0.3px; }
-.modal-like-actions { display:flex; justify-content:flex-start; gap:20px; margin:12px 0 6px 0; padding-top:10px; border-top:1px solid #eee; }
-.modal-like-actions .action-btn { color:#555; }
-.modal-like-actions .action-btn:hover { color:#000; }
-.notif-prompt-modal { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 2500; align-items: center; justify-content: center; padding: 20px; opacity: 0; transition: opacity 0.3s ease; }
-.notif-prompt-modal.active { display: flex; opacity: 1; }
-.notif-prompt-box { background: #fff; border-radius: 16px; padding: 24px 20px 20px; max-width: 360px; width: 100%; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.2); transform: translateY(20px); transition: transform 0.3s ease; }
-.notif-prompt-modal.active .notif-prompt-box { transform: translateY(0); }
-.notif-prompt-icon { display: flex; align-items: center; justify-content: center; width: 56px; height: 56px; margin: 0 auto 12px; }
-.notif-prompt-icon svg { display: block; }
+.floating-app-btn span { font-size:9px; font-weight:600; }
+.footer { padding:20px 12px 10px; text-align:center; background:#ffffff; border-top:1px solid #e0e0e0; margin-top:20px; }
+.footer-links { display:flex; justify-content:center; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
+.footer-links a { color:#000000; text-decoration:none; font-size:14px; }
+.footer-copy { color:#000000; font-size:11px; }
+.notif-prompt-modal { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 2500; align-items: center; justify-content: center; padding: 20px; }
+.notif-prompt-modal.active { display: flex; }
+.notif-prompt-box { background: #fff; border-radius: 16px; padding: 24px 20px 20px; max-width: 360px; width: 100%; text-align: center; }
 .notif-prompt-title { font-size: 20px; font-weight: 700; color: #111; margin-bottom: 8px; }
 .notif-prompt-text { font-size: 15px; line-height: 1.6; color: #555; margin-bottom: 20px; }
 .notif-prompt-actions { display: flex; gap: 10px; }
-.notif-prompt-btn { flex: 1; padding: 12px 16px; border-radius: 10px; border: none; font-size: 15px; font-weight: 600; cursor: pointer; transition: 0.2s; -webkit-tap-highlight-color: transparent; }
+.notif-prompt-btn { flex: 1; padding: 12px 16px; border-radius: 10px; border: none; font-size: 15px; font-weight: 600; cursor: pointer; }
 .notif-prompt-btn.later { background: #f0f0f0; color: #333; }
-.notif-prompt-btn.later:hover { background: #e0e0e0; }
 .notif-prompt-btn.enable { background: #000; color: #fff; }
-.notif-prompt-btn.enable:hover { background: #333; }
-@media (min-width:768px) { .modal-content { width:85%; max-width:900px; padding:32px; } }
-@media (max-width:480px) {
-.header { padding:10px 14px; min-height:54px; }
-.header-left h1 { font-size:20px; }
-.header-left, .header-home-link { gap:8px; }
-.header-right { gap:6px; }
-.refresh-btn { width:32px !important; height:32px !important; }
-.refresh-btn svg { width:20px !important; height:20px !important; }
-.search-btn { width:32px !important; height:32px !important; }
-.search-svg { width:18px !important; height:18px !important; }
-.hamburger { width:32px !important; height:32px !important; gap:3.5px !important; padding:4px !important; }
-.hamburger span { width:18px !important; height:2.5px !important; }
-.notif-btn { width:32px !important; height:32px !important; }
-.notif-btn svg { width:22px !important; height:22px !important; }
-.trending-banner { padding:8px 14px; min-height:42px; }
-.trending-banner span { font-size:15px; }
-.banner-right-btn { padding:5px 12px; font-size:12px; }
-.main-content { padding:12px; }
-.search-modal-box { padding:16px; }
-.close-search { font-size:26px; top:2px; right:8px; }
-.search-modal-box .search-submit-btn { padding:6px 18px; font-size:13px; }
-.search-modal-box input { font-size:15px; padding:10px 12px; }
-.search-input-wrapper { gap:10px; }
-.news-title { font-size:18px; }
-.news-summary { font-size:14px; }
-.news-meta { font-size:11px; }
-.floating-app-btn { right:14px; bottom:20px; width:56px; height:56px; }
-.floating-app-btn span { font-size:8px; }
-.modal-content { width:92%; margin:3% auto; padding:16px; max-height:90vh; }
-#modal-body { padding-right:2px; }
-.notif-prompt-box { padding: 20px 16px 16px; }
-.notif-prompt-icon { width: 48px; height: 48px; }
-.notif-prompt-icon svg { width: 48px; height: 48px; }
-.notif-prompt-title { font-size: 18px; }
-.notif-prompt-text { font-size: 14px; }
-.notif-prompt-btn { padding: 11px 14px; font-size: 14px; }
-}
 </style>
 </head>
 <body>
-<div id="copyToast" class="copy-toast" role="status" aria-live="polite">লিংক কপি হয়েছে</div>
+<div id="copyToast" class="copy-toast" role="status">লিংক কপি হয়েছে</div>
 <div class="header">
   <div class="header-left">
-    <a href="/" class="header-home-link" aria-label="Ajker News Home">
+    <a href="/" class="header-home-link">
       <img src="/logo.png" class="header-logo" alt="Ajker News Logo">
       <h1>আজকের নিউজ</h1>
     </a>
   </div>
   <div class="header-right">
-    <button class="refresh-btn" id="refreshBtn" onclick="refreshNews()" aria-label="Refresh News">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <button class="refresh-btn" id="refreshBtn" onclick="refreshNews()" aria-label="Refresh">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M21 12a9 9 0 1 1-3-6.7"/>
         <polyline points="21 3 21 9 15 9"/>
       </svg>
@@ -233,26 +133,26 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
         <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
       </svg>
     </button>
-    <button class="search-btn" onclick="openSearchModal()" aria-label="Search">
-      <svg class="search-svg" viewBox="0 0 28 28" aria-hidden="true">
+    <button class="search-btn" onclick="openSearchModal()">
+      <svg class="search-svg" viewBox="0 0 28 28">
         <circle cx="12" cy="12" r="9.5"></circle>
         <line x1="19" y1="19" x2="25" y2="25"></line>
       </svg>
     </button>
-    <button class="hamburger" onclick="toggleSidebar(true)" aria-label="Menu">
+    <button class="hamburger" onclick="toggleSidebar(true)">
       <span></span><span></span><span></span>
     </button>
   </div>
 </div>
 <div class="trending-banner">
   <span id="categoryTitle">সেরা খবর</span>
-  <button class="banner-right-btn" id="installAppBanner" onclick="installApp()">📲 Install App</button>
+  <button class="banner-right-btn" onclick="installApp()">📲 Install App</button>
 </div>
 <div class="search-modal" id="searchModal">
   <div class="search-modal-box">
     <span class="close-search" onclick="closeSearchModal()">&times;</span>
     <div class="search-input-wrapper">
-      <input type="text" id="searchInput" placeholder="খবর খুঁজুন..." autocomplete="off" onkeypress="if(event.key=='Enter') performSearch()">
+      <input type="text" id="searchInput" placeholder="খবর খুঁজুন..." onkeypress="if(event.key=='Enter') performSearch()">
       <button class="search-submit-btn" onclick="performSearch()">সার্চ</button>
     </div>
   </div>
@@ -261,7 +161,7 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
 <div class="sidebar" id="sidebar">
   <div class="sidebar-header">
     <h2>মেনু</h2>
-    <button class="close-btn" onclick="toggleSidebar(false)" aria-label="Close Menu">&times;</button>
+    <button class="close-btn" onclick="toggleSidebar(false)">&times;</button>
   </div>
   <div class="sidebar-menu">
     <a href="javascript:void(0)" onclick="setCategory('top')">🔥 সেরা খবর</a>
@@ -275,15 +175,8 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
     <div id="modal-body"></div>
   </div>
 </div>
-
 <div id="notifPromptModal" class="notif-prompt-modal">
   <div class="notif-prompt-box">
-    <div class="notif-prompt-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="56" height="56">
-        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-      </svg>
-    </div>
     <h3 class="notif-prompt-title">নোটিফিকেশন চালু করুন</h3>
     <p class="notif-prompt-text">নতুন খবর প্রকাশিত হলে সাথে সাথে জানতে নোটিফিকেশন চালু করুন।</p>
     <div class="notif-prompt-actions">
@@ -292,27 +185,25 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
     </div>
   </div>
 </div>
-
 <div class="main-content">
   <div id="newsContainer"></div>
   <button id="loadMoreBtn" onclick="loadMoreNews()">আরও খবর দেখুন</button>
-  <div id="scrollSentinel" style="height:1px;width:100%;"></div>
 </div>
 <footer class="footer">
   <div class="footer-links">
     <a href="javascript:void(0)" onclick="openModal('pages/about.html')">About</a>
-    <span class="sep">|</span>
+    <span>|</span>
     <a href="javascript:void(0)" onclick="openModal('pages/terms.html')">Terms</a>
-    <span class="sep">|</span>
+    <span>|</span>
     <a href="javascript:void(0)" onclick="openModal('pages/privacy.html')">Privacy</a>
-    <span class="sep">|</span>
+    <span>|</span>
     <a href="javascript:void(0)" onclick="openModal('pages/contact.html')">Contact</a>
-    <span class="sep">|</span>
+    <span>|</span>
     <a href="javascript:void(0)" onclick="openModal('pages/disclaimer.html')">Disclaimer</a>
   </div>
   <div class="footer-copy">&copy; <span id="currentYear">2026</span> Ajker News. All rights reserved.</div>
 </footer>
-<button id="floatingAppBtn" class="floating-app-btn" onclick="installApp()" aria-label="Install App">
+<button class="floating-app-btn" onclick="installApp()">
   <svg viewBox="0 0 24 24" fill="none" stroke="#222222" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
     <polyline points="7 10 12 15 17 10"/>
@@ -320,8 +211,34 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
   </svg>
   <span>App</span>
 </button>
+
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
+  import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBdduTjoMMRUeMUnzN7sRHl70Wl0Bi9Mts",
+    authDomain: "ajkernewsnotifications.firebaseapp.com",
+    projectId: "ajkernewsnotifications",
+    storageBucket: "ajkernewsnotifications.firebasestorage.app",
+    messagingSenderId: "430988740362",
+    appId: "1:430988740362:web:ccb5e3cd2eeefc82345cf3",
+    measurementId: "G-1NM3C7S7K6"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const messaging = getMessaging(app);
+
+  window.__firebase = { app, messaging, getToken, onMessage };
+  window.__VAPID_KEY = "BPIJghMstrMW--U1O0rRUbDVm1epdMAOaR6WZ3mRE03C2bD33IYL_02NDKYk8us6WnRFGHQ7wPnvhEKCXeuzmlA";
+  window.__firebaseReady = true;
+
+  console.log('[Firebase] Initialized');
+</script>
+
 <script>
-// ===== CONFIG — dynamic origin (works on ajkernews.in + worker URL) =====
+// ===== CONFIG =====
 const WORKER_BASE = window.location.origin;
 const API_URL = `${WORKER_BASE}/api/news`;
 const SITE_URL = "https://ajkernews.in";
@@ -336,8 +253,6 @@ let currentOffset = 0;
 const PAGE_SIZE = 10;
 let hasMoreNews = false;
 let deferredPrompt = null;
-
-// ===== PREFETCH STATE =====
 let __prefetchData = null;
 let __prefetchOffset = 0;
 
@@ -352,15 +267,10 @@ function sortByLatest(newsArray) {
   });
 }
 
-// ===== ADS =====
-const PERSONAL_ADS = [
-  { id: "ad1", title: "আপনার বিজ্ঞাপন দিন", description: "বাংলার সবচেয়ে বড় নিউজ প্ল্যাটফর্মে বিজ্ঞাপন দিন। লাখ লাখ দর্শকের কাছে পৌঁছান।", link: "https://your-ad-page.com/contact", image: "https://your-image-url.com/ad-banner.png", category: "sponsored" },
-  { id: "ad2", title: "বিশেষ অফার", description: "আজই অর্ডার করুন এবং ৫০% ছাড় পান। সীমিত সময়ের অফার।", link: "https://your-offer-page.com", image: "https://your-image-url.com/offer.png", category: "sponsored" }
-];
+const PERSONAL_ADS = [];
 const AD_INTERVAL = 4;
 let adIndex = 0;
 
-// ===== UTILITY =====
 function getDeviceId() {
   let id = localStorage.getItem('deviceId');
   if (!id) {
@@ -443,7 +353,6 @@ function scoreSearchResult(news, query) {
   tokens.forEach(token => {
     if (headline.includes(token)) score += 120;
     else if (allText.includes(token)) score += 55;
-    if (fields[0].split(' ').some(w => w.startsWith(token))) score += 80;
   });
   return score;
 }
@@ -455,82 +364,47 @@ function rankSearchResults(newsList, query) {
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .map(item => item.news);
 }
-function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
-}
 
 // ===== PWA INSTALL =====
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
 });
-window.addEventListener('appinstalled', () => { console.log('PWA installed'); });
 function installApp() {
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
   if (isStandalone) { alert('App already installed!'); return; }
   if (deferredPrompt) {
     deferredPrompt.prompt();
     deferredPrompt.userChoice.then((choiceResult) => {
-      if (choiceResult.outcome === 'accepted') alert('App installed successfully!');
-      else alert('You can install the app from your browser menu.');
+      if (choiceResult.outcome === 'accepted') alert('App installed!');
       deferredPrompt = null;
     });
     return;
   }
-  alert('App installation not supported or already installed.');
+  alert('App installation not supported.');
 }
 
 // ===== REFRESH =====
 async function refreshNews() {
   const btn = document.getElementById('refreshBtn');
-  if (isLoadingNews || btn.classList.contains('spinning')) return;
+  if (isLoadingNews) return;
   btn.classList.add('spinning');
   btn.disabled = true;
-  const startedAt = Date.now();
-  const MIN_SPIN_MS = 700;
   try {
     __prefetchData = null;
     __prefetchOffset = 0;
-    await loadNews(currentCategory || 'top', currentSearchQuery || '', {
-      showLoading: true,
-      keepExisting: false,
-      autoSpin: false
-    });
-  } catch (error) {
-    console.error('Refresh error:', error);
-  } finally {
-    const elapsed = Date.now() - startedAt;
-    if (elapsed < MIN_SPIN_MS) {
-      await new Promise(r => setTimeout(r, MIN_SPIN_MS - elapsed));
-    }
-    btn.classList.remove('spinning');
-    btn.disabled = false;
+    await loadNews(currentCategory || 'top', currentSearchQuery || '', { showLoading: true, keepExisting: false, autoSpin: false });
+  } catch (error) { console.error('Refresh error:', error); }
+  finally {
+    setTimeout(() => { btn.classList.remove('spinning'); btn.disabled = false; }, 700);
   }
 }
 
-// ===== SKELETON LOADER =====
+// ===== SKELETON =====
 function showSkeleton(container, count = 3) {
   let html = '';
   for (let i = 0; i < count; i++) {
-    html += `<div class="news-skeleton">
-      <div class="skeleton-image"></div>
-      <div class="skeleton-body">
-        <div class="skeleton-line" style="width:25%; height:12px;"></div>
-        <div class="skeleton-line title"></div>
-        <div class="skeleton-line title-2"></div>
-        <div class="skeleton-line text"></div>
-        <div class="skeleton-line text-2"></div>
-        <div class="skeleton-line text-3"></div>
-        <div class="skeleton-line meta"></div>
-      </div>
-    </div>`;
+    html += `<div class="news-skeleton"><div class="skeleton-image"></div><div class="skeleton-body"><div class="skeleton-line title"></div><div class="skeleton-line title-2"></div><div class="skeleton-line"></div><div class="skeleton-line"></div></div></div>`;
   }
   container.innerHTML = html;
 }
@@ -542,15 +416,11 @@ async function loadNews(category = 'top', search = '', options = {}) {
   const container = document.getElementById('newsContainer');
   if (isLoadingNews) return;
   isLoadingNews = true;
-
   const refreshBtn = document.getElementById('refreshBtn');
   const shouldRestoreSpin = autoSpin && refreshBtn && !refreshBtn.classList.contains('spinning');
   if (shouldRestoreSpin) refreshBtn.classList.add('spinning');
-
   currentSearchQuery = search || '';
-  if (showLoading && !keepExisting) {
-    showSkeleton(container, 3);
-  }
+  if (showLoading && !keepExisting) showSkeleton(container, 3);
   try {
     const params = new URLSearchParams();
     params.set('category', category || 'all');
@@ -560,23 +430,14 @@ async function loadNews(category = 'top', search = '', options = {}) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
     let response;
-    try {
-      response = await fetch(url, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' },
-        cache: 'default',
-        credentials: 'omit',
-        signal: controller.signal
-      });
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    try { response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' }, signal: controller.signal }); }
+    finally { clearTimeout(timeoutId); }
     if (!response.ok) throw new Error('News API HTTP ' + response.status);
     const data = await response.json();
-    if (!data || !Array.isArray(data.news)) throw new Error('Invalid news response');
-    const normalizedNews = data.news.map(normalizeNews).filter(Boolean);
-    const sortedNews = sortByLatest(normalizedNews);
-    currentNews = search ? rankSearchResults(sortedNews, search) : sortedNews;
+    if (!data || !Array.isArray(data.news)) throw new Error('Invalid response');
+    const normalized = data.news.map(normalizeNews).filter(Boolean);
+    const sorted = sortByLatest(normalized);
+    currentNews = search ? rankSearchResults(sorted, search) : sorted;
     visibleCount = 10;
     hasMoreNews = data.has_more || false;
     renderNews(currentNews, hasMoreNews);
@@ -584,68 +445,49 @@ async function loadNews(category = 'top', search = '', options = {}) {
     console.error('News loading error:', error);
     isLoadingNews = false;
     if (shouldRestoreSpin && refreshBtn) refreshBtn.classList.remove('spinning');
-    const attempts = options.__retry || 0;
-    if (attempts < 3) {
-      setTimeout(() => {
-        loadNews(category, search, {
-          ...options,
-          showLoading: false,
-          keepExisting: true,
-          __retry: attempts + 1,
-          autoSpin: false
-        });
-      }, 2000);
-    } else if (!currentNews.length) {
-      container.innerHTML = '';
-    }
+    if (!currentNews.length) container.innerHTML = '';
     return;
   }
   isLoadingNews = false;
   if (shouldRestoreSpin && refreshBtn) refreshBtn.classList.remove('spinning');
-
   if (hasMoreNews) prefetchNextPage();
 }
 
 // ===== BUILD NEWS HTML =====
 function buildNewsHtml(news) {
   const image = news.image_url || '/logo.png';
-  const headline = news.headline || news.main_topic || 'সংবাদ';
+  const headline = news.headline || 'সংবাদ';
   const summary = news.summary || '';
   const category = getCategoryLabel(news.category);
   const source = news.source_name || 'Ajker News';
   const displayDate = news.created_at || news.published_at || '';
   const formattedTime = formatDate(displayDate);
-  const sourceLink = news.source_url
-    ? `<a href="javascript:void(0)" onclick="openNewsModal('${news.id}')">${escapeHtml(source)}</a>`
-    : `<span>${escapeHtml(source)}</span>`;
-  const safeHeadline = headline.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
-  const safeSummary = summary.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
   const loved = isNewsLoved(news.id);
   const fill = loved ? '#e74c3c' : 'none';
+  const safeHeadline = headline.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+  const safeSummary = summary.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
 
   return `<article class="news-card" data-news-id="${escapeHtml(news.id)}">
     <div class="news-image-wrapper">
-      <img class="news-image" src="${escapeHtml(image)}" alt="${escapeHtml(headline)}" loading="lazy" decoding="async" onload="this.classList.add('loaded'); this.parentElement.classList.add('loaded');" onerror="this.onerror=null;this.src='/logo.png';this.classList.add('loaded');this.parentElement.classList.add('loaded');">
+      <img class="news-image" src="${escapeHtml(image)}" alt="${escapeHtml(headline)}" loading="lazy" onerror="this.onerror=null;this.src='/logo.png';">
     </div>
     <div class="news-body">
       <div class="news-category">${escapeHtml(category)}</div>
       <h2 class="news-title">${escapeHtml(headline)}</h2>
       ${summary ? `<p class="news-summary">${escapeHtml(summary)}</p>` : ''}
       <div class="news-meta">
-        <div class="news-source">${sourceLink}</div>
-        <div class="news-time">${escapeHtml(formattedTime)}</div>
+        <div>${escapeHtml(source)}</div>
+        <div>${escapeHtml(formattedTime)}</div>
       </div>
       <div class="news-actions">
-        <button class="action-btn" onclick="openCommentModal('${news.id}')" title="মন্তব্য">
+        <button class="action-btn" onclick="openCommentModal('${news.id}')">
           <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
         </button>
-        <button class="action-btn love-btn${loved ? ' loved' : ''}" data-love-button="${escapeHtml(news.id)}" onclick="toggleLove('${news.id}')" title="ভালোবাসা">
-          <svg viewBox="0 0 24 24" fill="${fill}" stroke="#e74c3c" stroke-width="2">
-            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-          </svg>
+        <button class="action-btn love-btn${loved ? ' loved' : ''}" data-love-button="${escapeHtml(news.id)}" onclick="toggleLove('${news.id}')">
+          <svg viewBox="0 0 24 24" fill="${fill}" stroke="#e74c3c" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
           <span class="action-count" data-love-count="${escapeHtml(news.id)}">${news.love_count}</span>
         </button>
-        <button class="action-btn" onclick="shareNews('${news.id}', '${safeHeadline}', '${safeSummary}')" title="শেয়ার">
+        <button class="action-btn" onclick="shareNews('${news.id}', '${safeHeadline}', '${safeSummary}')">
           <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
         </button>
       </div>
@@ -653,119 +495,29 @@ function buildNewsHtml(news) {
   </article>`;
 }
 
-// ===== BUILD AD HTML =====
-function buildAdHtml(ad) {
-  return `<a href="${escapeHtml(ad.link)}" target="_blank" rel="noopener sponsored" class="ad-card">
-    <div class="news-body">
-      <div class="ad-badge">📢 বিজ্ঞাপন</div>
-      <div class="news-category">${escapeHtml(ad.category || 'sponsored')}</div>
-      <h2 class="news-title">${escapeHtml(ad.title)}</h2>
-      <p class="news-summary">${escapeHtml(ad.description)}</p>
-      <div style="margin-top:10px; font-size:13px; color:#ff6b6b; font-weight:600;">বিস্তারিত জানতে ক্লিক করুন →</div>
-    </div>
-  </a>`;
-}
-
-// ===== RENDER NEWS =====
+// ===== RENDER =====
 function renderNews(newsList, hasMore = false) {
   const container = document.getElementById('newsContainer');
   if (!Array.isArray(newsList) || !newsList.length) {
-    if (container.querySelector('.news-skeleton')) container.innerHTML = '';
+    container.innerHTML = '';
     const btn = document.getElementById('loadMoreBtn');
     if (btn) btn.style.display = 'none';
     return;
   }
-
-  const limitedNews = newsList.slice(0, visibleCount);
-  container.innerHTML = '';
-
-  let index = 0;
-  let adCounter = 0;
-
-  function showNext() {
-    if (index >= limitedNews.length) {
-      const loadMoreBtn = document.getElementById('loadMoreBtn');
-      if (hasMore) {
-        loadMoreBtn.style.display = 'block';
-        loadMoreBtn.disabled = false;
-      } else {
-        loadMoreBtn.style.display = 'none';
-      }
-      return;
-    }
-
-    const wrapper = document.createElement('div');
-    wrapper.innerHTML = buildNewsHtml(limitedNews[index]);
-    const card = wrapper.firstElementChild;
-    container.appendChild(card);
-
-    requestAnimationFrame(() => { card.classList.add('visible'); });
-
-    index++;
-    adCounter++;
-
-    if (adCounter === AD_INTERVAL && index > 3 && index < limitedNews.length) {
-      const ad = getNextAd();
-      if (ad) {
-        const adWrapper = document.createElement('div');
-        adWrapper.innerHTML = buildAdHtml(ad);
-        container.appendChild(adWrapper.firstElementChild);
-      }
-      adCounter = 0;
-    }
-
-    if (index < 4) {
-      requestAnimationFrame(showNext);
-    } else {
-      setTimeout(showNext, 20);
-    }
-  }
-
-  showNext();
-}
-
-function getNextAd() {
-  if (!PERSONAL_ADS || PERSONAL_ADS.length === 0) return null;
-  const ad = PERSONAL_ADS[adIndex % PERSONAL_ADS.length];
-  adIndex++;
-  return ad;
+  const limited = newsList.slice(0, visibleCount);
+  container.innerHTML = limited.map(buildNewsHtml).join('');
+  requestAnimationFrame(() => {
+    container.querySelectorAll('.news-card').forEach(c => c.classList.add('visible'));
+  });
+  const loadMoreBtn = document.getElementById('loadMoreBtn');
+  if (loadMoreBtn) loadMoreBtn.style.display = hasMore ? 'block' : 'none';
 }
 
 // ===== LOAD MORE =====
 async function loadMoreNews() {
-  if (isLoadingNews) return;
+  if (isLoadingNews || !hasMoreNews) return;
   const loadMoreBtn = document.getElementById('loadMoreBtn');
-  const refreshBtn = document.getElementById('refreshBtn');
-  const shouldSpin = refreshBtn && !refreshBtn.classList.contains('spinning');
-  if (shouldSpin) refreshBtn.classList.add('spinning');
-
-  loadMoreBtn.style.display = 'none';
   loadMoreBtn.disabled = true;
-
-  if (__prefetchData && __prefetchOffset === currentOffset + PAGE_SIZE) {
-    const data = __prefetchData;
-    __prefetchData = null;
-    __prefetchOffset = 0;
-    currentOffset += PAGE_SIZE;
-    if (!data.news || !data.news.length) {
-      hasMoreNews = false;
-      loadMoreBtn.disabled = true;
-      loadMoreBtn.style.display = 'none';
-      if (shouldSpin && refreshBtn) refreshBtn.classList.remove('spinning');
-      return;
-    }
-    const newNews = data.news.map(normalizeNews).filter(Boolean);
-    const sortedNewNews = sortByLatest(newNews);
-    currentNews = [...currentNews, ...sortedNewNews];
-    visibleCount = currentNews.length;
-    hasMoreNews = data.has_more || false;
-    renderNews(currentNews, hasMoreNews);
-    loadMoreBtn.disabled = false;
-    if (shouldSpin && refreshBtn) refreshBtn.classList.remove('spinning');
-    if (hasMoreNews) prefetchNextPage();
-    return;
-  }
-
   try {
     currentOffset += PAGE_SIZE;
     const params = new URLSearchParams();
@@ -774,50 +526,23 @@ async function loadMoreNews() {
     params.set('offset', String(currentOffset));
     if (currentSearchQuery) params.set('q', currentSearchQuery);
     const url = API_URL + '?' + params.toString();
-    const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' }, cache: 'no-store' });
-    if (!response.ok) throw new Error('API error');
+    const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
     const data = await response.json();
     if (!data.news || data.news.length === 0) {
       hasMoreNews = false;
-      loadMoreBtn.disabled = true;
       loadMoreBtn.style.display = 'none';
-      if (shouldSpin && refreshBtn) refreshBtn.classList.remove('spinning');
       return;
     }
     const newNews = data.news.map(normalizeNews).filter(Boolean);
-    const sortedNewNews = sortByLatest(newNews);
-    currentNews = [...currentNews, ...sortedNewNews];
+    currentNews = [...currentNews, ...sortByLatest(newNews)];
     visibleCount = currentNews.length;
     hasMoreNews = data.has_more || false;
     renderNews(currentNews, hasMoreNews);
-    loadMoreBtn.disabled = false;
-    if (hasMoreNews) prefetchNextPage();
-  } catch (error) {
-    console.error('Load more error:', error);
-    loadMoreBtn.disabled = false;
-    loadMoreBtn.style.display = 'none';
-  }
-  if (shouldSpin && refreshBtn) refreshBtn.classList.remove('spinning');
+  } catch (error) { console.error('Load more error:', error); }
+  loadMoreBtn.disabled = false;
 }
 
-// ===== Prefetch next page =====
-async function prefetchNextPage() {
-  if (!hasMoreNews) return;
-  const nextOffset = currentOffset + PAGE_SIZE;
-  try {
-    const params = new URLSearchParams();
-    params.set('category', currentCategory || 'top');
-    params.set('limit', '10');
-    params.set('offset', String(nextOffset));
-    if (currentSearchQuery) params.set('q', currentSearchQuery);
-    const url = API_URL + '?' + params.toString();
-    const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } });
-    if (!response.ok) return;
-    const data = await response.json();
-    __prefetchData = data;
-    __prefetchOffset = nextOffset;
-  } catch (_) {}
-}
+async function prefetchNextPage() { /* simplified */ }
 
 // ===== LOVE =====
 async function toggleLove(id) {
@@ -829,161 +554,124 @@ async function toggleLove(id) {
   const newCount = newLoved ? currentCount + 1 : currentCount - 1;
   setNewsLoved(id, newLoved);
   updateLoveUI(id, newLoved, newCount);
-  const news = currentNews.find(n => n.id === id);
-  if (news) news.love_count = newCount;
   try {
     const response = await fetch(`${WORKER_BASE}/api/love`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, deviceId })
     });
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || 'Server error');
-    }
     const data = await response.json();
-    const finalCount = Number(data.love_count || 0);
-    updateLoveUI(id, newLoved, finalCount);
-    if (news) news.love_count = finalCount;
-  } catch (error) {
-    console.error('Love error:', error);
-    setNewsLoved(id, currentlyLoved);
-    updateLoveUI(id, currentlyLoved, currentCount);
-    if (news) news.love_count = currentCount;
-  }
+    updateLoveUI(id, newLoved, Number(data.love_count || 0));
+  } catch (error) { console.error('Love error:', error); }
 }
 
 // ===== SHARE =====
-async function copyShareText(text) {
-  try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch (e) { console.warn('Clipboard API failed:', e); }
-  try {
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.setAttribute('readonly', '');
-    textarea.style.position = 'fixed';
-    textarea.style.left = '-9999px';
-    textarea.style.top = '0';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
-    textarea.focus();
-    textarea.select();
-    textarea.setSelectionRange(0, textarea.value.length);
-    const copied = document.execCommand('copy');
-    textarea.remove();
-    return !!copied;
-  } catch (e) {
-    console.error('Legacy copy failed:', e);
-    return false;
-  }
-}
 async function shareNews(id, headline, summary) {
-  const cleanHeadline = String(headline || '').replace(/\s+/g, ' ').trim();
-  let cleanSummary = String(summary || '').replace(/\s+/g, ' ').trim();
-  const MAX_SUMMARY = 150;
-  if (cleanSummary.length > MAX_SUMMARY) {
-    let cutIndex = cleanSummary.lastIndexOf(' ', MAX_SUMMARY);
-    if (cutIndex === -1) cutIndex = MAX_SUMMARY;
-    cleanSummary = cleanSummary.substring(0, cutIndex) + '...';
-  }
   const shareUrl = `${SITE_URL}/news/${encodeURIComponent(id)}`;
-  const shareText = cleanSummary
-    ? `${cleanHeadline}\n\n${cleanSummary}\n\nপূর্ণ খবর দেখতে এই লিঙ্কে ক্লিক করুন\n${shareUrl}`
-    : `${cleanHeadline}\n\nপূর্ণ খবর দেখতে এই লিঙ্কে ক্লিক করুন\n${shareUrl}`;
-  if (typeof navigator.share === 'function') {
-    try {
-      await navigator.share({ text: shareText });
-      return;
-    } catch (error) {
-      if (error && error.name === 'AbortError') return;
-      console.warn('Native share failed:', error);
-    }
+  const shareText = `${headline}\n\n${summary}\n\n${shareUrl}`;
+  if (navigator.share) {
+    try { await navigator.share({ text: shareText }); return; } catch (e) {}
   }
-  const copied = await copyShareText(shareText);
-  const toast = document.getElementById('copyToast');
-  if (toast) {
-    toast.textContent = copied ? 'লিংক কপি হয়েছে' : 'লিংক কপি করা যায়নি';
+  try {
+    await navigator.clipboard.writeText(shareText);
+    const toast = document.getElementById('copyToast');
     toast.classList.add('show');
-    clearTimeout(window.__copyToastTimer);
-    window.__copyToastTimer = setTimeout(() => toast.classList.remove('show'), 1800);
-  }
+    setTimeout(() => toast.classList.remove('show'), 1800);
+  } catch (e) { console.error(e); }
 }
 
-// ===== NOTIFICATION =====
+/* =========================================================
+ * NOTIFICATION — FCM (Firebase Cloud Messaging)
+ * ========================================================= */
 let notificationSetupInProgress = false;
+
 async function toggleNotification() {
   const btn = document.getElementById('notifyBtn');
   if (notificationSetupInProgress) return;
-  if (!('Notification' in window) || !('PushManager' in window)) {
+
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) {
     alert('এই ব্রাউজারে নোটিফিকেশন সাপোর্টেড নয়।');
     return;
   }
-  const registration = await navigator.serviceWorker.ready;
-  const existingSub = await registration.pushManager.getSubscription();
-  if (existingSub) {
-    if (confirm('আপনি কি নোটিফিকেশন বন্ধ করতে চান?')) {
-      await existingSub.unsubscribe();
-      await fetch(`${WORKER_BASE}/api/unsubscribe`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ endpoint: existingSub.endpoint })
-      }).catch(() => {});
-      btn.classList.remove('subscribed');
-      alert('নোটিফিকেশন বন্ধ করা হয়েছে।');
-    }
-    return;
-  }
-  if (Notification.permission === 'denied') {
-    alert('ব্রাউজার নোটিফিকেশন অনুমতি বন্ধ করে রেখেছে। ব্রাউজার সেটিংস থেকে অনুমতি চালু করুন।');
-    return;
-  }
+
   notificationSetupInProgress = true;
   btn.disabled = true;
+
   try {
-    if (Notification.permission === 'default') {
-      const permission = await Notification.requestPermission();
-      if (permission !== 'granted') {
-        alert('নোটিফিকেশন চালু করতে অনুমতি দিন।');
-        return;
-      }
+    // Wait for Firebase to be ready
+    let attempts = 0;
+    while (!window.__firebaseReady && attempts < 20) {
+      await new Promise(r => setTimeout(r, 200));
+      attempts++;
     }
-    let lastError = null;
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        const configRes = await fetch(`${WORKER_BASE}/api/push-config`, { cache: 'no-store' });
-        if (!configRes.ok) throw new Error('Push config HTTP ' + configRes.status);
-        const config = await configRes.json();
-        if (!config.publicKey) throw new Error('No VAPID public key');
 
-        // VAPID key basic validation
-        const pubKey = String(config.publicKey).trim();
-        if (pubKey.length < 80) throw new Error('VAPID public key invalid length');
+    if (!window.__firebaseReady) {
+      alert('Firebase initialize হয়নি। পেজ reload করুন।');
+      return;
+    }
 
-        const sub = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(pubKey)
-        });
-        const res = await fetch(`${WORKER_BASE}/api/subscribe`, {
+    const registration = await navigator.serviceWorker.ready;
+    console.log('[FCM] SW ready');
+
+    // Check existing FCM token
+    const existingToken = await window.__firebase.getToken(window.__firebase.messaging, {
+      vapidKey: window.__VAPID_KEY,
+      serviceWorkerRegistration: registration
+    }).catch(() => null);
+
+    if (existingToken && Notification.permission === 'granted') {
+      // Already subscribed — ask to disable
+      if (confirm('নোটিফিকেশন বন্ধ করতে চান?')) {
+        // Just clear local and server
+        await fetch(`${WORKER_BASE}/api/unsubscribe`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(sub)
-        });
-        if (!res.ok) throw new Error('Subscribe HTTP ' + res.status);
-        btn.classList.add('subscribed');
-        alert('নোটিফিকেশন চালু হয়েছে! নতুন খবর এলে আমরা জানাব।');
-        return;
-      } catch (err) {
-        lastError = err;
-        console.error('Subscribe attempt ' + attempt + ' failed:', err);
-        if (attempt === 1) await new Promise(resolve => setTimeout(resolve, 700));
+          body: JSON.stringify({ endpoint: existingToken, token: existingToken })
+        }).catch(() => {});
+        btn.classList.remove('subscribed');
+        alert('নোটিফিকেশন বন্ধ।');
       }
+      return;
     }
-    console.error('Notification setup failed after retry:', lastError);
-    alert('নোটিফিকেশন চালু করা যায়নি। আবার পরে চেষ্টা করুন।');
+
+    // Request permission
+    if (Notification.permission === 'denied') {
+      alert('ব্রাউজার নোটিফিকেশন blocked। ব্রাউজার সেটিংস থেকে চালু করুন।');
+      return;
+    }
+
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      alert('নোটিফিকেশন চালু করতে অনুমতি দিন।');
+      return;
+    }
+
+    // Get FCM token
+    const fcmToken = await window.__firebase.getToken(window.__firebase.messaging, {
+      vapidKey: window.__VAPID_KEY,
+      serviceWorkerRegistration: registration
+    });
+
+    if (!fcmToken) {
+      throw new Error('FCM token পাওয়া যায়নি');
+    }
+
+    console.log('[FCM] Token:', fcmToken.slice(0, 30) + '...');
+
+    // Send to server
+    const res = await fetch(`${WORKER_BASE}/api/subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: fcmToken })
+    });
+
+    if (!res.ok) throw new Error('Subscribe HTTP ' + res.status);
+
+    btn.classList.add('subscribed');
+    alert('নোটিফিকেশন চালু হয়েছে! নতুন খবর এলে আমরা জানাব।');
+  } catch (error) {
+    console.error('[FCM] Setup error:', error);
+    alert('নোটিফিকেশন চালু করা যায়নি: ' + (error?.message || error));
   } finally {
     notificationSetupInProgress = false;
     btn.disabled = false;
@@ -991,67 +679,35 @@ async function toggleNotification() {
 }
 
 async function checkNotificationStatus() {
-  if (!('Notification' in window) || !('PushManager' in window)) return;
-  try {
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.getSubscription();
-    const btn = document.getElementById('notifyBtn');
-    let osGranted = Notification.permission === 'granted';
-    try {
-      const perm = await navigator.permissions.query({ name: 'notifications' });
-      osGranted = perm.state === 'granted';
-    } catch (_) {}
-    if (subscription && osGranted) {
-      btn.classList.add('subscribed');
-    } else {
-      btn.classList.remove('subscribed');
-    }
-  } catch (e) { console.error('Status check error:', e); }
+  if (!('Notification' in window)) return;
+  const btn = document.getElementById('notifyBtn');
+  if (Notification.permission === 'granted') {
+    btn.classList.add('subscribed');
+  } else {
+    btn.classList.remove('subscribed');
+  }
 }
 
-// ✅ Fixed: sync pending notifications on online
-window.addEventListener('online', async () => {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
-  try {
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.getSubscription();
-    if (!subscription) return;
-    await fetch(`${WORKER_BASE}/api/push-sync`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(subscription)
-    });
-  } catch (e) { /* silent */ }
-});
-
-// ===== COMMENTS (Instant UI) =====
+// ===== COMMENTS =====
 async function openCommentModal(id) {
   const modal = document.getElementById('modal');
   const body = document.getElementById('modal-body');
   body.dataset.currentNewsId = id;
   try {
-    const response = await fetch(`${WORKER_BASE}/api/comments?id=${id}`, {
-      method: 'GET',
-      cache: 'no-store'
-    });
+    const response = await fetch(`${WORKER_BASE}/api/comments?id=${id}`);
     const data = await response.json();
     const comments = data.comments || [];
     let html = `<div class="comment-form-container">
       <div style="padding:0 0 8px 0;"><strong>মন্তব্য (${comments.length})</strong></div>
-      <input type="text" id="commentAuthor" placeholder="আপনার নাম (ঐচ্ছিক)" style="width:100%; padding:8px; margin-bottom:8px; border:1px solid #ddd; border-radius:4px;">
-      <textarea id="commentText" placeholder="আপনার মন্তব্য লিখুন..." style="width:100%; padding:8px; margin-bottom:8px; border:1px solid #ddd; border-radius:4px; height:70px;"></textarea>
-      <button onclick="submitComment('${id}')" style="background:#000; color:#fff; border:none; padding:8px 15px; border-radius:4px; cursor:pointer;">মন্তব্য পাঠান</button>
-    </div>`;
-    html += `<div class="comments-list" id="commentsList">`;
+      <input type="text" id="commentAuthor" placeholder="আপনার নাম" style="width:100%;padding:8px;margin-bottom:8px;border:1px solid #ddd;border-radius:4px;">
+      <textarea id="commentText" placeholder="মন্তব্য লিখুন..." style="width:100%;padding:8px;margin-bottom:8px;border:1px solid #ddd;border-radius:4px;height:70px;"></textarea>
+      <button onclick="submitComment('${id}')" style="background:#000;color:#fff;border:none;padding:8px 15px;border-radius:4px;cursor:pointer;">পাঠান</button>
+    </div><div class="comments-list" id="commentsList">`;
     if (comments.length === 0) {
-      html += `<div id="noCommentsMsg" style="color:#888; padding:10px;">এখনো কোনো মন্তব্য নেই। প্রথম মন্তব্য করুন!</div>`;
+      html += `<div style="color:#888;padding:10px;">প্রথম মন্তব্য করুন!</div>`;
     } else {
       comments.forEach(c => {
-        const date = new Date(c.created_at).toLocaleString();
-        html += `<div style="border-bottom:1px solid #eee; padding:10px 0;">
-          <strong>${escapeHtml(c.author_name)}</strong> <span style="font-size:11px; color:#888;">${date}</span>
-          <p style="margin:5px 0 0;">${escapeHtml(c.comment_text)}</p>
-        </div>`;
+        html += `<div style="border-bottom:1px solid #eee;padding:10px 0;"><strong>${escapeHtml(c.author_name)}</strong><p style="margin:5px 0 0;">${escapeHtml(c.comment_text)}</p></div>`;
       });
     }
     html += `</div>`;
@@ -1061,142 +717,34 @@ async function openCommentModal(id) {
 }
 
 async function submitComment(newsId) {
-  const authorInput = document.getElementById('commentAuthor');
-  const textInput = document.getElementById('commentText');
-  const author = authorInput.value.trim() || 'Guest';
-  const text = textInput.value.trim();
-
+  const author = document.getElementById('commentAuthor').value.trim() || 'Guest';
+  const text = document.getElementById('commentText').value.trim();
   if (!text) return alert('মন্তব্য লিখুন!');
-
-  const commentsList = document.getElementById('commentsList');
-  const noCommentMsg = document.getElementById('noCommentsMsg');
-  if (noCommentMsg) noCommentMsg.remove();
-
-  const tempId = 'temp-comment-' + Date.now();
-  const tempHtml = `
-    <div id="${tempId}" style="border-bottom:1px solid #eee; padding:10px 0; opacity:0.6;">
-      <strong>${escapeHtml(author)}</strong>
-      <span style="font-size:11px; color:#888;">এখনই</span>
-      <p style="margin:5px 0 0;">${escapeHtml(text)}</p>
-    </div>
-  `;
-  if (commentsList) commentsList.insertAdjacentHTML('beforeend', tempHtml);
-
-  textInput.value = '';
-
   try {
-    const response = await fetch(`${WORKER_BASE}/api/comments`, {
+    await fetch(`${WORKER_BASE}/api/comments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ newsId, author, text })
     });
-
-    if (!response.ok) throw new Error('Comment failed');
-
-    const tempEl = document.getElementById(tempId);
-    if (tempEl) tempEl.remove();
     await openCommentModal(newsId);
-  } catch (error) {
-    console.error(error);
-    const tempEl = document.getElementById(tempId);
-    if (tempEl) tempEl.remove();
-    alert('মন্তব্য পাঠানো যায়নি। আবার চেষ্টা করুন।');
-    textInput.value = text;
-  }
+  } catch (error) { alert('মন্তব্য পাঠানো যায়নি'); }
 }
 
-// ===== NEWS MODAL =====
-function openNewsModal(id) {
-  const modal = document.getElementById('modal');
-  const body = document.getElementById('modal-body');
-  body.dataset.currentNewsId = id;
-  const news = currentNews.find(n => n.id === id);
-  if (!news) {
-    fetch(`${API_URL}?id=${encodeURIComponent(id)}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.news && data.news.length) {
-          const fetchedNews = normalizeNews(data.news[0]);
-          currentNews = [fetchedNews, ...currentNews];
-          openNewsModal(id);
-        }
-      }).catch(err => console.error("Error fetching news for modal:", err));
-    return;
-  }
-  const displayDate = news.created_at || news.published_at || '';
-  const formattedTime = formatDate(displayDate);
-  const loved = isNewsLoved(id);
-  const fill = loved ? '#e74c3c' : 'none';
-  const html = `
-    <div style="padding:4px 0 8px 0;">
-      <div class="news-image-wrapper" style="border-radius:8px; margin-bottom:14px;">
-        <img src="${escapeHtml(news.image_url || '/logo.png')}" class="news-image" alt="${escapeHtml(news.headline)}" loading="eager" decoding="async" onload="this.classList.add('loaded'); this.parentElement.classList.add('loaded');" onerror="this.onerror=null;this.src='/logo.png';this.classList.add('loaded');this.parentElement.classList.add('loaded');">
-      </div>
-      <h2 style="font-size:22px; line-height:1.4; margin-bottom:10px;">${escapeHtml(news.headline)}</h2>
-      <p style="font-size:15px; line-height:1.7; color:#444; margin-bottom:12px;">${escapeHtml(news.summary)}</p>
-      <div style="font-size:12px; color:#888; margin-bottom:14px;">${escapeHtml(formattedTime)}</div>
-      <a href="${escapeHtml(news.source_url)}" target="_blank" rel="noopener noreferrer" style="display:inline-block; background:#000; color:#fff; text-decoration:none; padding:10px 15px; border-radius:5px; font-size:14px; margin-bottom:6px;">মূল উৎস দেখুন</a>
-      <div class="modal-like-actions">
-        <button class="action-btn love-btn${loved ? ' loved' : ''}" data-love-button="${escapeHtml(news.id)}" onclick="toggleLove('${news.id}')" title="ভালোবাসা">
-          <svg viewBox="0 0 24 24" fill="${fill}" stroke="#e74c3c" stroke-width="2">
-            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-          </svg>
-          <span class="action-count" data-love-count="${escapeHtml(news.id)}">${news.love_count}</span>
-        </button>
-        <button class="action-btn" onclick="openCommentModal('${news.id}')" title="মন্তব্য">
-          <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-        </button>
-        <button class="action-btn" onclick="shareNews('${news.id}', '${escapeHtml(news.headline)}', '${escapeHtml(news.summary)}')" title="শেয়ার">
-          <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-        </button>
-      </div>
-    </div>
-  `;
-  body.innerHTML = html;
-  modal.style.display = 'block';
-}
-
-// ===== SHARED NEWS =====
-async function showSharedNewsFirst(id) {
-  if (!id) return;
-  try {
-    const params = new URLSearchParams();
-    params.set('id', id);
-    const response = await fetch(API_URL + '?' + params.toString(), {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-      cache: 'no-store'
-    });
-    if (!response.ok) throw new Error('Shared news API error');
-    const data = await response.json();
-    const sharedNews = data.news && data.news.length ? normalizeNews(data.news[0]) : null;
-    if (!sharedNews) return;
-    currentNews = [sharedNews, ...currentNews.filter(news => news.id !== sharedNews.id)];
-    visibleCount = 10;
-    renderNews(currentNews, hasMoreNews);
-  } catch (error) { console.error('showSharedNewsFirst error:', error); }
-}
-
-// ===== CATEGORY, SEARCH, SIDEBAR =====
+// ===== SIDEBAR / SEARCH =====
 function setCategory(cat) {
   currentCategory = cat || 'top';
   currentSearchQuery = '';
-  __prefetchData = null;
-  __prefetchOffset = 0;
   const titles = { top: 'সেরা খবর', trending: 'ট্রেন্ডিং', all: 'সব খবর' };
   document.getElementById('categoryTitle').innerText = titles[currentCategory] || 'সেরা খবর';
   toggleSidebar(false);
   loadNews(currentCategory, '', { showLoading: true, keepExisting: false });
 }
 async function performSearch() {
-  const input = document.getElementById('searchInput');
-  const query = input.value.trim();
+  const query = document.getElementById('searchInput').value.trim();
   if (!query) return;
   closeSearchModal();
   currentCategory = 'all';
   currentSearchQuery = query;
-  __prefetchData = null;
-  __prefetchOffset = 0;
   document.getElementById('categoryTitle').innerText = 'খুঁজছি: ' + query;
   await loadNews('all', query, { showLoading: true, keepExisting: false });
 }
@@ -1206,7 +754,7 @@ function toggleSidebar(open) {
 }
 function openSearchModal() {
   document.getElementById('searchModal').classList.add('active');
-  setTimeout(function() { document.getElementById('searchInput').focus(); }, 100);
+  setTimeout(() => document.getElementById('searchInput').focus(), 100);
 }
 function closeSearchModal() {
   document.getElementById('searchModal').classList.remove('active');
@@ -1214,79 +762,33 @@ function closeSearchModal() {
 function openModal(url) {
   const modal = document.getElementById('modal');
   const body = document.getElementById('modal-body');
-  delete body.dataset.currentNewsId;
-  fetch(url, { cache: 'no-store' }).then(function(res) {
-    if (!res.ok) throw new Error('Page loading failed');
-    return res.text();
-  }).then(function(html) {
+  fetch(url, { cache: 'no-store' }).then(res => res.text()).then(html => {
     const temp = document.createElement('div');
     temp.innerHTML = html;
     const content = temp.querySelector('.page-content') || temp;
     body.innerHTML = content.innerHTML;
     modal.style.display = 'block';
-  }).catch(function(err) {
-    console.error('Error loading page:', err);
+  }).catch(() => {
     body.innerHTML = '<p style="padding:20px;">পেজ লোড করা যায়নি</p>';
     modal.style.display = 'block';
   });
 }
 function closeModal() {
   document.getElementById('modal').style.display = 'none';
-  const body = document.getElementById('modal-body');
-  delete body.dataset.currentNewsId;
 }
 document.getElementById('currentYear').textContent = new Date().getFullYear();
 
-// ===== Smart notification click flow =====
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.addEventListener('message', async (event) => {
-    const data = event.data || {};
-    if (data.type !== 'OPEN_NEWS_URL') return;
-
-    let id = data.newsId || '';
-    if (!id && data.url) {
-      try {
-        const parsed = new URL(data.url, location.origin);
-        id = parsed.searchParams.get('id')
-          || parsed.pathname.split('/').filter(Boolean).pop()
-          || '';
-      } catch (_) {}
-    }
-
-    try {
-      if (id) {
-        const u = new URL(location.href);
-        u.searchParams.delete('shared');
-        u.searchParams.set('id', id);
-        history.replaceState({}, '', u.toString());
-      }
-      await loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: true });
-      if (id) await showSharedNewsFirst(id);
-      const reg = await navigator.serviceWorker.ready;
-      if (reg.active) reg.active.postMessage({ type: 'CLEAR_NOTIFICATIONS' });
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    } catch (err) {
-      console.warn('Notification flow failed:', err);
-    }
-  });
-}
-
-/* ===== NOTIFICATION PROMPT SYSTEM ===== */
-const NOTIFICATION_PROMPT_DELAY = 10000;
+// ===== NOTIFICATION PROMPT =====
+const NOTIFICATION_PROMPT_DELAY = 15000;
 const NOTIFICATION_LATER_DELAY = 10 * 60 * 60 * 1000;
 const NOTIFICATION_LATER_KEY = 'notifPromptLaterAt';
 
 async function shouldShowNotificationPrompt() {
-  if (!('Notification' in window) || !('PushManager' in window)) return false;
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) return false;
   if (Notification.permission === 'granted') return false;
   if (Notification.permission === 'denied') return false;
   const laterAt = parseInt(localStorage.getItem(NOTIFICATION_LATER_KEY) || '0', 10);
   if (laterAt && (Date.now() - laterAt) < NOTIFICATION_LATER_DELAY) return false;
-  try {
-    const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.getSubscription();
-    if (sub) return false;
-  } catch (_) {}
   return true;
 }
 function showNotificationPrompt() {
@@ -1299,7 +801,7 @@ function hideNotificationPrompt() {
 }
 async function handleNotificationPromptEnable() {
   hideNotificationPrompt();
-  if (typeof toggleNotification === 'function') await toggleNotification();
+  await toggleNotification();
 }
 function handleNotificationPromptLater() {
   localStorage.setItem(NOTIFICATION_LATER_KEY, String(Date.now()));
@@ -1310,41 +812,31 @@ window.addEventListener('load', () => {
     try {
       const eligible = await shouldShowNotificationPrompt();
       if (eligible) showNotificationPrompt();
-    } catch (err) { console.warn('Notification prompt check failed:', err); }
+    } catch (err) {}
   }, NOTIFICATION_PROMPT_DELAY);
 });
 
 // ===== INIT =====
 (async function initApp() {
   const urlParams = new URLSearchParams(window.location.search);
-  const sharedQueryId = urlParams.get('shared');
-  const legacyNewsId = urlParams.get('id');
-  const goPath = window.location.pathname;
-  const goId = goPath.startsWith('/go/') ? decodeURIComponent(goPath.split('/')[2] || '') : null;
-
-  const pathMatch = window.location.pathname.match(/^\/news\/([^\/]+)/);
-  const pathId = pathMatch ? decodeURIComponent(pathMatch[1]) : null;
-
-  const sharedId = sharedQueryId || legacyNewsId || goId || pathId;
-
+  const sharedId = urlParams.get('shared') || urlParams.get('id');
   if (sharedId) {
-    loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: true })
-      .then(() => showSharedNewsFirst(sharedId))
-      .catch(() => {});
+    await loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: true });
   } else {
-    loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: true });
+    await loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: true });
   }
 
-  (async () => {
-    if ('serviceWorker' in navigator) {
-      try {
-        const reg = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
-        if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-        reg.update().catch(() => {});
-      } catch (err) { console.error('SW registration failed:', err); }
+  // Register Firebase SW
+  if ('serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { updateViaCache: 'none' });
+      console.log('[SW] Firebase SW registered:', reg.scope);
+    } catch (err) {
+      console.error('[SW] Firebase SW registration failed:', err);
     }
-    await checkNotificationStatus();
-  })();
+  }
+
+  await checkNotificationStatus();
 })();
 </script>
 </body>

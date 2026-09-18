@@ -3,16 +3,16 @@
  *
  * Free tier features:
  *   1. Per-article isolated calls (no batch failure)
- *   2. Auto model discovery (cached 1 hour, prefers newest Flash)
+ *   2. Auto model discovery (cached 1 hour, prefers stable model)
  *   3. Retry on validation fail with simplified prompt
- *   4. Timeout 25s per call (Cloudflare Worker safe)
+ *   4. Timeout 15s per call (overload-safe)
  *   5. Loose validation — soft Bangla check
- *   6. Parallel processing (max 6 articles, free tier safe)
+ *   6. Parallel processing (max 3 articles, Gemini overload safe)
  *   7. Target 150 words (rich content)
- *   8. Auto model rotation on failure
+ *   8. Auto model rotation on failure (no same-model retry)
  *
- * Free tier limits: Gemini 2.5 Flash = 15 RPM, 1500 RPD
- * Our usage: 6 requests per cron, 12 crons/day = 72 req/day (safe)
+ * Free tier limits: Gemini 2.0 Flash = 15 RPM, 1500 RPD
+ * Our usage: 3 requests per cron, 12 crons/day = 36 req/day (safe)
  */
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -22,12 +22,12 @@ const MIN_SUMMARY_WORDS = 80;        // Reject threshold
 const TARGET_SUMMARY_WORDS = 150;    // Aim
 const RETRY_MIN_WORDS = 60;          // Lower on retry
 
-// ✅ RELIABILITY SETTINGS
-const GEMINI_TIMEOUT_MS = 25000;
+// ✅ RELIABILITY SETTINGS — TUNED FOR GEMINI OVERLOAD
+const GEMINI_TIMEOUT_MS = 15000;     // was 25000 — faster timeout
 const MAX_OUTPUT_TOKENS = 8192;
-const MAX_PARALLEL = 6;
+const MAX_PARALLEL = 3;              // was 6 — reduce Gemini load
 const MAX_RETRIES_PER_ARTICLE = 2;
-const RETRY_DELAY_MS = 1200;
+const RETRY_DELAY_MS = 1500;
 
 // ✅ LOOSE schema — Gemini won't reject
 const RESPONSE_SCHEMA = {
@@ -50,25 +50,25 @@ let cacheTime = 0;
 const MODEL_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
 /* =========================================================
- * Model Discovery — auto-picks best FREE tier models
+ * Model Discovery — stable model first
  * ========================================================= */
 async function discoverModels(apiKey) {
   if (cachedModels && (Date.now() - cacheTime) < MODEL_CACHE_TTL) {
     return cachedModels;
   }
 
-  // Known-working free tier Flash models (fallback if ListModels fails)
+  // ✅ Priority: 2.0-flash first (stable, less overloaded than 2.5)
   const FALLBACK_MODELS = [
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
     "gemini-2.0-flash",
-    "gemini-2.0-flash-001"
+    "gemini-2.0-flash-001",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite"
   ];
 
   try {
     const listUrl = `${GEMINI_API_BASE}?key=${encodeURIComponent(apiKey)}`;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
 
     let response;
     try {
@@ -108,9 +108,14 @@ async function discoverModels(apiKey) {
       return cachedModels;
     }
 
-    // Sort by version (newest first)
+    // ✅ Prefer stable models: 2.0-flash first, then 2.5
+    const priority = ["gemini-2.0-flash", "gemini-2.0-flash-001"];
+    const priorityList = available.filter(m => priority.includes(m));
+    const restList = available.filter(m => !priority.includes(m));
+
+    // Sort rest by version (newest first)
     const versionRegex = /^gemini-(\d+)(?:\.(\d+))?/;
-    available.sort((a, b) => {
+    restList.sort((a, b) => {
       const ma = a.match(versionRegex);
       const mb = b.match(versionRegex);
       const aMaj = ma ? Number(ma[1]) : 0;
@@ -121,8 +126,7 @@ async function discoverModels(apiKey) {
       return bMin - aMin;
     });
 
-    // Merge: discovered + fallback (dedupe)
-    const merged = [...new Set([...available, ...FALLBACK_MODELS])];
+    const merged = [...new Set([...priorityList, ...restList, ...FALLBACK_MODELS])];
 
     console.log(`[GEMINI] Models: ${merged.join(" → ")}`);
     cachedModels = merged;
@@ -137,7 +141,7 @@ async function discoverModels(apiKey) {
 }
 
 /* =========================================================
- * Main Entry — Parallel per-article
+ * Main Entry — Parallel per-article (max 3)
  * ========================================================= */
 export async function processSelectedNews(articles, apiKey) {
   if (!apiKey) {
@@ -200,9 +204,11 @@ async function processOneArticle(article, models, apiKey) {
         lastError = error;
         const msg = String(error?.message || "");
 
+        // ✅ Immediate model switch on these errors
         if (msg.includes("404") || msg.includes("NOT_FOUND") || msg.includes("not supported")) continue;
         if (msg.includes("429")) continue;
-        if (msg.includes("timeout") || msg.includes("503") || msg.includes("500") || msg.includes("502") || msg.includes("504")) continue;
+        if (msg.includes("api_500") || msg.includes("api_502") || msg.includes("api_503") || msg.includes("api_504")) continue;
+        if (msg.includes("timeout")) continue;
         if (msg.includes("JSON") || msg.includes("parse")) continue;
 
         console.warn(`[GEMINI] ${model} error: ${msg.slice(0, 100)}`);
@@ -309,116 +315,93 @@ RULES:
 13. If additional_sources provided, use them to enrich.
 
 SOURCE ARTICLE:
-${JSON.stringify(sourceData, null, 2)}
+${JSON.stringify(sourceData)}
 `;
 }
 
 /* =========================================================
- * Gemini API Call
+ * Gemini API Call — throws on 5xx for immediate model switch
  * ========================================================= */
 async function callGeminiAPI(model, prompt, apiKey, maxTokens = 5000) {
   const endpoint = `${GEMINI_API_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
-  let lastError = null;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
 
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.3,
+          topP: 0.95,
+          maxOutputTokens: maxTokens,
+          responseMimeType: "application/json",
+          responseSchema: RESPONSE_SCHEMA
+        },
+        safetySettings: [
+          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+        ]
+      }),
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error(`timeout_${GEMINI_TIMEOUT_MS}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
-      let response;
+  // ✅ 5xx → throw immediately for model switch (no retry)
+  if ([500, 502, 503, 504].includes(response.status)) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(`api_${response.status}: ${errText.slice(0, 150)}`);
+  }
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(`api_${response.status}: ${errText.slice(0, 150)}`);
+  }
+
+  const data = await response.json();
+
+  const finishReason = data?.candidates?.[0]?.finishReason;
+  if (finishReason === "SAFETY" || finishReason === "RECITATION") {
+    throw new Error(`blocked: ${finishReason}`);
+  }
+
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error("empty_response");
+
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (parseError) {
+    const match = text.match(/\[[\s\S]*\]/);
+    if (match) {
       try {
-        response = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ role: "user", parts: [{ text: prompt }] }],
-            generationConfig: {
-              temperature: 0.3,
-              topP: 0.95,
-              maxOutputTokens: maxTokens,
-              responseMimeType: "application/json",
-              responseSchema: RESPONSE_SCHEMA
-            },
-            safetySettings: [
-              { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
-            ]
-          }),
-          signal: controller.signal
-        });
-      } finally {
-        clearTimeout(timeoutId);
+        parsed = JSON.parse(match[0]);
+      } catch {
+        throw new Error("json_parse_failed");
       }
-
-      if (response.ok) {
-        const data = await response.json();
-
-        const finishReason = data?.candidates?.[0]?.finishReason;
-        if (finishReason === "SAFETY" || finishReason === "RECITATION") {
-          throw new Error(`blocked: ${finishReason}`);
-        }
-
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!text) throw new Error("empty_response");
-
-        let parsed;
-        try {
-          parsed = JSON.parse(text);
-        } catch (parseError) {
-          const match = text.match(/\[[\s\S]*\]/);
-          if (match) {
-            try {
-              parsed = JSON.parse(match[0]);
-            } catch {
-              throw new Error("json_parse_failed");
-            }
-          } else {
-            throw new Error("json_parse_failed");
-          }
-        }
-
-        if (!Array.isArray(parsed) || parsed.length === 0) {
-          throw new Error("empty_array");
-        }
-
-        return parsed[0];
-      }
-
-      if ([500, 502, 503, 504].includes(response.status)) {
-        const errText = await response.text().catch(() => "");
-        lastError = new Error(`api_${response.status}: ${errText.slice(0, 150)}`);
-        if (attempt < 2) {
-          await new Promise(r => setTimeout(r, 1500));
-          continue;
-        }
-        throw lastError;
-      }
-
-      const errText = await response.text().catch(() => "");
-      throw new Error(`api_${response.status}: ${errText.slice(0, 150)}`);
-
-    } catch (error) {
-      lastError = error;
-
-      if (error.name === "AbortError") {
-        throw new Error(`timeout_${GEMINI_TIMEOUT_MS}ms`);
-      }
-
-      const msg = String(error?.message || "");
-
-      if (attempt < 2 && !msg.includes("429") && !msg.includes("404") && !msg.includes("blocked") && !msg.includes("json_parse")) {
-        await new Promise(r => setTimeout(r, 1500));
-        continue;
-      }
-
-      throw error;
+    } else {
+      throw new Error("json_parse_failed");
     }
   }
 
-  throw lastError || new Error("gemini_call_failed");
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error("empty_array");
+  }
+
+  return parsed[0];
 }
 
 /* =========================================================
@@ -446,7 +429,6 @@ function validateGeminiResult(result, article, isRetry = false) {
     return null;
   }
 
-  // Word count check
   const minWords = isRetry ? RETRY_MIN_WORDS : MIN_SUMMARY_WORDS;
   const wordCount = summary.split(/\s+/).filter(Boolean).length;
 
@@ -455,12 +437,14 @@ function validateGeminiResult(result, article, isRetry = false) {
     return null;
   }
 
+  let finalHeadline = headline;
   if (headline.length > 250) {
-    result.headline = headline.slice(0, 240) + "...";
+    finalHeadline = headline.slice(0, 240) + "...";
   }
 
+  let finalSummary = summary;
   if (summary.length > 3000) {
-    result.summary = summary.slice(0, 2900) + "...";
+    finalSummary = summary.slice(0, 2900) + "...";
   }
 
   const hasBangla = /[\u0980-\u09FF]/.test(headline + " " + summary);
@@ -470,8 +454,8 @@ function validateGeminiResult(result, article, isRetry = false) {
 
   return {
     id: String(article.id),
-    headline: cleanText(result.headline) || headline,
-    summary: cleanText(result.summary) || summary,
+    headline: finalHeadline,
+    summary: finalSummary,
     main_topic: mainTopic
   };
 }
@@ -491,6 +475,7 @@ export function geminiStatus(apiKey) {
     targetWords: TARGET_SUMMARY_WORDS,
     timeout: GEMINI_TIMEOUT_MS,
     maxTokens: MAX_OUTPUT_TOKENS,
-    maxRetriesPerArticle: MAX_RETRIES_PER_ARTICLE
+    maxRetriesPerArticle: MAX_RETRIES_PER_ARTICLE,
+    maxParallel: MAX_PARALLEL
   };
 }

@@ -27,7 +27,7 @@
 <style>
 * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
 html { scroll-behavior: smooth; }
-body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoothing:antialiased; }
+body { background:#f5f5f5; color:#111111; padding-bottom:20px; -webkit-font-smoothing:antialiased; }
 .header { position:sticky; top:0; z-index:1000; display:flex; align-items:center; justify-content:space-between; padding:12px 16px; min-height:60px; background:#ffffff; border-bottom:1px solid #e0e0e0; }
 .header-left { display:flex; align-items:center; gap:10px; }
 .header-home-link { display:flex; align-items:center; gap:10px; color:inherit; text-decoration:none; }
@@ -78,7 +78,7 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
 .skeleton-line.title { height:22px; width:85%; }
 .skeleton-line.title-2 { height:22px; width:60%; }
 @keyframes shimmer { 0%{background-position:-200% 0;} 100%{background-position:200% 0;} }
-.news-card { display:block; width:100%; background:#ffffff; border:1px solid #e5e5e5; border-radius:12px; overflow:hidden; text-decoration:none; color:#111111; opacity:0; transform:translateY(20px); transition:opacity 0.5s ease, transform 0.5s ease; }
+.news-card { display:block; width:100%; background:#ffffff; border-radius:12px; overflow:hidden; text-decoration:none; color:#111111; box-shadow:0 1px 3px rgba(0,0,0,0.06); opacity:0; transform:translateY(20px); transition:opacity 0.5s ease, transform 0.5s ease; }
 .news-card.visible { opacity:1; transform:translateY(0); }
 .news-image-wrapper { position:relative; width:100%; aspect-ratio:16/9; background:#f3f3f3; overflow:hidden; }
 .news-image { display:block; width:100%; aspect-ratio:16/9; object-fit:cover; }
@@ -109,6 +109,69 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
 .notif-prompt-btn { flex: 1; padding: 12px 16px; border-radius: 10px; border: none; font-size: 15px; font-weight: 600; cursor: pointer; }
 .notif-prompt-btn.later { background: #f0f0f0; color: #333; }
 .notif-prompt-btn.enable { background: #000; color: #fff; }
+
+/* =========================================================
+ * MOBILE OPTIMIZATION (max-width: 480px)
+ * ========================================================= */
+@media (max-width:480px) {
+  /* Header compact */
+  .header { padding:6px 10px; min-height:46px; }
+  .header-left h1 { font-size:17px; font-weight:700; letter-spacing:-0.2px; }
+  .header-logo { height:22px; }
+  .header-left, .header-home-link { gap:6px; }
+  .header-right { gap:2px; }
+
+  /* Action icons */
+  .refresh-btn { width:34px !important; height:34px !important; padding:2px !important; }
+  .refresh-btn svg { width:18px !important; height:18px !important; }
+  .search-btn { width:34px !important; height:34px !important; padding:2px !important; }
+  .search-svg { width:16px !important; height:16px !important; }
+  .hamburger { width:34px !important; height:34px !important; gap:3px !important; padding:6px !important; }
+  .hamburger span { width:16px !important; height:2px !important; }
+  .notif-btn { width:34px !important; height:34px !important; padding:2px !important; }
+  .notif-btn svg { width:20px !important; height:20px !important; }
+
+  /* Red banner compact */
+  .trending-banner { padding:6px 12px; min-height:36px; }
+  .trending-banner span { font-size:14px; font-weight:600; letter-spacing:0; }
+  .banner-right-btn { padding:3px 10px; font-size:11px; border-radius:14px; height:24px; }
+
+  /* Content spacing */
+  .main-content { padding:8px; }
+  #newsContainer { gap:8px; }
+
+  /* News card compact */
+  .news-card { border-radius:10px; }
+  .news-body { padding:11px 12px 13px; }
+  .news-category { font-size:11px; margin-bottom:5px; }
+  .news-title { font-size:17px; line-height:1.35; margin-bottom:8px; }
+  .news-summary { font-size:13.5px; line-height:1.55; color:#555; }
+  .news-meta { font-size:11px; margin-top:7px; }
+  .news-actions { gap:18px; margin-top:9px; padding-top:8px; }
+  .action-btn svg { width:18px; height:18px; }
+  .action-count { font-size:11px; }
+
+  /* Search modal */
+  .search-modal-box { padding:16px; }
+  .close-search { font-size:26px; top:2px; right:8px; }
+  .search-modal-box .search-submit-btn { padding:6px 18px; font-size:13px; }
+  .search-modal-box input { font-size:15px; padding:10px 12px; }
+  .search-input-wrapper { gap:10px; }
+
+  /* Floating button */
+  .floating-app-btn { right:12px; bottom:16px; width:52px; height:52px; }
+  .floating-app-btn span { font-size:8px; }
+
+  /* Modal */
+  .modal-content { width:94%; margin:4% auto; padding:14px; max-height:88vh; }
+  #modal-body { padding-right:2px; }
+
+  /* Notification prompt */
+  .notif-prompt-box { padding: 18px 14px 14px; }
+  .notif-prompt-title { font-size: 17px; }
+  .notif-prompt-text { font-size: 13px; }
+  .notif-prompt-btn { padding: 10px 12px; font-size: 13px; }
+}
 </style>
 </head>
 <body>
@@ -146,7 +209,7 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
 </div>
 <div class="trending-banner">
   <span id="categoryTitle">সেরা খবর</span>
-  <button class="banner-right-btn" onclick="installApp()">📲 Install App</button>
+  <button class="banner-right-btn" onclick="installApp()">📲 Install</button>
 </div>
 <div class="search-modal" id="searchModal">
   <div class="search-modal-box">
@@ -598,7 +661,6 @@ async function toggleNotification() {
   btn.disabled = true;
 
   try {
-    // Wait for Firebase to be ready
     let attempts = 0;
     while (!window.__firebaseReady && attempts < 20) {
       await new Promise(r => setTimeout(r, 200));
@@ -613,16 +675,13 @@ async function toggleNotification() {
     const registration = await navigator.serviceWorker.ready;
     console.log('[FCM] SW ready');
 
-    // Check existing FCM token
     const existingToken = await window.__firebase.getToken(window.__firebase.messaging, {
       vapidKey: window.__VAPID_KEY,
       serviceWorkerRegistration: registration
     }).catch(() => null);
 
     if (existingToken && Notification.permission === 'granted') {
-      // Already subscribed — ask to disable
       if (confirm('নোটিফিকেশন বন্ধ করতে চান?')) {
-        // Just clear local and server
         await fetch(`${WORKER_BASE}/api/unsubscribe`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -634,7 +693,6 @@ async function toggleNotification() {
       return;
     }
 
-    // Request permission
     if (Notification.permission === 'denied') {
       alert('ব্রাউজার নোটিফিকেশন blocked। ব্রাউজার সেটিংস থেকে চালু করুন।');
       return;
@@ -646,7 +704,6 @@ async function toggleNotification() {
       return;
     }
 
-    // Get FCM token
     const fcmToken = await window.__firebase.getToken(window.__firebase.messaging, {
       vapidKey: window.__VAPID_KEY,
       serviceWorkerRegistration: registration
@@ -658,7 +715,6 @@ async function toggleNotification() {
 
     console.log('[FCM] Token:', fcmToken.slice(0, 30) + '...');
 
-    // Send to server
     const res = await fetch(`${WORKER_BASE}/api/subscribe`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -826,7 +882,6 @@ window.addEventListener('load', () => {
     await loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: true });
   }
 
-  // Register Firebase SW
   if ('serviceWorker' in navigator) {
     try {
       const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { updateViaCache: 'none' });

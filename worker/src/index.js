@@ -2,11 +2,12 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v24 — Strict Gemini + Multi-Channel Indexing + Push Fixed
+ * FINAL v25 — Firebase FCM + Gemini + Multi-Channel Indexing
  * =========================================================
  */
 
 import webPush from "web-push";
+import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
 import ADS_CONFIG from "./config-ads.js";
 import AFFILIATE_CONFIG from "./config-affiliate.js";
@@ -48,7 +49,7 @@ function toTransliterated(text) {
 }
 
 /* =========================================================
- * BOT DETECTION — Comprehensive (Google News + AI + SEO)
+ * BOT DETECTION
  * ========================================================= */
 const BOT_REGEX = /googlebot|google-inspectiontool|apis-google|mediapartners-google|adsbot-google|googleother|feedfetcher-google|google-read-aloud|google-site-verification|storebot-google|googlebot-news|googlebot-image|googlebot-video|bingbot|msnbot|adidxbot|bingpreview|yandex|baiduspider|baiduboxapp|sogou|exabot|duckduckbot|duckassistbot|applebot|applebot-extended|slurp|twitterbot|facebookexternalhit|facebookcatalog|facebot|whatsapp|telegrambot|linkedinbot|pinterest|slackbot|discordbot|petalbot|semrushbot|ahrefsbot|mj12bot|dotbot|gptbot|chatgpt-user|perplexitybot|ccbot|anthropic-ai|claude-web|youbot|lighthouse|chrome-lighthouse/i;
 
@@ -80,7 +81,6 @@ export default {
       const userAgent = request.headers.get("User-Agent") || "";
       const isBot = BOT_REGEX.test(userAgent);
 
-      // ✅ Article pages: static HTML for EVERYONE (better indexing)
       if (url.pathname.startsWith("/news/") && request.method === "GET") {
         const articleId = decodeURIComponent(url.pathname.slice(6).split("/")[0] || "").trim();
         if (!articleId) return Response.redirect("https://ajkernews.in/", 302);
@@ -94,16 +94,11 @@ export default {
         });
       }
 
-      // Homepage: bot gets static, user gets SPA
       if (url.pathname === "/" && request.method === "GET" && isBot) {
         const articleId = url.searchParams.get("id");
-        if (articleId) {
-          return await serveArticlePage(articleId, env);
-        }
+        if (articleId) return await serveArticlePage(articleId, env);
         const cat = url.searchParams.get("category");
-        if (cat && cat !== "top" && cat !== "all") {
-          return await serveBotCategoryPage(cat, env);
-        }
+        if (cat && cat !== "top" && cat !== "all") return await serveBotCategoryPage(cat, env);
         return await serveBotHomepage(env);
       }
 
@@ -151,12 +146,6 @@ export default {
               console.error("Push queue error:", error?.message || String(error))
             )
           );
-        } else {
-          ctx.waitUntil(
-            sendPendingPushNotifications(env).catch(error =>
-              console.error("Pending push error:", error?.message || String(error))
-            )
-          );
         }
         return json(result, 200, 0);
       }
@@ -193,14 +182,14 @@ export default {
           const stats = await env.DB.prepare(`SELECT status, COUNT(*) AS count FROM news GROUP BY status`).all();
           const recent = await env.DB.prepare(`SELECT id, headline, status, created_at, published_at FROM news ORDER BY created_at DESC LIMIT 10`).all();
           const pushSubs = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_subscriptions`).first();
-          const pushPending = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_notification_deliveries WHERE status = 'pending'`).first();
+          const fcmSubs = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_subscriptions WHERE token IS NOT NULL AND token != ''`).first();
           return json({
             success: true,
             stats: stats.results || [],
             recent: recent.results || [],
             push: {
               subscribers: Number(pushSubs?.total || 0),
-              pendingDeliveries: Number(pushPending?.total || 0)
+              fcmTokens: Number(fcmSubs?.total || 0)
             }
           }, 200, 0);
         } catch (error) {
@@ -250,19 +239,13 @@ export default {
           return;
         }
 
-        ctx.waitUntil(
-          sendPendingPushNotifications(env).catch(error => {
-            console.error("[CRON-NEWS] Pending push error:", error?.message || String(error));
-          })
-        );
-
         const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
         const istHour = istNow.getUTCHours();
         const isNightTime = istHour >= 23 || istHour < 6;
         const isEvenHour = istHour % 2 === 0;
         const shouldSendNotification = isEvenHour && !isNightTime;
 
-        console.log(`[NOTIF] IST Hour: ${istHour} | Even: ${isEvenHour} | Night: ${isNightTime} | Send: ${shouldSendNotification}`);
+        console.log(`[NOTIF] IST Hour: ${istHour} | Send: ${shouldSendNotification}`);
 
         if (
           shouldSendNotification &&
@@ -286,42 +269,23 @@ export default {
       if (cron === "15 */2 * * *") {
         try {
           const recent = await env.DB.prepare(
-            `SELECT id FROM news
-             WHERE status = 'published'
-               AND created_at >= datetime('now', '-6 hours')
-             ORDER BY created_at DESC
-             LIMIT 50`
+            `SELECT id FROM news WHERE status = 'published' AND created_at >= datetime('now', '-6 hours') ORDER BY created_at DESC LIMIT 50`
           ).all();
           const ids = (recent.results || []).map(r => r.id);
-
           if (ids.length) {
             const result = await fastIndexNews(env, ids);
             console.log(`[CRON-FAST-INDEX] ${ids.length} URLs:`, JSON.stringify(result));
-          } else {
-            console.log("[CRON-FAST-INDEX] No recent URLs");
           }
         } catch (error) {
           console.error("[CRON-FAST-INDEX] Failed:", error?.message || String(error));
         }
-        console.log(`[CRON-FAST-INDEX] Completed in ${Date.now() - startTime}ms`);
         return;
       }
 
       if (cron === "35 */2 * * *") {
         try {
-          await sendPendingPushNotifications(env);
-          console.log("[CRON-RETRY] Push retry done");
-        } catch (error) {
-          console.error("[CRON-RETRY] Push retry failed:", error?.message || String(error));
-        }
-
-        try {
           const backlog = await env.DB.prepare(
-            `SELECT id FROM news
-             WHERE status = 'published'
-               AND created_at >= datetime('now', '-24 hours')
-             ORDER BY created_at DESC
-             LIMIT 50`
+            `SELECT id FROM news WHERE status = 'published' AND created_at >= datetime('now', '-24 hours') ORDER BY created_at DESC LIMIT 50`
           ).all();
           const ids = (backlog.results || []).map(r => r.id);
           if (ids.length) {
@@ -331,29 +295,18 @@ export default {
         } catch (error) {
           console.error("[CRON-RETRY] Backlog failed:", error?.message || String(error));
         }
-
-        console.log(`[CRON-RETRY] Completed in ${Date.now() - startTime}ms`);
         return;
       }
 
       if (cron === "50 */2 * * *") {
         try {
-          await cleanExpiredPushNotifications(env);
-          console.log("[CRON-CLEAN] Expired push cleaned");
-        } catch (error) {
-          console.error("[CRON-CLEAN] Push cleanup failed:", error?.message || String(error));
-        }
-
-        try {
-          const candidateResult = await cleanOldCandidates(env.DB);
-          console.log(`[CRON-CLEAN] Candidates: ${candidateResult.deleted} deleted`);
+          await cleanOldCandidates(env.DB);
         } catch (error) {
           console.error("[CRON-CLEAN] Candidate cleanup failed:", error?.message || String(error));
         }
 
         try {
-          const rejectedResult = await cleanRejectedNews(env.DB);
-          console.log(`[CRON-CLEAN] Rejected: ${rejectedResult.deleted} deleted`);
+          await cleanRejectedNews(env.DB);
         } catch (error) {
           console.error("[CRON-CLEAN] Rejected cleanup failed:", error?.message || String(error));
         }
@@ -363,7 +316,6 @@ export default {
           try {
             const cleanupResult = await enforceNewsLimit(env.DB);
             console.log(`[CRON-CLEAN] News: ${cleanupResult.deleted} deleted, ${cleanupResult.total} total`);
-
             if (cleanupResult.deleted > 0) {
               try {
                 await purgeNewsApiCache("https://ajkernews.in");
@@ -377,16 +329,13 @@ export default {
           }
         }
 
-        // Bing sitemap ping (best-effort, still works)
         try {
           await Promise.allSettled([
             fetch(`https://www.bing.com/ping?sitemap=${encodeURIComponent("https://ajkernews.in/sitemap.xml")}`).catch(() => {}),
             fetch(`https://www.bing.com/ping?sitemap=${encodeURIComponent("https://ajkernews.in/news-sitemap.xml")}`).catch(() => {})
           ]);
-          console.log("[CRON-CLEAN] Bing sitemap ping sent");
         } catch (e) { /* ignore */ }
 
-        console.log(`[CRON-CLEAN] Completed in ${Date.now() - startTime}ms`);
         return;
       }
 
@@ -398,7 +347,7 @@ export default {
 };
 
 /* =========================================================
- * NEWS UPDATE PIPELINE — Strict Gemini Only
+ * NEWS UPDATE PIPELINE
  * ========================================================= */
 async function updateNews(env) {
   if (!env.DB) throw new Error("D1 binding DB is missing");
@@ -413,7 +362,7 @@ async function updateNews(env) {
     return {
       success: false, fetched: 0, inserted: 0, candidates: 0, selected: 0,
       published: 0, deleted: 0, gemini: false, newNewsIds: [],
-      batches: [], message: "GNews fetch failed: " + (error?.message || String(error))
+      batches: [], message: "GNews fetch failed"
     };
   }
 
@@ -448,13 +397,10 @@ async function updateNews(env) {
     };
   }
 
-  // ✅ Last 80 news dedup (instead of 3-day window)
   let existingPublished = [];
   try {
     const publishedResult = await env.DB.prepare(
-      `SELECT source_title, headline FROM news
-       WHERE status = 'published'
-       ORDER BY created_at DESC LIMIT 80`
+      `SELECT source_title, headline FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT 80`
     ).all();
     existingPublished = publishedResult.results || [];
     console.log(`[NEWS] Dedup pool: ${existingPublished.length} recent published news`);
@@ -476,15 +422,10 @@ async function updateNews(env) {
   try {
     const selectedIds = new Set(selected.map(a => String(a.id)));
     const rejectedCandidates = candidates.filter(c => !selectedIds.has(String(c.id)));
-
     if (rejectedCandidates.length > 0) {
       const rejectedIds = rejectedCandidates.map(c => String(c.id));
       const placeholders = rejectedIds.map(() => "?").join(",");
-
-      await env.DB.prepare(`
-        UPDATE news SET status = 'rejected' WHERE id IN (${placeholders})
-      `).bind(...rejectedIds).run();
-
+      await env.DB.prepare(`UPDATE news SET status = 'rejected' WHERE id IN (${placeholders})`).bind(...rejectedIds).run();
       console.log(`[NEWS] Marked ${rejectedIds.length} candidates as rejected`);
     }
   } catch (error) {
@@ -499,7 +440,6 @@ async function updateNews(env) {
     };
   }
 
-  // ✅ Gemini — Strict (no fallback)
   let geminiResults = [];
   let usedGemini = false;
   if (env.GEMINI_API_KEY) {
@@ -517,9 +457,7 @@ async function updateNews(env) {
 
       geminiResults = await Promise.race([
         processSelectedNews(geminiInput, env.GEMINI_API_KEY),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Gemini total timeout')), 50000)
-        )
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Gemini total timeout')), 50000))
       ]).catch(err => {
         console.warn('[NEWS] Gemini timeout:', err.message);
         return [];
@@ -530,8 +468,6 @@ async function updateNews(env) {
     } catch (error) {
       console.error("[NEWS] Gemini failed:", error?.message || String(error));
     }
-  } else {
-    console.warn("[NEWS] GEMINI_API_KEY missing — skipping publish");
   }
 
   let publishResult = { published: 0, skipped: 0 };
@@ -545,9 +481,7 @@ async function updateNews(env) {
   const publishedIds = [];
   for (const article of selected) {
     try {
-      const row = await env.DB.prepare(
-        `SELECT id FROM news WHERE id = ? AND status = 'published'`
-      ).bind(article.id).first();
+      const row = await env.DB.prepare(`SELECT id FROM news WHERE id = ? AND status = 'published'`).bind(article.id).first();
       if (row?.id) publishedIds.push(row.id);
     } catch (e) { /* ignore */ }
   }
@@ -555,20 +489,10 @@ async function updateNews(env) {
   const searchUpdates = [];
   for (const id of publishedIds) {
     try {
-      const row = await env.DB.prepare(
-        `SELECT headline, summary, main_topic, category, source_name FROM news WHERE id = ? AND status = 'published'`
-      ).bind(id).first();
-
+      const row = await env.DB.prepare(`SELECT headline, summary, main_topic, category, source_name FROM news WHERE id = ? AND status = 'published'`).bind(id).first();
       if (!row) continue;
-
-      const searchText = toTransliterated(
-        [row.headline, row.summary, row.main_topic, row.category, row.source_name]
-          .filter(Boolean).join(" ")
-      );
-
-      searchUpdates.push(
-        env.DB.prepare(`UPDATE news SET search_text = ? WHERE id = ?`).bind(searchText, id)
-      );
+      const searchText = toTransliterated([row.headline, row.summary, row.main_topic, row.category, row.source_name].filter(Boolean).join(" "));
+      searchUpdates.push(env.DB.prepare(`UPDATE news SET search_text = ? WHERE id = ?`).bind(searchText, id));
     } catch (e) { /* ignore */ }
   }
 
@@ -583,7 +507,6 @@ async function updateNews(env) {
   let cleanupResult = { deleted: 0, total: 0, deletedIds: [] };
   try {
     cleanupResult = await enforceNewsLimit(env.DB);
-    console.log(`[NEWS] Cleanup: deleted ${cleanupResult.deleted}, total ${cleanupResult.total}`);
   } catch (error) {
     console.error("[NEWS] Cleanup failed:", error?.message || String(error));
   }
@@ -598,13 +521,8 @@ async function updateNews(env) {
   if (publishResult.published > 0 || cleanupResult.deleted > 0) {
     try {
       await purgeNewsApiCache("https://ajkernews.in");
-      for (const id of publishedIds) {
-        await purgeArticleCache("https://ajkernews.in", id);
-      }
-      for (const id of cleanupResult.deletedIds || []) {
-        await purgeArticleCache("https://ajkernews.in", id);
-      }
-      console.log(`[CACHE] Purged API + ${publishedIds.length} articles`);
+      for (const id of publishedIds) await purgeArticleCache("https://ajkernews.in", id);
+      for (const id of cleanupResult.deletedIds || []) await purgeArticleCache("https://ajkernews.in", id);
     } catch (error) {
       console.warn("[CACHE] Purge failed:", error?.message || String(error));
     }
@@ -657,37 +575,24 @@ async function serveListingPage(env, category, searchQuery) {
 
     let sql, binds;
     if (searchQuery) {
-      sql = `SELECT id, headline, summary, published_at, created_at, category, image_url, source_name, main_topic
-             FROM news WHERE status = 'published'
-               AND (headline LIKE ? OR summary LIKE ? OR main_topic LIKE ?)
-             ORDER BY created_at DESC LIMIT 100`;
+      sql = `SELECT id, headline, summary, published_at, created_at, category, image_url, source_name, main_topic FROM news WHERE status = 'published' AND (headline LIKE ? OR summary LIKE ? OR main_topic LIKE ?) ORDER BY created_at DESC LIMIT 100`;
       const q = `%${searchQuery}%`;
       binds = [q, q, q];
     } else if (category && category !== "top" && category !== "all") {
-      sql = `SELECT id, headline, summary, published_at, created_at, category, image_url, source_name, main_topic
-             FROM news WHERE status = 'published' AND category = ?
-             ORDER BY created_at DESC LIMIT 100`;
+      sql = `SELECT id, headline, summary, published_at, created_at, category, image_url, source_name, main_topic FROM news WHERE status = 'published' AND category = ? ORDER BY created_at DESC LIMIT 100`;
       binds = [category];
     } else {
-      sql = `SELECT id, headline, summary, published_at, created_at, category, image_url, source_name, main_topic
-             FROM news WHERE status = 'published'
-             ORDER BY created_at DESC LIMIT 100`;
+      sql = `SELECT id, headline, summary, published_at, created_at, category, image_url, source_name, main_topic FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT 100`;
       binds = [];
     }
 
     const newsResult = await env.DB.prepare(sql).bind(...binds).all();
     const news = newsResult.results || [];
 
-    const catResult = await env.DB.prepare(
-      `SELECT category, COUNT(*) AS cnt FROM news
-       WHERE status = 'published' AND category IS NOT NULL
-       GROUP BY category ORDER BY cnt DESC LIMIT 20`
-    ).all();
+    const catResult = await env.DB.prepare(`SELECT category, COUNT(*) AS cnt FROM news WHERE status = 'published' AND category IS NOT NULL GROUP BY category ORDER BY cnt DESC LIMIT 20`).all();
     const categories = catResult.results || [];
 
-    const pageTitle = searchQuery
-      ? `সার্চ: ${searchQuery}`
-      : (catLabel[category] || "সেরা খবর");
+    const pageTitle = searchQuery ? `সার্চ: ${searchQuery}` : (catLabel[category] || "সেরা খবর");
 
     let newsHtml = "";
     for (const item of news) {
@@ -698,19 +603,12 @@ async function serveListingPage(env, category, searchQuery) {
       const cat = catLabel[item.category] || item.category || 'সংবাদ';
 
       newsHtml += `
-        <article itemscope itemtype="https://schema.org/NewsArticle"
-                 style="margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid #eee;">
+        <article itemscope itemtype="https://schema.org/NewsArticle" style="margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid #eee;">
           <meta itemprop="datePublished" content="${escapeHtml(publishedDate)}">
           <meta itemprop="dateModified" content="${escapeHtml(publishedDate)}">
           <meta itemprop="mainEntityOfPage" content="${escapeHtml(link)}">
-          <div itemprop="image" itemscope itemtype="https://schema.org/ImageObject">
-            <meta itemprop="url" content="${escapeHtml(image)}">
-            <meta itemprop="width" content="1200">
-            <meta itemprop="height" content="675">
-          </div>
           <p style="font-size:12px;color:#f44336;font-weight:700;margin:0 0 6px;">
-            <a href="https://ajkernews.in/?category=${encodeURIComponent(item.category || 'top')}"
-               style="color:#f44336;text-decoration:none;">${escapeHtml(cat)}</a>
+            <a href="https://ajkernews.in/?category=${encodeURIComponent(item.category || 'top')}" style="color:#f44336;text-decoration:none;">${escapeHtml(cat)}</a>
           </p>
           <h2 itemprop="headline" style="font-size:20px;margin:0 0 8px;line-height:1.4;">
             <a href="${escapeHtml(link)}" style="color:#111;text-decoration:none;">${escapeHtml(item.headline)}</a>
@@ -724,19 +622,13 @@ async function serveListingPage(env, category, searchQuery) {
             </span>
             • <time datetime="${escapeHtml(publishedDate)}">${escapeHtml(displayDate || "")}</time>
           </div>
-          <a itemprop="url" href="${escapeHtml(link)}"
-             style="display:inline-block;margin-top:8px;color:#007bff;font-size:14px;text-decoration:none;">
-            পূর্ণ খবর পড়ুন →
-          </a>
+          <a itemprop="url" href="${escapeHtml(link)}" style="display:inline-block;margin-top:8px;color:#007bff;font-size:14px;text-decoration:none;">পূর্ণ খবর পড়ুন →</a>
         </article>`;
     }
 
     const catNavHtml = categories.map(c => {
       const label = catLabel[c.category] || c.category;
-      return `<a href="https://ajkernews.in/?category=${encodeURIComponent(c.category)}"
-                 style="display:inline-block;margin:0 6px 6px 0;padding:6px 12px;background:#f5f5f5;border-radius:16px;color:#111;text-decoration:none;font-size:13px;">
-        ${escapeHtml(label)} (${c.cnt})
-      </a>`;
+      return `<a href="https://ajkernews.in/?category=${encodeURIComponent(c.category)}" style="display:inline-block;margin:0 6px 6px 0;padding:6px 12px;background:#f5f5f5;border-radius:16px;color:#111;text-decoration:none;font-size:13px;">${escapeHtml(label)} (${c.cnt})</a>`;
     }).join("");
 
     const itemListLd = JSON.stringify({
@@ -750,11 +642,7 @@ async function serveListingPage(env, category, searchQuery) {
       }))
     });
 
-    const canonical = searchQuery
-      ? `https://ajkernews.in/?q=${encodeURIComponent(searchQuery)}`
-      : (category && category !== "top"
-        ? `https://ajkernews.in/?category=${encodeURIComponent(category)}`
-        : "https://ajkernews.in/");
+    const canonical = searchQuery ? `https://ajkernews.in/?q=${encodeURIComponent(searchQuery)}` : (category && category !== "top" ? `https://ajkernews.in/?category=${encodeURIComponent(category)}` : "https://ajkernews.in/");
 
     const html = `<!DOCTYPE html>
 <html lang="bn">
@@ -762,33 +650,18 @@ async function serveListingPage(env, category, searchQuery) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escapeHtml(pageTitle)} | আজকের নিউজ</title>
-<meta name="description" content="কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ বাংলা খবর। প্রতিদিনের রাজনীতি, খেলা, বিনোদন, ব্যবসা, প্রযুক্তির আপডেট।">
-<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1">
+<meta name="description" content="কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ বাংলা খবর।">
+<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1">
 <link rel="canonical" href="${escapeHtml(canonical)}">
 <meta property="og:type" content="website">
 <meta property="og:title" content="${escapeHtml(pageTitle)} | আজকের নিউজ">
-<meta property="og:description" content="কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ বাংলা খবর।">
 <meta property="og:url" content="${escapeHtml(canonical)}">
 <meta property="og:image" content="https://ajkernews.in/logo.png">
-<meta name="twitter:card" content="summary_large_image">
-<script type="application/ld+json">
-{
-  "@context":"https://schema.org",
-  "@type":"WebSite",
-  "name":"আজকের নিউজ",
-  "alternateName":["Ajker News","ajkernews.in"],
-  "url":"https://ajkernews.in/",
-  "inLanguage":"bn-IN",
-  "publisher":{"@type":"NewsMediaOrganization","name":"Ajker News","logo":{"@type":"ImageObject","url":"https://ajkernews.in/logo.png"}}
-}
-</script>
 <script type="application/ld+json">${itemListLd}</script>
 </head>
 <body style="max-width:820px;margin:0 auto;padding:20px;font-family:Inter,-apple-system,sans-serif;color:#111;">
 <header>
-  <h1 style="font-size:28px;margin:0 0 6px;">
-    <a href="/" style="color:#111;text-decoration:none;">আজকের নিউজ</a>
-  </h1>
+  <h1 style="font-size:28px;margin:0 0 6px;"><a href="/" style="color:#111;text-decoration:none;">আজকের নিউজ</a></h1>
   <p style="color:#666;font-size:15px;margin:0 0 16px;">${escapeHtml(pageTitle)}</p>
   <nav style="margin-bottom:24px;">${catNavHtml}</nav>
 </header>
@@ -819,18 +692,14 @@ async function serveListingPage(env, category, searchQuery) {
 }
 
 /* =========================================================
- * ARTICLE PAGE — Served to EVERYONE (static HTML)
+ * ARTICLE PAGE
  * ========================================================= */
 async function serveArticlePage(id, env) {
   const safeId = String(id || "").trim();
   if (!safeId) return Response.redirect("https://ajkernews.in/", 302);
 
   const result = await env.DB.prepare(
-    `SELECT headline, summary, main_topic, image_url, published_at, created_at,
-            source_name, source_url, category
-     FROM news
-     WHERE id = ? AND status = 'published'
-     LIMIT 1`
+    `SELECT headline, summary, main_topic, image_url, published_at, created_at, source_name, source_url, category FROM news WHERE id = ? AND status = 'published' LIMIT 1`
   ).bind(safeId).first();
 
   if (!result) return Response.redirect("https://ajkernews.in/", 302);
@@ -844,14 +713,10 @@ async function serveArticlePage(id, env) {
   const canonical = `https://ajkernews.in/news/${encodeURIComponent(safeId)}`;
   const category = result.category || "general";
 
-  // Related news (same category)
   let relatedNews = [];
   try {
     const related = await env.DB.prepare(
-      `SELECT id, headline, image_url, created_at, published_at
-       FROM news
-       WHERE status = 'published' AND id != ? AND category = ?
-       ORDER BY created_at DESC LIMIT 4`
+      `SELECT id, headline FROM news WHERE status = 'published' AND id != ? AND category = ? ORDER BY created_at DESC LIMIT 4`
     ).bind(safeId, category).all();
     relatedNews = related.results || [];
   } catch (e) { /* ignore */ }
@@ -872,21 +737,12 @@ async function serveArticlePage(id, env) {
     "image": [image, "https://ajkernews.in/logo.png"],
     "datePublished": publishedAt,
     "dateModified": publishedAt,
-    "author": {
-      "@type": "Organization",
-      "name": result.source_name || "Ajker News",
-      "url": "https://ajkernews.in/"
-    },
+    "author": { "@type": "Organization", "name": result.source_name || "Ajker News", "url": "https://ajkernews.in/" },
     "publisher": {
       "@type": "NewsMediaOrganization",
       "name": "Ajker News",
       "url": "https://ajkernews.in/",
-      "logo": {
-        "@type": "ImageObject",
-        "url": "https://ajkernews.in/logo.png",
-        "width": 512,
-        "height": 512
-      }
+      "logo": { "@type": "ImageObject", "url": "https://ajkernews.in/logo.png", "width": 512, "height": 512 }
     },
     "articleSection": category,
     "inLanguage": "bn-IN",
@@ -908,14 +764,7 @@ async function serveArticlePage(id, env) {
   <aside style="margin-top:32px;padding-top:20px;border-top:1px solid #eee;">
     <h3 style="font-size:18px;margin:0 0 14px;color:#111;">সম্পর্কিত খবর</h3>
     <ul style="list-style:none;padding:0;margin:0;">
-      ${relatedNews.map(n => `
-        <li style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #f0f0f0;">
-          <a href="https://ajkernews.in/news/${encodeURIComponent(n.id)}"
-             style="color:#111;text-decoration:none;font-size:15px;line-height:1.5;">
-            ${escapeHtml(n.headline || "")}
-          </a>
-        </li>
-      `).join("")}
+      ${relatedNews.map(n => `<li style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #f0f0f0;"><a href="https://ajkernews.in/news/${encodeURIComponent(n.id)}" style="color:#111;text-decoration:none;font-size:15px;line-height:1.5;">${escapeHtml(n.headline || "")}</a></li>`).join("")}
     </ul>
   </aside>` : "";
 
@@ -926,7 +775,7 @@ async function serveArticlePage(id, env) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escapeHtml(title)} - Ajker News</title>
 <meta name="description" content="${escapeHtml(description)}">
-<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1">
+<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1">
 <link rel="canonical" href="${escapeHtml(canonical)}">
 <meta property="og:type" content="article">
 <meta property="og:title" content="${escapeHtml(title)}">
@@ -938,55 +787,37 @@ async function serveArticlePage(id, env) {
 <meta property="article:modified_time" content="${escapeHtml(publishedAt)}">
 <meta property="article:section" content="${escapeHtml(category)}">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="${escapeHtml(title)}">
-<meta name="twitter:description" content="${escapeHtml(description)}">
-<meta name="twitter:image" content="${escapeHtml(image)}">
 <script type="application/ld+json">${newsArticleLd}</script>
 <script type="application/ld+json">${breadcrumbLd}</script>
 </head>
 <body style="max-width:780px;margin:0 auto;padding:20px;font-family:Inter,-apple-system,sans-serif;color:#111;line-height:1.7;">
 <header style="margin-bottom:20px;">
-  <p style="margin:0 0 12px;">
-    <a href="https://ajkernews.in/" style="color:#007bff;text-decoration:none;font-size:14px;">← আজকের নিউজ হোম</a>
-  </p>
+  <p style="margin:0 0 12px;"><a href="https://ajkernews.in/" style="color:#007bff;text-decoration:none;font-size:14px;">← আজকের নিউজ হোম</a></p>
 </header>
 <article itemscope itemtype="https://schema.org/NewsArticle">
   <meta itemprop="datePublished" content="${escapeHtml(publishedAt)}">
   <meta itemprop="dateModified" content="${escapeHtml(publishedAt)}">
   <meta itemprop="mainEntityOfPage" content="${escapeHtml(canonical)}">
   <p style="font-size:12px;color:#f44336;font-weight:700;margin:0 0 8px;">
-    <a href="https://ajkernews.in/?category=${encodeURIComponent(category)}" style="color:#f44336;text-decoration:none;">
-      ${escapeHtml(catLabel[category] || category)}
-    </a>
+    <a href="https://ajkernews.in/?category=${encodeURIComponent(category)}" style="color:#f44336;text-decoration:none;">${escapeHtml(catLabel[category] || category)}</a>
   </p>
   <h1 itemprop="headline" style="font-size:28px;line-height:1.35;margin:0 0 12px;color:#111;">${escapeHtml(title)}</h1>
   <div style="font-size:13px;color:#888;margin-bottom:16px;">
-    <span itemprop="author" itemscope itemtype="https://schema.org/Organization">
-      <span itemprop="name">${escapeHtml(result.source_name || "Ajker News")}</span>
-    </span>
+    <span itemprop="author" itemscope itemtype="https://schema.org/Organization"><span itemprop="name">${escapeHtml(result.source_name || "Ajker News")}</span></span>
     • <time datetime="${escapeHtml(publishedAt)}">${escapeHtml(publishedAt)}</time>
   </div>
   <div itemprop="image" itemscope itemtype="https://schema.org/ImageObject" style="margin-bottom:18px;">
-    <img itemprop="url" src="${escapeHtml(image)}" alt="${escapeHtml(title)}"
-         style="width:100%;height:auto;border-radius:8px;display:block;"
-         width="1200" height="675" loading="eager" decoding="async">
+    <img itemprop="url" src="${escapeHtml(image)}" alt="${escapeHtml(title)}" style="width:100%;height:auto;border-radius:8px;display:block;" width="1200" height="675" loading="eager" decoding="async">
   </div>
   <div itemprop="articleBody" style="font-size:17px;color:#222;line-height:1.85;">
     <p>${escapeHtml(fullSummary)}</p>
   </div>
-  ${result.source_url ? `
-  <p style="margin-top:20px;font-size:14px;color:#666;">
-    সূত্র: <a href="${escapeHtml(result.source_url)}" rel="noopener noreferrer nofollow"
-       style="color:#007bff;text-decoration:none;">${escapeHtml(result.source_name || "মূল উৎস")}</a>
-  </p>` : ""}
+  ${result.source_url ? `<p style="margin-top:20px;font-size:14px;color:#666;">সূত্র: <a href="${escapeHtml(result.source_url)}" rel="noopener noreferrer nofollow" style="color:#007bff;text-decoration:none;">${escapeHtml(result.source_name || "মূল উৎস")}</a></p>` : ""}
 </article>
 ${relatedHtml}
 <footer style="margin-top:40px;padding-top:20px;border-top:1px solid #eee;text-align:center;color:#888;font-size:13px;">
   <p>&copy; ${new Date().getFullYear()} Ajker News</p>
-  <p>
-    <a href="https://ajkernews.in/sitemap.xml" style="color:#007bff;">Sitemap</a> ·
-    <a href="https://ajkernews.in/news-sitemap.xml" style="color:#007bff;">News Sitemap</a>
-  </p>
+  <p><a href="https://ajkernews.in/sitemap.xml" style="color:#007bff;">Sitemap</a> · <a href="https://ajkernews.in/news-sitemap.xml" style="color:#007bff;">News Sitemap</a></p>
 </footer>
 </body>
 </html>`;
@@ -1002,25 +833,22 @@ ${relatedHtml}
 }
 
 /* =========================================================
- * TABLES SETUP
+ * TABLES SETUP — includes token column for FCM
  * ========================================================= */
 async function ensureTables(env) {
   const queries = [
     `CREATE TABLE IF NOT EXISTS news (id TEXT PRIMARY KEY, source_url TEXT UNIQUE, source_name TEXT, source_title TEXT, source_description TEXT, headline TEXT, summary TEXT, main_topic TEXT, category TEXT, language TEXT DEFAULT 'bn', image_url TEXT, published_at TEXT, created_at TEXT, day_key TEXT, status TEXT DEFAULT 'published', score INTEGER DEFAULT 0, search_text TEXT, indexed_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS news_loves (id INTEGER PRIMARY KEY AUTOINCREMENT, news_id TEXT, device_id TEXT, UNIQUE(news_id, device_id))`,
     `CREATE TABLE IF NOT EXISTS news_comments (id TEXT PRIMARY KEY, news_id TEXT, author_name TEXT, comment_text TEXT, created_at TEXT)`,
-    `CREATE TABLE IF NOT EXISTS push_subscriptions (id TEXT PRIMARY KEY, endpoint TEXT UNIQUE, keys_json TEXT, created_at TEXT)`,
-    `CREATE TABLE IF NOT EXISTS push_notifications (id TEXT PRIMARY KEY, news_id TEXT, title TEXT, body TEXT, url TEXT, image_url TEXT, created_at TEXT, expires_at TEXT)`,
-    `CREATE TABLE IF NOT EXISTS push_notification_deliveries (id TEXT PRIMARY KEY, notification_id TEXT, endpoint TEXT, created_at TEXT, last_sent_at TEXT, status TEXT DEFAULT 'pending', UNIQUE(notification_id, endpoint))`,
-    `CREATE INDEX IF NOT EXISTS idx_push_notifications_expires ON push_notifications(expires_at)`,
-    `CREATE INDEX IF NOT EXISTS idx_push_delivery_endpoint ON push_notification_deliveries(endpoint, status)`,
+    `CREATE TABLE IF NOT EXISTS push_subscriptions (id TEXT PRIMARY KEY, endpoint TEXT UNIQUE, keys_json TEXT, token TEXT, created_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS affiliate_clicks (id TEXT PRIMARY KEY, affiliate_name TEXT, click_url TEXT, device_id TEXT, created_at TEXT)`,
     `CREATE INDEX IF NOT EXISTS idx_news_status_published ON news(status, published_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_status_created ON news(status, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_category_published ON news(category, published_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_score_published ON news(score DESC, published_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_loves_news_id ON news_loves(news_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_news_comments_news_created ON news_comments(news_id, created_at ASC)`
+    `CREATE INDEX IF NOT EXISTS idx_news_comments_news_created ON news_comments(news_id, created_at ASC)`,
+    `CREATE INDEX IF NOT EXISTS idx_push_subscriptions_token ON push_subscriptions(token)`
   ];
 
   for (const sql of queries) {
@@ -1034,7 +862,6 @@ async function ensureTables(env) {
   try {
     const columns = await env.DB.prepare(`PRAGMA table_info(news)`).all();
     const colNames = (columns.results || []).map(c => c.name);
-
     if (!colNames.includes("language")) {
       console.log("[MIGRATION] Adding language column");
       await env.DB.prepare(`ALTER TABLE news ADD COLUMN language TEXT DEFAULT 'bn'`).run();
@@ -1043,15 +870,16 @@ async function ensureTables(env) {
     console.error("Column migration failed:", error?.message || String(error));
   }
 
+  // ✅ Add token column to push_subscriptions (for FCM)
   try {
-    const pushColumns = await env.DB.prepare(`PRAGMA table_info(push_notifications)`).all();
+    const pushColumns = await env.DB.prepare(`PRAGMA table_info(push_subscriptions)`).all();
     const pushColNames = (pushColumns.results || []).map(c => c.name);
-    if (!pushColNames.includes("image_url")) {
-      console.log("[MIGRATION] Adding image_url column to push_notifications");
-      await env.DB.prepare(`ALTER TABLE push_notifications ADD COLUMN image_url TEXT`).run();
+    if (!pushColNames.includes("token")) {
+      console.log("[MIGRATION] Adding token column to push_subscriptions");
+      await env.DB.prepare(`ALTER TABLE push_subscriptions ADD COLUMN token TEXT`).run();
     }
   } catch (error) {
-    console.error("Push table migration failed:", error?.message || String(error));
+    console.error("Push subscriptions migration failed:", error?.message || String(error));
   }
 }
 
@@ -1068,7 +896,7 @@ async function ensureTablesOnce(env) {
 }
 
 /* =========================================================
- * SHARE PAGE (/go/{id})
+ * SHARE PAGE
  * ========================================================= */
 async function serveSharePage(id, env, requestUserAgentFromContext = "", requestUrl = null) {
   const safeId = String(id || "").trim();
@@ -1097,7 +925,7 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=UTF-8",
-      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+      "Cache-Control": "no-store",
       "X-Robots-Tag": "noindex, nofollow, noarchive"
     }
   });
@@ -1145,14 +973,7 @@ async function handleGetNewsInternal(url, env) {
   const selectFields = `news.id, news.headline, news.summary, news.main_topic, news.category, news.image_url, news.published_at, news.source_name, news.source_url, news.created_at, news.score, COUNT(nl.id) AS love_count`;
 
   if (specificId) {
-    const result = await env.DB.prepare(`
-      SELECT ${selectFields}
-      FROM news
-      LEFT JOIN news_loves nl ON nl.news_id = news.id
-      WHERE news.id = ? AND news.status = 'published'
-      GROUP BY news.id
-      LIMIT 1
-    `).bind(specificId).all();
+    const result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.id = ? AND news.status = 'published' GROUP BY news.id LIMIT 1`).bind(specificId).all();
     const news = result.results || [];
     return json({ success: true, count: news.length, news }, 200, 0);
   }
@@ -1160,46 +981,13 @@ async function handleGetNewsInternal(url, env) {
   let result;
   if (query) {
     const transliterated = toTransliterated(query);
-    result = await env.DB.prepare(`
-      SELECT ${selectFields}
-      FROM news
-      LEFT JOIN news_loves nl ON nl.news_id = news.id
-      WHERE news.status = 'published'
-        AND (news.search_text LIKE ? OR news.headline LIKE ? OR news.summary LIKE ? OR news.main_topic LIKE ?)
-      GROUP BY news.id
-      ORDER BY news.created_at DESC, news.published_at DESC
-      LIMIT ? OFFSET ?
-    `).bind(`%${transliterated}%`, `%${query}%`, `%${query}%`, `%${query}%`, queryLimit, offset).all();
+    result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.status = 'published' AND (news.search_text LIKE ? OR news.headline LIKE ? OR news.summary LIKE ? OR news.main_topic LIKE ?) GROUP BY news.id ORDER BY news.created_at DESC, news.published_at DESC LIMIT ? OFFSET ?`).bind(`%${transliterated}%`, `%${query}%`, `%${query}%`, `%${query}%`, queryLimit, offset).all();
   } else if (category === "trending") {
-    result = await env.DB.prepare(`
-      SELECT ${selectFields}
-      FROM news
-      LEFT JOIN news_loves nl ON nl.news_id = news.id
-      WHERE news.status = 'published'
-      GROUP BY news.id
-      ORDER BY news.score DESC, news.created_at DESC
-      LIMIT ? OFFSET ?
-    `).bind(queryLimit, offset).all();
+    result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.status = 'published' GROUP BY news.id ORDER BY news.score DESC, news.created_at DESC LIMIT ? OFFSET ?`).bind(queryLimit, offset).all();
   } else if (category !== "top" && category !== "all") {
-    result = await env.DB.prepare(`
-      SELECT ${selectFields}
-      FROM news
-      LEFT JOIN news_loves nl ON nl.news_id = news.id
-      WHERE news.status = 'published' AND news.category = ?
-      GROUP BY news.id
-      ORDER BY news.created_at DESC, news.published_at DESC
-      LIMIT ? OFFSET ?
-    `).bind(category, queryLimit, offset).all();
+    result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.status = 'published' AND news.category = ? GROUP BY news.id ORDER BY news.created_at DESC, news.published_at DESC LIMIT ? OFFSET ?`).bind(category, queryLimit, offset).all();
   } else {
-    result = await env.DB.prepare(`
-      SELECT ${selectFields}
-      FROM news
-      LEFT JOIN news_loves nl ON nl.news_id = news.id
-      WHERE news.status = 'published'
-      GROUP BY news.id
-      ORDER BY news.created_at DESC, news.published_at DESC
-      LIMIT ? OFFSET ?
-    `).bind(queryLimit, offset).all();
+    result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.status = 'published' GROUP BY news.id ORDER BY news.created_at DESC, news.published_at DESC LIMIT ? OFFSET ?`).bind(queryLimit, offset).all();
   }
 
   const rawNews = result?.results || [];
@@ -1210,78 +998,72 @@ async function handleGetNewsInternal(url, env) {
 }
 
 /* =========================================================
- * PUSH NOTIFICATIONS
+ * PUSH NOTIFICATIONS — FIREBASE FCM
  * ========================================================= */
 async function handleSubscribe(request, env) {
   try {
-    const subscription = await request.json();
-    if (!subscription?.endpoint) {
-      return json({ success: false, error: "Invalid subscription" }, 400, 0);
+    const body = await request.json();
+    const token = body?.token || body?.endpoint;
+    if (!token) {
+      return json({ success: false, error: "Token required" }, 400, 0);
     }
 
-    const endpoint = subscription.endpoint;
-    const keys = JSON.stringify(subscription.keys || {});
+    const endpoint = body?.endpoint || `fcm:${token.slice(0, 32)}`;
+    const keys = JSON.stringify(body?.keys || {});
+    const now = new Date().toISOString();
 
-    const existing = await env.DB.prepare(`SELECT id FROM push_subscriptions WHERE endpoint = ? LIMIT 1`).bind(endpoint).first();
+    const existing = await env.DB.prepare(
+      `SELECT id FROM push_subscriptions WHERE token = ? OR endpoint = ? LIMIT 1`
+    ).bind(token, endpoint).first();
+
     if (existing) {
-      await env.DB.prepare(`UPDATE push_subscriptions SET keys_json = ? WHERE endpoint = ?`).bind(keys, endpoint).run();
-      return json({ success: true, message: "Subscription updated" }, 200, 0);
+      await env.DB.prepare(`UPDATE push_subscriptions SET token = ?, keys_json = ? WHERE id = ?`).bind(token, keys, existing.id).run();
+      console.log(`[SUBSCRIBE] Updated: ${token.slice(0, 20)}...`);
+      return json({ success: true, message: "Updated" }, 200, 0);
     }
 
-    await env.DB.prepare(`INSERT INTO push_subscriptions (id, endpoint, keys_json, created_at) VALUES (?, ?, ?, ?)`)
-      .bind(crypto.randomUUID(), endpoint, keys, new Date().toISOString()).run();
+    await env.DB.prepare(`INSERT INTO push_subscriptions (id, endpoint, keys_json, token, created_at) VALUES (?, ?, ?, ?, ?)`)
+      .bind(crypto.randomUUID(), endpoint, keys, token, now).run();
 
+    console.log(`[SUBSCRIBE] New FCM token: ${token.slice(0, 20)}...`);
     return json({ success: true }, 200, 0);
   } catch (error) {
     console.error("Subscribe error:", error?.message || String(error));
-    return json({ success: false, error: error?.message || "Subscribe error" }, 500, 0);
+    return json({ success: false, error: "Subscribe error" }, 500, 0);
   }
 }
 
 async function handleUnsubscribe(request, env) {
   try {
-    const { endpoint } = await request.json();
-    if (!endpoint) return json({ error: "Missing endpoint" }, 400, 0);
+    const { endpoint, token } = await request.json();
+    const id = token || endpoint;
+    if (!id) return json({ error: "Missing token/endpoint" }, 400, 0);
 
-    const result = await env.DB.prepare(`DELETE FROM push_subscriptions WHERE endpoint = ?`).bind(endpoint).run();
-    if (result.meta?.rows_written > 0) {
-      return json({ success: true, message: "Unsubscribed successfully" }, 200, 0);
+    const result = await env.DB.prepare(`DELETE FROM push_subscriptions WHERE token = ? OR endpoint = ?`).bind(id, id).run();
+    if (result.meta?.changes > 0) {
+      return json({ success: true, message: "Unsubscribed" }, 200, 0);
     } else {
-      return json({ success: false, message: "Subscription not found" }, 404, 0);
+      return json({ success: false, message: "Not found" }, 404, 0);
     }
   } catch (error) {
     console.error("Unsubscribe error:", error?.message || String(error));
-    return json({ success: false, error: error?.message || "Unsubscribe error" }, 500, 0);
+    return json({ success: false, error: "Unsubscribe error" }, 500, 0);
   }
 }
 
-async function cleanExpiredPushNotifications(env) {
-  const now = new Date().toISOString();
-  try {
-    await env.DB.prepare(`DELETE FROM push_notification_deliveries WHERE notification_id IN (SELECT id FROM push_notifications WHERE expires_at <= ?)`).bind(now).run();
-    await env.DB.prepare(`DELETE FROM push_notifications WHERE expires_at <= ?`).bind(now).run();
-  } catch (error) {
-    console.error("Push expiry cleanup failed:", error?.message || String(error));
-  }
-}
-
+/* =========================================================
+ * Send Push via FCM
+ * ========================================================= */
 async function queueAndSendPushNotifications(env, newsIds) {
-  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) {
-    console.warn("VAPID keys are missing.");
+  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    console.warn("[PUSH] FIREBASE_SERVICE_ACCOUNT_JSON secret missing");
     return;
   }
 
   const ids = [...new Set((newsIds || []).filter(Boolean))];
   if (!ids.length) return;
 
-  await cleanExpiredPushNotifications(env);
-
-  webPush.setVapidDetails(
-    getVapidEmail(env),
-    env.VAPID_PUBLIC_KEY,
-    env.VAPID_PRIVATE_KEY
-  );
-
+  // Get latest news
   const placeholders = ids.map(() => "?").join(",");
   const latestNews = await env.DB.prepare(`
     SELECT id, headline, summary, image_url
@@ -1292,140 +1074,72 @@ async function queueAndSendPushNotifications(env, newsIds) {
   `).bind(...ids).first();
 
   if (!latestNews) {
-    console.log("[PUSH] No latest news found.");
+    console.log("[PUSH] No latest news found");
     return;
   }
 
-  console.log(`[PUSH] Selected: ${latestNews.id} - ${String(latestNews.headline).slice(0, 60)}`);
+  // Get FCM tokens
+  const subs = await env.DB.prepare(
+    `SELECT token FROM push_subscriptions WHERE token IS NOT NULL AND token != '' ORDER BY created_at DESC LIMIT 500`
+  ).all();
 
-  const subs = await env.DB.prepare(`SELECT endpoint, keys_json FROM push_subscriptions`).all();
   if (!subs.results?.length) {
-    console.log("[PUSH] No subscribers.");
+    console.log("[PUSH] No FCM subscribers");
     return;
   }
 
-  const now = new Date();
-  const expires = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+  const tokens = subs.results.map(s => s.token).filter(Boolean);
+  console.log(`[PUSH-FCM] Sending to ${tokens.length} subscribers`);
 
-  const notificationId = `news:${latestNews.id}`;
+  let serviceAccount;
+  try {
+    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  } catch (e) {
+    console.error("[PUSH-FCM] Invalid service account JSON:", e.message);
+    return;
+  }
+
+  const fcm = new FCM(new FcmOptions({ serviceAccount }));
+
+  const targetUrl = `https://ajkernews.in/news/${latestNews.id}`;
   const title = String(latestNews.headline || "নতুন খবর").slice(0, 180);
-  const body = String(latestNews.summary || "বিস্তারিত জানতে ক্লিক করুন...").slice(0, 180);
-  const targetUrl = `https://ajkernews.in/news/${encodeURIComponent(latestNews.id)}`;
-  const image = latestNews.image_url || null;
+  const body = String(latestNews.summary || "বিস্তারিত জানতে ক্লিক করুন").slice(0, 180);
 
-  await env.DB.prepare(`
-    INSERT OR IGNORE INTO push_notifications
-    (id, news_id, title, body, url, image_url, created_at, expires_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(notificationId, latestNews.id, title, body, targetUrl, image, now.toISOString(), expires).run();
-
-  for (const sub of subs.results) {
-    await env.DB.prepare(`
-      INSERT OR IGNORE INTO push_notification_deliveries
-      (id, notification_id, endpoint, created_at, status)
-      VALUES (?, ?, ?, ?, 'pending')
-    `).bind(crypto.randomUUID(), notificationId, sub.endpoint, now.toISOString()).run();
-  }
-
-  await sendPendingPushNotifications(env);
-}
-
-async function sendPendingPushNotifications(env, endpointFilter = null) {
-  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return;
-
-  await cleanExpiredPushNotifications(env);
-  webPush.setVapidDetails(
-    getVapidEmail(env),
-    env.VAPID_PUBLIC_KEY,
-    env.VAPID_PRIVATE_KEY
-  );
-
-  let query = `SELECT d.id AS delivery_id, d.endpoint, s.keys_json, n.id AS notification_id, n.title, n.body, n.url, n.image_url FROM push_notification_deliveries d JOIN push_notifications n ON n.id = d.notification_id JOIN push_subscriptions s ON s.endpoint = d.endpoint WHERE n.expires_at > ? AND d.status = 'pending'`;
-  const binds = [new Date().toISOString()];
-
-  if (endpointFilter) {
-    query += ` AND d.endpoint = ?`;
-    binds.push(endpointFilter);
-  }
-  query += ` ORDER BY n.created_at ASC LIMIT 200`;
-
-  const rows = await env.DB.prepare(query).bind(...binds).all();
-  const list = rows.results || [];
-  if (!list.length) return;
-
-  console.log(`[PUSH] Sending to ${list.length} deliveries`);
-
-  let sent = 0;
-  let failed = 0;
-
-  await Promise.allSettled(
-    list.map(async (row) => {
-      try {
-        const payload = JSON.stringify({
-          title: row.title,
-          body: row.body,
-          url: row.url,
-          notificationId: row.notification_id,
-          icon: "/logo.png",
-          badge: "/logo.png",
-          image: row.image_url || null
-        });
-
-        await webPush.sendNotification(
-          { endpoint: row.endpoint, keys: JSON.parse(row.keys_json) },
-          payload,
-          {
-            TTL: 86400,
-            urgency: "high",
-            headers: {
-              "Topic": "ajker-news-" + row.notification_id,
-              "Urgency": "high"
-            }
-          }
-        );
-
-        await env.DB.prepare(`UPDATE push_notification_deliveries SET last_sent_at = ?, status = 'sent' WHERE id = ?`)
-          .bind(new Date().toISOString(), row.delivery_id).run();
-        sent++;
-      } catch (error) {
-        failed++;
-        const statusCode = error?.statusCode || 0;
-        if ([401, 403, 404, 410].includes(statusCode)) {
-          // Subscription invalid — cleanup
-          await env.DB.prepare(`DELETE FROM push_subscriptions WHERE endpoint = ?`).bind(row.endpoint).run();
-          await env.DB.prepare(`DELETE FROM push_notification_deliveries WHERE endpoint = ?`).bind(row.endpoint).run();
-        } else if (statusCode === 429) {
-          // Rate limited
-          console.warn("[PUSH] Rate limited");
-        } else {
-          console.error("Push send failed:", statusCode, error?.message || String(error));
-        }
+  try {
+    const unregisteredTokens = await fcm.sendToTokens({
+      notification: { title, body },
+      data: {
+        url: targetUrl,
+        image: latestNews.image_url || "",
+        notificationId: `news:${latestNews.id}`
+      },
+      webpush: {
+        notification: {
+          icon: "https://ajkernews.in/logo.png",
+          badge: "https://ajkernews.in/logo.png",
+          image: latestNews.image_url || undefined
+        },
+        fcmOptions: { link: targetUrl }
       }
-    })
-  );
+    }, tokens);
 
-  console.log(`[PUSH] Sent: ${sent}, Failed: ${failed}`);
+    const sent = tokens.length - (unregisteredTokens?.length || 0);
+    console.log(`[PUSH-FCM] Sent: ${sent}, Invalid: ${unregisteredTokens?.length || 0}`);
+
+    // Cleanup invalid tokens
+    if (unregisteredTokens && unregisteredTokens.length > 0) {
+      const cleanPlaceholders = unregisteredTokens.map(() => "?").join(",");
+      await env.DB.prepare(`DELETE FROM push_subscriptions WHERE token IN (${cleanPlaceholders})`).bind(...unregisteredTokens).run();
+      console.log(`[PUSH-FCM] Removed ${unregisteredTokens.length} invalid tokens`);
+    }
+  } catch (error) {
+    console.error("[PUSH-FCM] Send failed:", error?.message || String(error));
+  }
 }
 
 async function handlePushSync(request, env) {
-  try {
-    const subscription = await request.json();
-    if (!subscription?.endpoint) return json({ success: false, error: "Invalid subscription" }, 400, 0);
-
-    await handleSubscribe(new Request(request.url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(subscription)
-    }), env);
-
-    await cleanExpiredPushNotifications(env);
-    await sendPendingPushNotifications(env, subscription.endpoint);
-
-    return json({ success: true, synced: true }, 200, 0);
-  } catch (error) {
-    console.error("Push sync error:", error?.message || String(error));
-    return json({ success: false, error: error?.message || "Push sync error" }, 500, 0);
-  }
+  // With FCM, pending sync is not needed
+  return json({ success: true, synced: true }, 200, 0);
 }
 
 /* =========================================================
@@ -1434,9 +1148,7 @@ async function handlePushSync(request, env) {
 async function toggleLove(request, env) {
   try {
     const { id, deviceId } = await request.json();
-    if (!id || !deviceId) {
-      return json({ error: "Missing id or deviceId" }, 400, 0);
-    }
+    if (!id || !deviceId) return json({ error: "Missing id or deviceId" }, 400, 0);
 
     const existing = await env.DB.prepare(`SELECT id FROM news_loves WHERE news_id = ? AND device_id = ?`).bind(id, deviceId).first();
 
@@ -1447,7 +1159,6 @@ async function toggleLove(request, env) {
     }
 
     const count = await env.DB.prepare(`SELECT COUNT(*) AS count FROM news_loves WHERE news_id = ?`).bind(id).first();
-
     return json({ success: true, love_count: Number(count?.count || 0) }, 200, 0);
   } catch (error) {
     return json({ success: false, error: error?.message || "Love error" }, 500, 0);
@@ -1457,7 +1168,6 @@ async function toggleLove(request, env) {
 async function getComments(url, env) {
   const id = url.searchParams.get("id");
   if (!id) return json({ error: "Missing id" }, 400, 0);
-
   const result = await env.DB.prepare(`SELECT id, author_name, comment_text, created_at FROM news_comments WHERE news_id = ? ORDER BY created_at ASC`).bind(id).all();
   return json({ comments: result.results || [] }, 200, 0);
 }
@@ -1466,11 +1176,9 @@ async function addComment(request, env) {
   try {
     const { newsId, author, text } = await request.json();
     if (!newsId || !text) return json({ error: "Missing fields" }, 400, 0);
-
     const id = crypto.randomUUID();
     await env.DB.prepare(`INSERT INTO news_comments (id, news_id, author_name, comment_text, created_at) VALUES (?, ?, ?, ?, ?)`)
       .bind(id, newsId, cleanText(author || "Guest"), cleanText(text), new Date().toISOString()).run();
-
     return json({ success: true, comment_id: id }, 200, 0);
   } catch (error) {
     return json({ success: false, error: error?.message || "Comment error" }, 500, 0);
@@ -1478,42 +1186,23 @@ async function addComment(request, env) {
 }
 
 /* =========================================================
- * SITEMAP — Enhanced with lastmod, keywords, genres
+ * SITEMAP
  * ========================================================= */
 async function generateSitemap(env) {
   try {
-    const result = await env.DB.prepare(
-      `SELECT id, published_at, created_at FROM news
-       WHERE status = 'published'
-       ORDER BY created_at DESC LIMIT 1000`
-    ).all();
-
+    const result = await env.DB.prepare(`SELECT id, published_at, created_at FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT 1000`).all();
     const news = result.results || [];
     const baseUrl = "https://ajkernews.in";
 
     let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>${baseUrl}/</loc>
-    <changefreq>hourly</changefreq>
-    <priority>1.0</priority>
-  </url>`;
+  <url><loc>${baseUrl}/</loc><changefreq>hourly</changefreq><priority>1.0</priority></url>`;
 
     for (const item of news) {
       const displayDate = item.created_at || item.published_at;
-      const lastmod = displayDate
-        ? new Date(displayDate).toISOString()
-        : new Date().toISOString();
-
-      xml += `
-  <url>
-    <loc>${baseUrl}/news/${encodeURIComponent(item.id)}</loc>
-    <lastmod>${lastmod}</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.8</priority>
-  </url>`;
+      const lastmod = displayDate ? new Date(displayDate).toISOString() : new Date().toISOString();
+      xml += `\n  <url><loc>${baseUrl}/news/${encodeURIComponent(item.id)}</loc><lastmod>${lastmod}</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>`;
     }
-
     xml += `\n</urlset>`;
 
     return new Response(xml, {
@@ -1525,11 +1214,7 @@ async function generateSitemap(env) {
       }
     });
   } catch (error) {
-    console.error("[SITEMAP] Error:", error?.message || String(error));
-    return new Response(`<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://ajkernews.in/</loc></url>
-</urlset>`, {
+    return new Response(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://ajkernews.in/</loc></url></urlset>`, {
       status: 200,
       headers: { "Content-Type": "application/xml; charset=UTF-8" }
     });
@@ -1538,48 +1223,21 @@ async function generateSitemap(env) {
 
 async function generateNewsSitemap(env) {
   try {
-    const result = await env.DB.prepare(
-      `SELECT id, headline, summary, main_topic, category, published_at, created_at FROM news
-       WHERE status = 'published'
-         AND created_at >= datetime('now', '-2 days')
-       ORDER BY created_at DESC LIMIT 1000`
-    ).all();
-
+    const result = await env.DB.prepare(`SELECT id, headline, summary, main_topic, category, published_at, created_at FROM news WHERE status = 'published' AND created_at >= datetime('now', '-2 days') ORDER BY created_at DESC LIMIT 1000`).all();
     const news = result.results || [];
     const base = "https://ajkernews.in";
 
     let xml = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
-        xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">`;
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">`;
 
     for (const n of news) {
       const displayDate = n.created_at || n.published_at;
-      const publishedAt = displayDate
-        ? new Date(displayDate).toISOString()
-        : new Date().toISOString();
+      const publishedAt = displayDate ? new Date(displayDate).toISOString() : new Date().toISOString();
       const safeTitle = String(n.headline || "News").slice(0, 110);
-      const keywords = [
-        n.category || "general",
-        n.main_topic || ""
-      ].filter(Boolean).join(", ").slice(0, 200);
+      const keywords = [n.category || "general", n.main_topic || ""].filter(Boolean).join(", ").slice(0, 200);
 
-      xml += `
-  <url>
-    <loc>${base}/news/${encodeURIComponent(n.id)}</loc>
-    <lastmod>${publishedAt}</lastmod>
-    <news:news>
-      <news:publication>
-        <news:name>Ajker News</news:name>
-        <news:language>bn</news:language>
-      </news:publication>
-      <news:publication_date>${publishedAt}</news:publication_date>
-      <news:title>${escapeHtml(safeTitle)}</news:title>
-      ${keywords ? `<news:keywords>${escapeHtml(keywords)}</news:keywords>` : ""}
-      <news:genres>Blog</news:genres>
-    </news:news>
-  </url>`;
+      xml += `\n  <url><loc>${base}/news/${encodeURIComponent(n.id)}</loc><lastmod>${publishedAt}</lastmod><news:news><news:publication><news:name>Ajker News</news:name><news:language>bn</news:language></news:publication><news:publication_date>${publishedAt}</news:publication_date><news:title>${escapeHtml(safeTitle)}</news:title>${keywords ? `<news:keywords>${escapeHtml(keywords)}</news:keywords>` : ""}<news:genres>Blog</news:genres></news:news></url>`;
     }
-
     xml += `\n</urlset>`;
 
     return new Response(xml, {
@@ -1591,20 +1249,13 @@ async function generateNewsSitemap(env) {
       }
     });
   } catch (error) {
-    console.error("[NEWS-SITEMAP] Error:", error?.message || String(error));
-    return new Response(`<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
-        xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">
-</urlset>`, {
+    return new Response(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9"></urlset>`, {
       status: 200,
       headers: { "Content-Type": "application/xml; charset=UTF-8" }
     });
   }
 }
 
-/* =========================================================
- * ROBOTS.TXT
- * ========================================================= */
 function generateRobotsTxt() {
   const text = `User-agent: *
 Allow: /
@@ -1647,15 +1298,8 @@ Sitemap: https://ajkernews.in/news-sitemap.xml
   });
 }
 
-/* =========================================================
- * RSS FEED
- * ========================================================= */
 async function generateRSS(env) {
-  const result = await env.DB.prepare(
-    `SELECT id, headline, summary, published_at, created_at, image_url, source_name
-     FROM news WHERE status='published'
-     ORDER BY created_at DESC LIMIT 50`
-  ).all();
+  const result = await env.DB.prepare(`SELECT id, headline, summary, published_at, created_at, image_url, source_name FROM news WHERE status='published' ORDER BY created_at DESC LIMIT 50`).all();
   const news = result.results || [];
   const base = "https://ajkernews.in";
 
@@ -1664,14 +1308,7 @@ async function generateRSS(env) {
     const displayDate = n.created_at || n.published_at;
     const pubDate = displayDate ? new Date(displayDate).toUTCString() : new Date().toUTCString();
     const safeDesc = String(n.summary || "").replace(/]]>/g, "]]]]><![CDATA[>");
-    return `<item>
-  <title>${escapeHtml(n.headline)}</title>
-  <link>${link}</link>
-  <guid isPermaLink="true">${link}</guid>
-  <pubDate>${pubDate}</pubDate>
-  <description><![CDATA[${safeDesc}]]></description>
-  ${n.image_url ? `<enclosure url="${escapeHtml(n.image_url)}" type="image/jpeg"/>` : ""}
-</item>`;
+    return `<item><title>${escapeHtml(n.headline)}</title><link>${link}</link><guid isPermaLink="true">${link}</guid><pubDate>${pubDate}</pubDate><description><![CDATA[${safeDesc}]]></description>${n.image_url ? `<enclosure url="${escapeHtml(n.image_url)}" type="image/jpeg"/>` : ""}</item>`;
   }).join("\n");
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>

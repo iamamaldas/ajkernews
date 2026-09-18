@@ -9,10 +9,11 @@
 <meta name="robots" content="index, follow">
 <meta name="author" content="Ajker News">
 <link rel="canonical" href="https://ajkernews.in/">
-<link rel="manifest" href="manifest.json">
+<link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ajker News">
 <link rel="apple-touch-icon" href="/logo.png">
 <link rel="icon" type="image/png" sizes="512x512" href="/logo.png">
 <link rel="shortcut icon" type="image/png" href="/logo.png">
@@ -320,9 +321,10 @@ body { background:#ffffff; color:#111111; padding-bottom:20px; -webkit-font-smoo
   <span>App</span>
 </button>
 <script>
-// ===== CONFIG =====
+// ===== CONFIG — dynamic origin (works on ajkernews.in + worker URL) =====
 const WORKER_BASE = window.location.origin;
 const API_URL = `${WORKER_BASE}/api/news`;
+const SITE_URL = "https://ajkernews.in";
 
 // ===== STATE =====
 let currentCategory = 'top';
@@ -340,7 +342,6 @@ let __prefetchData = null;
 let __prefetchOffset = 0;
 
 // ===== HELPERS =====
-// ✅ FIXED: created_at priority (our publish time) over published_at (GNews original)
 function sortByLatest(newsArray) {
   if (!Array.isArray(newsArray)) return [];
   return [...newsArray].sort((a, b) => {
@@ -889,7 +890,7 @@ async function shareNews(id, headline, summary) {
     if (cutIndex === -1) cutIndex = MAX_SUMMARY;
     cleanSummary = cleanSummary.substring(0, cutIndex) + '...';
   }
-  const shareUrl = WORKER_BASE + '/news/' + encodeURIComponent(id);
+  const shareUrl = `${SITE_URL}/news/${encodeURIComponent(id)}`;
   const shareText = cleanSummary
     ? `${cleanHeadline}\n\n${cleanSummary}\n\nপূর্ণ খবর দেখতে এই লিঙ্কে ক্লিক করুন\n${shareUrl}`
     : `${cleanHeadline}\n\nপূর্ণ খবর দেখতে এই লিঙ্কে ক্লিক করুন\n${shareUrl}`;
@@ -957,9 +958,14 @@ async function toggleNotification() {
         if (!configRes.ok) throw new Error('Push config HTTP ' + configRes.status);
         const config = await configRes.json();
         if (!config.publicKey) throw new Error('No VAPID public key');
+
+        // VAPID key basic validation
+        const pubKey = String(config.publicKey).trim();
+        if (pubKey.length < 80) throw new Error('VAPID public key invalid length');
+
         const sub = await registration.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(config.publicKey)
+          applicationServerKey: urlBase64ToUint8Array(pubKey)
         });
         const res = await fetch(`${WORKER_BASE}/api/subscribe`, {
           method: 'POST',
@@ -969,11 +975,6 @@ async function toggleNotification() {
         if (!res.ok) throw new Error('Subscribe HTTP ' + res.status);
         btn.classList.add('subscribed');
         alert('নোটিফিকেশন চালু হয়েছে! নতুন খবর এলে আমরা জানাব।');
-        if ('serviceWorker' in navigator && 'SyncManager' in window) {
-          try {
-            await registration.sync.register('sync-pending-notifications');
-          } catch (e) { console.warn('Background sync registration failed:', e); }
-        }
         return;
       } catch (err) {
         lastError = err;
@@ -1008,8 +1009,9 @@ async function checkNotificationStatus() {
   } catch (e) { console.error('Status check error:', e); }
 }
 
-async function syncMissedNotifications() {
-  if (!navigator.onLine || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+// ✅ Fixed: sync pending notifications on online
+window.addEventListener('online', async () => {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
   try {
     const registration = await navigator.serviceWorker.ready;
     const subscription = await registration.pushManager.getSubscription();
@@ -1019,9 +1021,8 @@ async function syncMissedNotifications() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(subscription)
     });
-  } catch (e) { console.warn('Missed notification sync failed:', e); }
-}
-window.addEventListener('online', () => { syncMissedNotifications(); });
+  } catch (e) { /* silent */ }
+});
 
 // ===== COMMENTS (Instant UI) =====
 async function openCommentModal(id) {
@@ -1029,7 +1030,7 @@ async function openCommentModal(id) {
   const body = document.getElementById('modal-body');
   body.dataset.currentNewsId = id;
   try {
-    const response = await fetch(`${WORKER_BASE}/api/comments?id=${id}`, { 
+    const response = await fetch(`${WORKER_BASE}/api/comments?id=${id}`, {
       method: 'GET',
       cache: 'no-store'
     });
@@ -1074,7 +1075,7 @@ async function submitComment(newsId) {
   const tempId = 'temp-comment-' + Date.now();
   const tempHtml = `
     <div id="${tempId}" style="border-bottom:1px solid #eee; padding:10px 0; opacity:0.6;">
-      <strong>${escapeHtml(author)}</strong> 
+      <strong>${escapeHtml(author)}</strong>
       <span style="font-size:11px; color:#888;">এখনই</span>
       <p style="margin:5px 0 0;">${escapeHtml(text)}</p>
     </div>
@@ -1340,9 +1341,6 @@ window.addEventListener('load', () => {
         const reg = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
         if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
         reg.update().catch(() => {});
-        if ('SyncManager' in window) {
-          try { await reg.sync.register('sync-pending-notifications'); } catch (_) {}
-        }
       } catch (err) { console.error('SW registration failed:', err); }
     }
     await checkNotificationStatus();

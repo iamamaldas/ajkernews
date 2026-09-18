@@ -1,13 +1,12 @@
 /**
  * Ajker News Service Worker
- * v2026-09-16-1 — Cache fix + navigation-first
+ * v2026-09-18-1 — Push notification fix + dynamic origin
  */
 
-const CACHE_VERSION = "ajker-news-v2026-09-16-1";
+const CACHE_VERSION = "ajker-news-v2026-09-18-1";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const LOGO_URL = "/logo.png";
 
-// ✅ index.html বাদ — সেটা dynamic (Worker থেকে আসে)
 const APP_SHELL = ["/", "/manifest.json", LOGO_URL];
 
 self.addEventListener("install", event => {
@@ -50,7 +49,6 @@ self.addEventListener("fetch", event => {
   if (request.method !== "GET") return;
   const url = new URL(request.url);
 
-  // ✅ API, /go/, /news — always network (no cache)
   if (url.pathname.startsWith("/api/") ||
       url.pathname.startsWith("/go/") ||
       url.pathname === "/news") {
@@ -58,7 +56,6 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  // ✅ HTML navigation — network first, no stale index.html
   if (request.mode === "navigate" || request.destination === "document") {
     event.respondWith(
       fetch(request).catch(() => caches.match("/"))
@@ -66,7 +63,6 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  // ✅ Static assets — cache first
   if (["script", "style", "image", "font"].includes(request.destination) ||
       url.pathname.startsWith("/assets/")) {
     event.respondWith(caches.match(request).then(c => c || fetch(request)));
@@ -77,9 +73,11 @@ self.addEventListener("fetch", event => {
 });
 
 /* =========================================================
- * Push Notification — Latest single + Image
+ * Push Notification
  * ========================================================= */
 self.addEventListener("push", event => {
+  console.log("[SW] Push event received");
+
   let data = {
     title: "আজকের নিউজ",
     body: "নতুন খবর এসেছে!",
@@ -87,13 +85,14 @@ self.addEventListener("push", event => {
     icon: LOGO_URL,
     badge: LOGO_URL,
     image: null,
-    notificationId: Date.now().toString()
+    notificationId: ""
   };
 
   if (event.data) {
     try {
       const parsed = event.data.json();
       data = { ...data, ...parsed };
+      console.log("[SW] Push data:", JSON.stringify(data).slice(0, 200));
     } catch (e) {
       try {
         const text = event.data.text();
@@ -102,26 +101,33 @@ self.addEventListener("push", event => {
     }
   }
 
+  if (!data.notificationId) {
+    data.notificationId = "notif-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+  }
+
   const options = {
     body: data.body,
     icon: data.icon || LOGO_URL,
     badge: data.badge || LOGO_URL,
     image: data.image || undefined,
     vibrate: [200, 100, 200],
-    tag: "ajker-news-latest",
+    tag: data.notificationId,
     renotify: true,
     silent: false,
     requireInteraction: false,
-    priority: 2,
     timestamp: Date.now(),
     data: {
       url: data.url || "/",
-      notificationId: data.notificationId || "",
+      notificationId: data.notificationId,
       timestamp: Date.now()
     }
   };
 
-  event.waitUntil(self.registration.showNotification(data.title, options));
+  event.waitUntil(
+    self.registration.showNotification(data.title, options)
+      .then(() => console.log("[SW] Notification shown"))
+      .catch(err => console.error("[SW] showNotification failed:", err))
+  );
 });
 
 /* =========================================================
@@ -133,7 +139,7 @@ self.addEventListener("notificationclick", event => {
   const notifData = event.notification.data || {};
   let targetUrl = notifData.url || "/";
   if (!targetUrl.startsWith("http")) {
-    targetUrl = `https://ajkernews.in${targetUrl.startsWith("/") ? targetUrl : "/" + targetUrl}`;
+    targetUrl = `${self.location.origin}${targetUrl.startsWith("/") ? targetUrl : "/" + targetUrl}`;
   }
 
   let newsId = notifData.notificationId || "";
@@ -171,18 +177,25 @@ self.addEventListener("notificationclick", event => {
     }
 
     if (self.clients.openWindow) {
-      await self.clients.openWindow(targetUrl);
+      try {
+        await self.clients.openWindow(targetUrl);
+      } catch (err) {
+        console.error("[SW] openWindow failed:", err);
+      }
     }
   })());
 });
 
+/* =========================================================
+ * Subscription Change (dynamic origin)
+ * ========================================================= */
 self.addEventListener("pushsubscriptionchange", event => {
   event.waitUntil((async () => {
     try {
       const oldSub = event.oldSubscription;
       const appServerKey = oldSub?.options?.applicationServerKey;
       if (!appServerKey) {
-        console.warn("No applicationServerKey; cannot renew");
+        console.warn("[SW] No applicationServerKey; cannot renew");
         return;
       }
 
@@ -191,45 +204,15 @@ self.addEventListener("pushsubscriptionchange", event => {
         applicationServerKey: appServerKey
       });
 
-      await fetch("https://ajkernews.ajkernews-1c0.workers.dev/api/subscribe", {
+      await fetch(`${self.location.origin}/api/subscribe`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newSub)
       });
 
-      console.log("Subscription renewed");
+      console.log("[SW] Subscription renewed");
     } catch (e) {
-      console.error("pushsubscriptionchange failed:", e);
+      console.error("[SW] pushsubscriptionchange failed:", e);
     }
   })());
 });
-
-self.addEventListener("sync", event => {
-  if (event.tag === "sync-pending-notifications") {
-    event.waitUntil(syncMissedNotifications());
-  }
-});
-
-async function syncMissedNotifications() {
-  try {
-    const subscription = await self.registration.pushManager.getSubscription();
-    if (!subscription) {
-      console.warn("No push subscription found for sync.");
-      return;
-    }
-
-    const response = await fetch("https://ajkernews.ajkernews-1c0.workers.dev/api/push-sync", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(subscription)
-    });
-
-    if (response.ok) {
-      console.log("Background sync: missed notifications delivered.");
-    } else {
-      console.warn("Background sync failed:", response.status);
-    }
-  } catch (e) {
-    console.error("Background sync error:", e);
-  }
-}

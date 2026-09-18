@@ -54,7 +54,7 @@ function toTransliterated(text) {
 const BOT_REGEX = /googlebot|google-inspectiontool|apis-google|mediapartners-google|adsbot-google|googleother|feedfetcher-google|google-read-aloud|google-site-verification|storebot-google|googlebot-news|googlebot-image|googlebot-video|bingbot|msnbot|adidxbot|bingpreview|yandex|baiduspider|baiduboxapp|sogou|exabot|duckduckbot|duckassistbot|applebot|applebot-extended|slurp|twitterbot|facebookexternalhit|facebookcatalog|facebot|whatsapp|telegrambot|linkedinbot|pinterest|slackbot|discordbot|petalbot|semrushbot|ahrefsbot|mj12bot|dotbot|gptbot|chatgpt-user|perplexitybot|ccbot|anthropic-ai|claude-web|youbot|lighthouse|chrome-lighthouse/i;
 
 /* =========================================================
- * VAPID Email — Auto-prefix mailto:
+ * VAPID Email
  * ========================================================= */
 function getVapidEmail(env) {
   const raw = String(env.VAPID_EMAIL || "").trim();
@@ -692,7 +692,7 @@ async function serveListingPage(env, category, searchQuery) {
 }
 
 /* =========================================================
- * ARTICLE PAGE
+ * ARTICLE PAGE — with font controls + user footer
  * ========================================================= */
 async function serveArticlePage(id, env) {
   const safeId = String(id || "").trim();
@@ -761,10 +761,10 @@ async function serveArticlePage(id, env) {
   });
 
   const relatedHtml = relatedNews.length ? `
-  <aside style="margin-top:32px;padding-top:20px;border-top:1px solid #eee;">
-    <h3 style="font-size:18px;margin:0 0 14px;color:#111;">সম্পর্কিত খবর</h3>
-    <ul style="list-style:none;padding:0;margin:0;">
-      ${relatedNews.map(n => `<li style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #f0f0f0;"><a href="https://ajkernews.in/news/${encodeURIComponent(n.id)}" style="color:#111;text-decoration:none;font-size:15px;line-height:1.5;">${escapeHtml(n.headline || "")}</a></li>`).join("")}
+  <aside class="related-box">
+    <h3>সম্পর্কিত খবর</h3>
+    <ul>
+      ${relatedNews.map(n => `<li><a href="https://ajkernews.in/news/${encodeURIComponent(n.id)}">${escapeHtml(n.headline || "")}</a></li>`).join("")}
     </ul>
   </aside>` : "";
 
@@ -789,36 +789,106 @@ async function serveArticlePage(id, env) {
 <meta name="twitter:card" content="summary_large_image">
 <script type="application/ld+json">${newsArticleLd}</script>
 <script type="application/ld+json">${breadcrumbLd}</script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { max-width:780px; margin:0 auto; padding:16px; font-family:Inter,-apple-system,sans-serif; color:#111; line-height:1.7; background:#fff; }
+  .article-topbar { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px; padding:8px 12px; background:#f8f8f8; border-radius:8px; }
+  .article-topbar a { color:#007bff; text-decoration:none; font-size:14px; font-weight:500; }
+  .font-controls { display:flex; align-items:center; gap:6px; }
+  .font-controls .fc-label { font-size:12px; color:#666; margin-right:4px; }
+  .font-btn { width:36px; height:36px; border:1px solid #ddd; background:#fff; border-radius:6px; font-size:14px; font-weight:700; cursor:pointer; color:#333; display:inline-flex; align-items:center; justify-content:center; user-select:none; -webkit-tap-highlight-color:transparent; transition:background 0.15s; }
+  .font-btn:hover { background:#f0f0f0; }
+  .font-btn:active { background:#e5e5e5; transform:scale(0.95); }
+  .article-cat { display:inline-block; font-size:12px; color:#f44336; font-weight:700; margin-bottom:8px; text-decoration:none; }
+  .article-h1 { font-size:26px; line-height:1.35; margin:0 0 12px; color:#111; }
+  .article-meta { font-size:13px; color:#888; margin-bottom:16px; }
+  .article-img { width:100%; height:auto; border-radius:8px; display:block; margin-bottom:18px; }
+  .article-body { font-size:17px; color:#222; line-height:1.85; transition:font-size 0.2s ease; }
+  .article-source { margin-top:20px; font-size:14px; color:#666; }
+  .article-source a { color:#007bff; text-decoration:none; }
+  .related-box { margin-top:32px; padding-top:20px; border-top:1px solid #eee; }
+  .related-box h3 { font-size:18px; margin:0 0 14px; color:#111; }
+  .related-box ul { list-style:none; padding:0; margin:0; }
+  .related-box li { margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #f0f0f0; }
+  .related-box a { color:#111; text-decoration:none; font-size:15px; line-height:1.5; }
+  .article-footer { margin-top:40px; padding-top:20px; border-top:1px solid #eee; text-align:center; color:#888; font-size:13px; }
+  .article-footer .footer-links { display:flex; justify-content:center; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
+  .article-footer .footer-links a { color:#555; text-decoration:none; font-size:13px; }
+  .article-footer .footer-links a:hover { color:#007bff; }
+  .article-footer .sep { color:#ddd; }
+  @media (max-width:480px) {
+    body { padding:12px; }
+    .article-h1 { font-size:22px; }
+    .font-btn { width:34px; height:34px; font-size:13px; }
+    .article-body { font-size:16px; }
+    .article-topbar { padding:6px 10px; }
+  }
+</style>
 </head>
-<body style="max-width:780px;margin:0 auto;padding:20px;font-family:Inter,-apple-system,sans-serif;color:#111;line-height:1.7;">
-<header style="margin-bottom:20px;">
-  <p style="margin:0 0 12px;"><a href="https://ajkernews.in/" style="color:#007bff;text-decoration:none;font-size:14px;">← আজকের নিউজ হোম</a></p>
-</header>
+<body>
+<div class="article-topbar">
+  <a href="https://ajkernews.in/">← আজকের নিউজ হোম</a>
+  <div class="font-controls">
+    <span class="fc-label">ফন্ট:</span>
+    <button class="font-btn" id="fontDec" onclick="changeFontSize(-1)" aria-label="Font smaller">A-</button>
+    <button class="font-btn" id="fontInc" onclick="changeFontSize(1)" aria-label="Font bigger">A+</button>
+  </div>
+</div>
 <article itemscope itemtype="https://schema.org/NewsArticle">
   <meta itemprop="datePublished" content="${escapeHtml(publishedAt)}">
   <meta itemprop="dateModified" content="${escapeHtml(publishedAt)}">
   <meta itemprop="mainEntityOfPage" content="${escapeHtml(canonical)}">
-  <p style="font-size:12px;color:#f44336;font-weight:700;margin:0 0 8px;">
-    <a href="https://ajkernews.in/?category=${encodeURIComponent(category)}" style="color:#f44336;text-decoration:none;">${escapeHtml(catLabel[category] || category)}</a>
-  </p>
-  <h1 itemprop="headline" style="font-size:28px;line-height:1.35;margin:0 0 12px;color:#111;">${escapeHtml(title)}</h1>
-  <div style="font-size:13px;color:#888;margin-bottom:16px;">
+  <a class="article-cat" href="https://ajkernews.in/?category=${encodeURIComponent(category)}">${escapeHtml(catLabel[category] || category)}</a>
+  <h1 class="article-h1" itemprop="headline">${escapeHtml(title)}</h1>
+  <div class="article-meta">
     <span itemprop="author" itemscope itemtype="https://schema.org/Organization"><span itemprop="name">${escapeHtml(result.source_name || "Ajker News")}</span></span>
     • <time datetime="${escapeHtml(publishedAt)}">${escapeHtml(publishedAt)}</time>
   </div>
-  <div itemprop="image" itemscope itemtype="https://schema.org/ImageObject" style="margin-bottom:18px;">
-    <img itemprop="url" src="${escapeHtml(image)}" alt="${escapeHtml(title)}" style="width:100%;height:auto;border-radius:8px;display:block;" width="1200" height="675" loading="eager" decoding="async">
+  <div itemprop="image" itemscope itemtype="https://schema.org/ImageObject">
+    <img itemprop="url" class="article-img" src="${escapeHtml(image)}" alt="${escapeHtml(title)}" width="1200" height="675" loading="eager" decoding="async">
   </div>
-  <div itemprop="articleBody" style="font-size:17px;color:#222;line-height:1.85;">
+  <div class="article-body" id="articleBody" itemprop="articleBody">
     <p>${escapeHtml(fullSummary)}</p>
   </div>
-  ${result.source_url ? `<p style="margin-top:20px;font-size:14px;color:#666;">সূত্র: <a href="${escapeHtml(result.source_url)}" rel="noopener noreferrer nofollow" style="color:#007bff;text-decoration:none;">${escapeHtml(result.source_name || "মূল উৎস")}</a></p>` : ""}
+  ${result.source_url ? `<p class="article-source">সূত্র: <a href="${escapeHtml(result.source_url)}" rel="noopener noreferrer nofollow">${escapeHtml(result.source_name || "মূল উৎস")}</a></p>` : ""}
 </article>
 ${relatedHtml}
-<footer style="margin-top:40px;padding-top:20px;border-top:1px solid #eee;text-align:center;color:#888;font-size:13px;">
-  <p>&copy; ${new Date().getFullYear()} Ajker News</p>
-  <p><a href="https://ajkernews.in/sitemap.xml" style="color:#007bff;">Sitemap</a> · <a href="https://ajkernews.in/news-sitemap.xml" style="color:#007bff;">News Sitemap</a></p>
+<footer class="article-footer">
+  <div class="footer-links">
+    <a href="https://ajkernews.in/">হোম</a>
+    <span class="sep">·</span>
+    <a href="https://ajkernews.in/pages/about.html">About</a>
+    <span class="sep">·</span>
+    <a href="https://ajkernews.in/pages/terms.html">Terms</a>
+    <span class="sep">·</span>
+    <a href="https://ajkernews.in/pages/privacy.html">Privacy</a>
+    <span class="sep">·</span>
+    <a href="https://ajkernews.in/pages/contact.html">Contact</a>
+  </div>
+  <p>&copy; ${new Date().getFullYear()} Ajker News. All rights reserved.</p>
 </footer>
+<script>
+(function() {
+  var sizes = [15, 16, 17, 18, 19, 20, 22, 24, 26, 28];
+  var current = 2;
+  var saved = parseInt(localStorage.getItem('articleFontSize') || '2', 10);
+  if (!isNaN(saved) && saved >= 0 && saved < sizes.length) current = saved;
+  function apply() {
+    var body = document.getElementById('articleBody');
+    if (body) body.style.fontSize = sizes[current] + 'px';
+    localStorage.setItem('articleFontSize', String(current));
+  }
+  window.changeFontSize = function(delta) {
+    current = Math.max(0, Math.min(sizes.length - 1, current + delta));
+    apply();
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', apply);
+  } else {
+    apply();
+  }
+})();
+</script>
 </body>
 </html>`;
 
@@ -870,7 +940,6 @@ async function ensureTables(env) {
     console.error("Column migration failed:", error?.message || String(error));
   }
 
-  // ✅ Add token column to push_subscriptions (for FCM)
   try {
     const pushColumns = await env.DB.prepare(`PRAGMA table_info(push_subscriptions)`).all();
     const pushColNames = (pushColumns.results || []).map(c => c.name);
@@ -1051,9 +1120,6 @@ async function handleUnsubscribe(request, env) {
   }
 }
 
-/* =========================================================
- * Send Push via FCM
- * ========================================================= */
 async function queueAndSendPushNotifications(env, newsIds) {
   if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
     console.warn("[PUSH] FIREBASE_SERVICE_ACCOUNT_JSON secret missing");
@@ -1063,7 +1129,6 @@ async function queueAndSendPushNotifications(env, newsIds) {
   const ids = [...new Set((newsIds || []).filter(Boolean))];
   if (!ids.length) return;
 
-  // Get latest news
   const placeholders = ids.map(() => "?").join(",");
   const latestNews = await env.DB.prepare(`
     SELECT id, headline, summary, image_url
@@ -1078,7 +1143,6 @@ async function queueAndSendPushNotifications(env, newsIds) {
     return;
   }
 
-  // Get FCM tokens
   const subs = await env.DB.prepare(
     `SELECT token FROM push_subscriptions WHERE token IS NOT NULL AND token != '' ORDER BY created_at DESC LIMIT 500`
   ).all();
@@ -1126,7 +1190,6 @@ async function queueAndSendPushNotifications(env, newsIds) {
     const sent = tokens.length - (unregisteredTokens?.length || 0);
     console.log(`[PUSH-FCM] Sent: ${sent}, Invalid: ${unregisteredTokens?.length || 0}`);
 
-    // Cleanup invalid tokens
     if (unregisteredTokens && unregisteredTokens.length > 0) {
       const cleanPlaceholders = unregisteredTokens.map(() => "?").join(",");
       await env.DB.prepare(`DELETE FROM push_subscriptions WHERE token IN (${cleanPlaceholders})`).bind(...unregisteredTokens).run();
@@ -1138,7 +1201,6 @@ async function queueAndSendPushNotifications(env, newsIds) {
 }
 
 async function handlePushSync(request, env) {
-  // With FCM, pending sync is not needed
   return json({ success: true, synced: true }, 200, 0);
 }
 

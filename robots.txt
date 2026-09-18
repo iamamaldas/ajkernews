@@ -1,4 +1,30 @@
 User-agent: *
 Allow: /
+Disallow: /api/
+Disallow: /go/
+
+User-agent: Googlebot-News
+Allow: /
+
+User-agent: Googlebot
+Allow: /
+Crawl-delay: 1
+
+User-agent: Bingbot
+Allow: /
+Crawl-delay: 1
+
+User-agent: Bingbot-News
+Allow: /
+
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
 
 Sitemap: https://ajkernews.in/sitemap.xml
+Sitemap: https://ajkernews.in/news-sitemap.xml

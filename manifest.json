@@ -8,6 +8,9 @@
   "background_color": "#ffffff",
   "theme_color": "#ffffff",
   "lang": "bn",
+  "dir": "ltr",
+  "orientation": "portrait",
+  "categories": ["news", "magazines"],
   "icons": [
     {
       "src": "/logo.png",

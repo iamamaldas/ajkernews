@@ -4,18 +4,13 @@
  * Multi-channel URL discovery for published news.
  *
  * Active channels:
- *   1. IndexNow
+ *   1. IndexNow (Bing, Yandex, Naver, Seznam)
  *   2. Bing Webmaster URL submission (when BING_API_KEY exists)
  *   3. WebSub notification for RSS subscribers/consumers
  *   4. Ping-O-Matic (best-effort legacy discovery channel)
  *
- * Google sitemap ping is intentionally NOT used. Google retired the
- * unauthenticated sitemap-ping endpoint; Google discovery should come from
- * robots.txt + Search Console sitemap submission + normal crawling.
- *
- * Google Indexing API is also intentionally NOT used for ordinary news
- * articles. Google documents that API for JobPosting and BroadcastEvent in a
- * VideoObject. Ordinary news URLs use sitemap/news-sitemap/RSS/internal links.
+ * Google sitemap ping is intentionally NOT used (retired by Google).
+ * Google Indexing API is NOT used for ordinary news articles.
  */
 
 import { submitToIndexNow } from "./indexnow.js";
@@ -29,18 +24,11 @@ export async function fastIndexNews(env, ids) {
   const list = [...new Set((ids || []).map(id => String(id || "").trim()).filter(Boolean))];
 
   if (!list.length) {
-    return {
-      ok: true,
-      submitted: 0,
-      successfulChannels: 0,
-      channels: []
-    };
+    return { ok: true, submitted: 0, successfulChannels: 0, channels: [] };
   }
 
   const urls = list.map(id => `${SITE}/news/${encodeURIComponent(id)}`);
 
-  // Keep channel work isolated. One provider failing must never block the
-  // other discovery channels.
   const jobs = [
     ["indexnow", () => submitIndexNowInChunks(env, urls)],
     ["bing", () => submitToBing(env, urls)],
@@ -56,11 +44,7 @@ export async function fastIndexNews(env, ids) {
     const channel = jobs[index][0];
     if (result.status === "fulfilled") {
       const info = result.value || {};
-      return {
-        channel,
-        ok: info.ok !== false,
-        info
-      };
+      return { channel, ok: info.ok !== false, info };
     }
     return {
       channel,
@@ -72,21 +56,13 @@ export async function fastIndexNews(env, ids) {
   const successfulChannels = channels.filter(item => item.ok).length;
   const ok = successfulChannels > 0;
 
-  console.log(
-    "[FAST-INDEX] Summary:",
-    JSON.stringify({
-      urls: urls.length,
-      successfulChannels,
-      channels
-    })
-  );
-
-  return {
-    ok,
-    submitted: urls.length,
+  console.log("[FAST-INDEX] Summary:", JSON.stringify({
+    urls: urls.length,
     successfulChannels,
     channels
-  };
+  }));
+
+  return { ok, submitted: urls.length, successfulChannels, channels };
 }
 
 async function submitIndexNowInChunks(env, urls) {
@@ -102,7 +78,7 @@ async function submitIndexNowInChunks(env, urls) {
     try {
       const result = await submitToIndexNow(env, chunk);
       if (result?.error || result?.ok === false) {
-        errors.push(result?.error || "IndexNow submission returned ok=false");
+        errors.push(result?.error || "IndexNow ok=false");
         continue;
       }
       submitted += chunk.length;
@@ -147,10 +123,7 @@ async function submitToBing(env, urls) {
       response: text.slice(0, 500)
     };
   } catch (error) {
-    return {
-      ok: false,
-      error: error?.message || String(error)
-    };
+    return { ok: false, error: error?.message || String(error) };
   }
 }
 
@@ -163,15 +136,8 @@ async function pingPingOMatic() {
       `https://rpc.pingomatic.com/?title=${title}&url=${url}`,
       { method: "GET" }
     );
-
-    return {
-      ok: response.ok,
-      status: response.status
-    };
+    return { ok: response.ok, status: response.status };
   } catch (error) {
-    return {
-      ok: false,
-      error: error?.message || String(error)
-    };
+    return { ok: false, error: error?.message || String(error) };
   }
 }

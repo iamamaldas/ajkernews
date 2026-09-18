@@ -3,37 +3,24 @@ main = "src/index.js"
 compatibility_date = "2026-09-03"
 compatibility_flags = ["nodejs_compat"]
 
-# =========================================================
-# STATIC ASSETS
-# =========================================================
 [assets]
 directory = "../"
 binding = "ASSETS"
 run_worker_first = ["/*"]
 not_found_handling = "none"
 
-# =========================================================
-# D1 DATABASE
-# =========================================================
 [[d1_databases]]
 binding = "DB"
 database_name = "ajkernews-db"
 database_id = "f10f96b7-8bed-4c7c-a580-483d2a77e5ae"
 
-# =========================================================
-# PUBLIC VARS
-# =========================================================
 [vars]
 SITE_ORIGIN = "https://ajkernews.in"
 WORKER_ORIGIN = "https://ajkernews.ajkernews-1c0.workers.dev"
 
-# =========================================================
-# CRONS — Every 2 hours (GNews Free Tier Safe)
-# 00 = news fetch/publish + notifications
-# 15 = fast discovery submission
-# 35 = retry discovery + pending push
-# 50 = cleanup/maintenance
-# =========================================================
+[limits]
+subrequests = 1000
+
 [triggers]
 crons = [
   "0 */2 * * *",
@@ -42,9 +29,6 @@ crons = [
   "50 */2 * * *"
 ]
 
-# =========================================================
-# OBSERVABILITY
-# =========================================================
 [observability]
 enabled = true
 

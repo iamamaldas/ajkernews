@@ -1,14 +1,14 @@
 /*
  * News selector — Strict Gemini-only
- * 3 bn + 3 en = 6 news per slot
+ * 6 bn + 6 en = 12 news per slot
  * Last 80 news dedup
  */
 
 import { publishNews } from "./database.js";
 import { normalizeText } from "./utils.js";
 
-const MAX_NEWS_PER_SLOT = 6;
-const MAX_PER_LANGUAGE = 3;
+const MAX_NEWS_PER_SLOT = 12;
+const MAX_PER_LANGUAGE = 6;
 const SIMILARITY_THRESHOLD = 0.55;
 
 export function selectBestCandidates(candidates, existingPublished = []) {

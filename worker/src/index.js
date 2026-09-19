@@ -2,7 +2,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v34 — Full Fix (Comments + Share + PWA + Push)
+ * FINAL v35 — Share Text Fix (headline + summary snippet + CTA)
  * =========================================================
  */
 
@@ -1182,6 +1182,7 @@ async function serveArticlePage(id, env) {
     });
   }
 
+  /* ===== SHARE — headline + summary snippet + CTA ===== */
   var shareBtn = document.getElementById('artShareBtn');
   if (shareBtn) {
     shareBtn.addEventListener('click', async function(e) {
@@ -1189,16 +1190,28 @@ async function serveArticlePage(id, env) {
       var shareUrl = API_BASE + '/news/' + encodeURIComponent(NEWS_ID);
       var headline = document.querySelector('.article-h1');
       var headlineText = headline ? headline.textContent.trim() : 'খবর';
-      var text = '🔥 ' + headlineText + '\\n\\n👉 বিস্তারিত জানতে ক্লিক করুন\\n' + shareUrl;
+      var bodyEl = document.getElementById('articleBody');
+      var fullSummary = bodyEl ? bodyEl.textContent.trim() : '';
+      var shortSummary = fullSummary.slice(0, 100).trim();
+      var summaryPart = shortSummary
+        ? '📰 ' + shortSummary + (fullSummary.length > 100 ? '...' : '') + '\\n\\n'
+        : '';
 
       if (navigator.share) {
         try {
-          await navigator.share({ title: headlineText, text: '🔥 ' + headlineText + '\\n\\n👉 বিস্তারিত জানতে ক্লিক করুন', url: shareUrl });
+          await navigator.share({
+            title: headlineText,
+            text: '🔥 ' + headlineText + '\\n\\n' + summaryPart + '👉 বিস্তারিত পড়ুন',
+            url: shareUrl
+          });
           return;
         } catch (err) {
           if (err && err.name === 'AbortError') return;
         }
       }
+
+      var text = '🔥 ' + headlineText + '\\n\\n' + summaryPart + '👉 বিস্তারিত পড়ুন: ' + shareUrl;
+
       try {
         if (navigator.clipboard && window.isSecureContext) {
           await navigator.clipboard.writeText(text);
@@ -1206,6 +1219,7 @@ async function serveArticlePage(id, env) {
           return;
         }
       } catch (err) {}
+
       try {
         var ta = document.createElement('textarea');
         ta.value = text;

@@ -1,8 +1,8 @@
-// auto-deploy test - 2026-09-18
+// auto-deploy test - 2026-09-19
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v25 — Firebase FCM + Gemini + Multi-Channel Indexing
+ * FINAL v26 — Firebase FCM + Gemini + Multi-lingual Indexing
  * =========================================================
  */
 
@@ -692,7 +692,7 @@ async function serveListingPage(env, category, searchQuery) {
 }
 
 /* =========================================================
- * ARTICLE PAGE — with font controls + user footer
+ * ARTICLE PAGE — with love/comment/share + font controls
  * ========================================================= */
 async function serveArticlePage(id, env) {
   const safeId = String(id || "").trim();
@@ -703,6 +703,13 @@ async function serveArticlePage(id, env) {
   ).bind(safeId).first();
 
   if (!result) return Response.redirect("https://ajkernews.in/", 302);
+
+  // ✅ Get love count from DB
+  let loveCount = 0;
+  try {
+    const loveRow = await env.DB.prepare(`SELECT COUNT(*) AS count FROM news_loves WHERE news_id = ?`).bind(safeId).first();
+    loveCount = Number(loveRow?.count || 0);
+  } catch (e) { /* ignore */ }
 
   const title = cleanText(result.headline) || "Ajker News";
   const description = cleanText(result.summary || "").slice(0, 160);
@@ -754,7 +761,7 @@ async function serveArticlePage(id, env) {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
     "itemListElement": [
-      { "@type": "ListItem", "position": 1, "name": "হোম", "item": "https://ajkernews.in/" },
+      { "@type": "ListItem", "position": 1, "name": "HOME", "item": "https://ajkernews.in/" },
       { "@type": "ListItem", "position": 2, "name": catLabel[category] || category, "item": `https://ajkernews.in/?category=${category}` },
       { "@type": "ListItem", "position": 3, "name": title, "item": canonical }
     ]
@@ -806,16 +813,19 @@ async function serveArticlePage(id, env) {
   .article-body { font-size:17px; color:#222; line-height:1.85; transition:font-size 0.2s ease; }
   .article-source { margin-top:20px; font-size:14px; color:#666; }
   .article-source a { color:#007bff; text-decoration:none; }
+  .article-actions { display:flex; gap:24px; margin:20px 0; padding:14px 0; border-top:1px solid #f0f0f0; border-bottom:1px solid #f0f0f0; }
+  .art-action-btn { display:flex; align-items:center; gap:6px; background:none; border:none; color:#666; font-size:14px; cursor:pointer; padding:0; -webkit-tap-highlight-color:transparent; }
+  .art-action-btn svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:2; }
+  .art-action-btn.loved svg { fill:#e74c3c !important; stroke:#e74c3c !important; }
+  .art-action-count { font-size:14px; font-weight:600; color:#555; }
   .related-box { margin-top:32px; padding-top:20px; border-top:1px solid #eee; }
   .related-box h3 { font-size:18px; margin:0 0 14px; color:#111; }
   .related-box ul { list-style:none; padding:0; margin:0; }
   .related-box li { margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #f0f0f0; }
   .related-box a { color:#111; text-decoration:none; font-size:15px; line-height:1.5; }
   .article-footer { margin-top:40px; padding-top:20px; border-top:1px solid #eee; text-align:center; color:#888; font-size:13px; }
-  .article-footer .footer-links { display:flex; justify-content:center; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
-  .article-footer .footer-links a { color:#555; text-decoration:none; font-size:13px; }
-  .article-footer .footer-links a:hover { color:#007bff; }
-  .article-footer .sep { color:#ddd; }
+  .article-footer a { color:#555; text-decoration:none; font-weight:600; letter-spacing:0.5px; }
+  .article-footer a:hover { color:#007bff; }
   @media (max-width:480px) {
     body { padding:12px; }
     .article-h1 { font-size:22px; }
@@ -847,6 +857,22 @@ async function serveArticlePage(id, env) {
   <div itemprop="image" itemscope itemtype="https://schema.org/ImageObject">
     <img itemprop="url" class="article-img" src="${escapeHtml(image)}" alt="${escapeHtml(title)}" width="1200" height="675" loading="eager" decoding="async">
   </div>
+
+  <div class="article-actions">
+    <button class="art-action-btn love-btn" id="artLoveBtn" onclick="articleToggleLove('${safeId}')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+      <span class="art-action-count" id="artLoveCount">${loveCount}</span>
+    </button>
+    <button class="art-action-btn" onclick="articleOpenComments('${safeId}')">
+      <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+      <span class="art-action-count">মন্তব্য</span>
+    </button>
+    <button class="art-action-btn" onclick="articleShare('${safeId}', '${escapeHtml(title).replace(/'/g, "\\'")}')">
+      <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+      <span class="art-action-count">শেয়ার</span>
+    </button>
+  </div>
+
   <div class="article-body" id="articleBody" itemprop="articleBody">
     <p>${escapeHtml(fullSummary)}</p>
   </div>
@@ -854,38 +880,170 @@ async function serveArticlePage(id, env) {
 </article>
 ${relatedHtml}
 <footer class="article-footer">
-  <div class="footer-links">
-    <a href="https://ajkernews.in/">হোম</a>
-    <span class="sep">·</span>
-    <a href="https://ajkernews.in/pages/about.html">About</a>
-    <span class="sep">·</span>
-    <a href="https://ajkernews.in/pages/terms.html">Terms</a>
-    <span class="sep">·</span>
-    <a href="https://ajkernews.in/pages/privacy.html">Privacy</a>
-    <span class="sep">·</span>
-    <a href="https://ajkernews.in/pages/contact.html">Contact</a>
-  </div>
-  <p>&copy; ${new Date().getFullYear()} Ajker News. All rights reserved.</p>
+  <p><a href="https://ajkernews.in/">HOME</a></p>
+  <p style="margin-top:10px;">&copy; ${new Date().getFullYear()} Ajker News. All rights reserved.</p>
 </footer>
+
+<!-- Comment Modal -->
+<div id="artCommentModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:2000; align-items:center; justify-content:center; padding:16px;">
+  <div style="background:#fff; border-radius:12px; width:100%; max-width:520px; max-height:85vh; display:flex; flex-direction:column; overflow:hidden;">
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid #eee;">
+      <h3 style="font-size:17px; font-weight:700; margin:0;">মন্তব্য</h3>
+      <button onclick="articleCloseComments()" style="background:none; border:none; font-size:26px; cursor:pointer; color:#888; line-height:1;">&times;</button>
+    </div>
+    <div id="artCommentsList" style="padding:14px 16px; overflow-y:auto; flex:1;"></div>
+    <div style="padding:12px 16px; border-top:1px solid #eee; background:#fafafa;">
+      <input type="text" id="artCommentAuthor" placeholder="আপনার নাম (ঐচ্ছিক)" style="width:100%; padding:9px 12px; border:1px solid #ddd; border-radius:6px; margin-bottom:8px; font-size:14px;">
+      <textarea id="artCommentText" placeholder="আপনার মন্তব্য লিখুন..." style="width:100%; padding:9px 12px; border:1px solid #ddd; border-radius:6px; height:70px; font-size:14px; resize:vertical;"></textarea>
+      <button onclick="articleSubmitComment('${safeId}')" style="margin-top:8px; background:#000; color:#fff; border:none; padding:10px 20px; border-radius:6px; font-weight:600; cursor:pointer; font-size:14px;">পাঠান</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function() {
   var sizes = [15, 16, 17, 18, 19, 20, 22, 24, 26, 28];
   var current = 2;
   var saved = parseInt(localStorage.getItem('articleFontSize') || '2', 10);
   if (!isNaN(saved) && saved >= 0 && saved < sizes.length) current = saved;
-  function apply() {
+  function applyFont() {
     var body = document.getElementById('articleBody');
     if (body) body.style.fontSize = sizes[current] + 'px';
     localStorage.setItem('articleFontSize', String(current));
   }
   window.changeFontSize = function(delta) {
     current = Math.max(0, Math.min(sizes.length - 1, current + delta));
-    apply();
+    applyFont();
   };
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', apply);
+    document.addEventListener('DOMContentLoaded', applyFont);
   } else {
-    apply();
+    applyFont();
+  }
+
+  var NEWS_ID = '${safeId}';
+  var LOVED_KEY = 'loved:' + NEWS_ID;
+  var DEVICE_KEY = 'deviceId';
+
+  function getDeviceId() {
+    var id = localStorage.getItem(DEVICE_KEY);
+    if (!id) {
+      id = 'user-' + Date.now() + '-' + Math.random().toString(36).substring(2, 10);
+      localStorage.setItem(DEVICE_KEY, id);
+    }
+    return id;
+  }
+
+  function isLoved() { return localStorage.getItem(LOVED_KEY) === '1'; }
+  function setLoved(v) {
+    if (v) localStorage.setItem(LOVED_KEY, '1');
+    else localStorage.removeItem(LOVED_KEY);
+  }
+  function updateLoveUI(loved, count) {
+    var btn = document.getElementById('artLoveBtn');
+    var countEl = document.getElementById('artLoveCount');
+    if (btn) btn.classList.toggle('loved', !!loved);
+    if (countEl && count !== undefined) countEl.textContent = count;
+  }
+
+  // ✅ Apply saved love state on load
+  updateLoveUI(isLoved());
+
+  window.articleToggleLove = async function(id) {
+    var currentlyLoved = isLoved();
+    var newLoved = !currentlyLoved;
+    var countEl = document.getElementById('artLoveCount');
+    var currentCount = countEl ? parseInt(countEl.textContent, 10) || 0 : 0;
+    var newCount = newLoved ? currentCount + 1 : Math.max(0, currentCount - 1);
+
+    setLoved(newLoved);
+    updateLoveUI(newLoved, newCount);
+
+    try {
+      var res = await fetch('https://ajkernews.in/api/love', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: id, deviceId: getDeviceId() })
+      });
+      var data = await res.json();
+      if (data && typeof data.love_count === 'number') {
+        updateLoveUI(newLoved, data.love_count);
+      }
+    } catch (e) {
+      setLoved(currentlyLoved);
+      updateLoveUI(currentlyLoved, currentCount);
+    }
+  };
+
+  window.articleOpenComments = async function(id) {
+    var modal = document.getElementById('artCommentModal');
+    modal.style.display = 'flex';
+    await articleLoadComments(id);
+  };
+
+  window.articleCloseComments = function() {
+    document.getElementById('artCommentModal').style.display = 'none';
+  };
+
+  async function articleLoadComments(id) {
+    var list = document.getElementById('artCommentsList');
+    list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">লোড হচ্ছে...</p>';
+    try {
+      var res = await fetch('https://ajkernews.in/api/comments?id=' + encodeURIComponent(id));
+      var data = await res.json();
+      var comments = data.comments || [];
+      if (!comments.length) {
+        list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">এখনো কোনো মন্তব্য নেই। প্রথম মন্তব্য করুন!</p>';
+        return;
+      }
+      list.innerHTML = comments.map(function(c) {
+        return '<div style="border-bottom:1px solid #f0f0f0;padding:10px 0;"><strong style="font-size:14px;">' + escapeHtml(c.author_name) + '</strong><p style="margin:5px 0 0;font-size:14px;color:#444;">' + escapeHtml(c.comment_text) + '</p></div>';
+      }).join('');
+    } catch (e) {
+      list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">মন্তব্য লোড করা যায়নি।</p>';
+    }
+  }
+
+  window.articleSubmitComment = async function(newsId) {
+    var authorEl = document.getElementById('artCommentAuthor');
+    var textEl = document.getElementById('artCommentText');
+    var author = (authorEl.value || '').trim() || 'Guest';
+    var text = (textEl.value || '').trim();
+    if (!text) { alert('মন্তব্য লিখুন!'); return; }
+    try {
+      var res = await fetch('https://ajkernews.in/api/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newsId: newsId, author: author, text: text })
+      });
+      if (res.ok) {
+        textEl.value = '';
+        await articleLoadComments(newsId);
+      } else {
+        alert('মন্তব্য পাঠানো যায়নি');
+      }
+    } catch (e) {
+      alert('মন্তব্য পাঠানো যায়নি');
+    }
+  };
+
+  window.articleShare = async function(id, headline) {
+    var shareUrl = 'https://ajkernews.in/news/' + encodeURIComponent(id);
+    var text = headline + '\n\n' + shareUrl;
+    if (navigator.share) {
+      try { await navigator.share({ text: text }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      alert('লিংক কপি হয়েছে');
+    } catch (e) {
+      prompt('লিংক কপি করুন:', text);
+    }
+  };
+
+  function escapeHtml(v) {
+    if (v === null || v === undefined) return '';
+    return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
   }
 })();
 </script>

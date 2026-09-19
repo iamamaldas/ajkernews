@@ -1,34 +1,25 @@
 /*
- * Gemini news writer — 100% RELIABLE, FREE TIER OPTIMIZED
- *
- * Free tier features:
- *   1. Per-article isolated calls (no batch failure)
- *   2. Auto model discovery (cached 1 hour, prefers stable model)
- *   3. Retry on validation fail with simplified prompt
- *   4. Timeout 15s per call (overload-safe)
- *   5. Loose validation — soft Bangla check
- *   6. Parallel processing (max 3 articles per batch, all articles processed)
- *   7. Target 150 words (rich content)
- *   8. Auto model rotation on failure (no same-model retry)
+ * Gemini news writer — 100% FREE TIER OPTIMIZED
+ * Target: 4-6 news per cron (bn + en combined)
  *
  * Free tier limits: Gemini 2.0 Flash = 15 RPM, 1500 RPD
- * Our usage: 12 requests per cron, 12 crons/day = 144 req/day (safe)
+ * Our usage: 6 requests per cron, 12 crons/day = 72 req/day (safe)
  */
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
-// ✅ CONTENT QUALITY SETTINGS (Target 150 words)
-const MIN_SUMMARY_WORDS = 80;        // Reject threshold
-const TARGET_SUMMARY_WORDS = 150;    // Aim
-const RETRY_MIN_WORDS = 60;          // Lower on retry
+// ✅ CONTENT QUALITY SETTINGS
+const MIN_SUMMARY_WORDS = 80;
+const TARGET_SUMMARY_WORDS = 150;
+const RETRY_MIN_WORDS = 60;
 
-// ✅ RELIABILITY SETTINGS — TUNED FOR GEMINI OVERLOAD
-const GEMINI_TIMEOUT_MS = 15000;     // 15s timeout
+// ✅ RELIABILITY SETTINGS
+const GEMINI_TIMEOUT_MS = 15000;
 const MAX_OUTPUT_TOKENS = 8192;
-const MAX_PARALLEL = 3;              // Gemini overload safe — batch size
+const MAX_PARALLEL = 3;              // Batch size (Gemini overload safe)
 const MAX_RETRIES_PER_ARTICLE = 2;
-const RETRY_DELAY_MS = 2000;         // 2s delay between retries
-const BATCH_DELAY_MS = 2500;         // 2.5s delay between batches (rate limit safe)
+const RETRY_DELAY_MS = 2000;
+const BATCH_DELAY_MS = 2500;         // Delay between batches (rate limit safe)
 
 // ✅ LOOSE schema — Gemini won't reject
 const RESPONSE_SCHEMA = {
@@ -45,20 +36,18 @@ const RESPONSE_SCHEMA = {
   }
 };
 
-// Model cache (avoid repeated ListModels calls)
 let cachedModels = null;
 let cacheTime = 0;
-const MODEL_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+const MODEL_CACHE_TTL = 60 * 60 * 1000;
 
 /* =========================================================
- * Model Discovery — stable model first
+ * Model Discovery
  * ========================================================= */
 async function discoverModels(apiKey) {
   if (cachedModels && (Date.now() - cacheTime) < MODEL_CACHE_TTL) {
     return cachedModels;
   }
 
-  // ✅ Priority: 2.0-flash first (stable, less overloaded than 2.5)
   const FALLBACK_MODELS = [
     "gemini-2.0-flash",
     "gemini-2.0-flash-001",
@@ -109,12 +98,10 @@ async function discoverModels(apiKey) {
       return cachedModels;
     }
 
-    // ✅ Prefer stable models: 2.0-flash first, then 2.5
     const priority = ["gemini-2.0-flash", "gemini-2.0-flash-001"];
     const priorityList = available.filter(m => priority.includes(m));
     const restList = available.filter(m => !priority.includes(m));
 
-    // Sort rest by version (newest first)
     const versionRegex = /^gemini-(\d+)(?:\.(\d+))?/;
     restList.sort((a, b) => {
       const ma = a.match(versionRegex);
@@ -180,7 +167,6 @@ export async function processSelectedNews(articles, apiKey) {
       }
     }
 
-    // Batch delay to avoid rate limit (except after last batch)
     if (i + MAX_PARALLEL < articles.length) {
       console.log(`[GEMINI] Waiting ${BATCH_DELAY_MS}ms before next batch...`);
       await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
@@ -218,7 +204,6 @@ async function processOneArticle(article, models, apiKey) {
         lastError = error;
         const msg = String(error?.message || "");
 
-        // ✅ Immediate model switch on these errors
         if (msg.includes("404") || msg.includes("NOT_FOUND") || msg.includes("not supported")) continue;
         if (msg.includes("429")) continue;
         if (msg.includes("api_500") || msg.includes("api_502") || msg.includes("api_503") || msg.includes("api_504")) continue;
@@ -241,7 +226,7 @@ async function processOneArticle(article, models, apiKey) {
 }
 
 /* =========================================================
- * Prompt Builder — Target 150 words
+ * Prompt Builder
  * ========================================================= */
 function buildPrompt(article, simplified = false) {
   const sourceData = {
@@ -334,7 +319,7 @@ ${JSON.stringify(sourceData)}
 }
 
 /* =========================================================
- * Gemini API Call — throws on 5xx for immediate model switch
+ * Gemini API Call
  * ========================================================= */
 async function callGeminiAPI(model, prompt, apiKey, maxTokens = 5000) {
   const endpoint = `${GEMINI_API_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -374,7 +359,6 @@ async function callGeminiAPI(model, prompt, apiKey, maxTokens = 5000) {
     clearTimeout(timeoutId);
   }
 
-  // ✅ 5xx → throw immediately for model switch (no retry)
   if ([500, 502, 503, 504].includes(response.status)) {
     const errText = await response.text().catch(() => "");
     throw new Error(`api_${response.status}: ${errText.slice(0, 150)}`);

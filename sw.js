@@ -1,12 +1,11 @@
 /**
  * Ajker News Service Worker
- * v2026-09-18-2 — FCM-based
+ * v2026-09-19 — Caching + Fetch strategy
  *
- * Note: Push handling is now done by firebase-messaging-sw.js
- * This SW handles: caching + fetch strategy
+ * Note: Push handling is done by firebase-messaging-sw.js
  */
 
-const CACHE_VERSION = "ajker-news-v2026-09-18-2";
+const CACHE_VERSION = "ajker-news-v2026-09-19";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
 self.addEventListener("install", event => {
@@ -28,18 +27,15 @@ self.addEventListener("fetch", event => {
   if (request.method !== "GET") return;
   const url = new URL(request.url);
 
-  // API and dynamic routes — network only
   if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/go/")) {
     event.respondWith(fetch(request));
     return;
   }
 
-  // HTML navigation — network first
   if (request.mode === "navigate" || request.destination === "document") {
     event.respondWith(fetch(request).catch(() => caches.match("/")));
     return;
   }
 
-  // Static assets — network, fallback to cache
   event.respondWith(fetch(request).catch(() => caches.match(request)));
 });

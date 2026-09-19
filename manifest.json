@@ -1,16 +1,18 @@
 {
   "name": "Ajker News - আজকের নিউজ",
   "short_name": "Ajker News",
-  "description": "কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ বাংলা খবর",
+  "description": "কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর বাংলায়",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "orientation": "portrait",
+  "display_override": ["standalone", "minimal-ui"],
   "background_color": "#ffffff",
   "theme_color": "#ffffff",
   "lang": "bn",
   "dir": "ltr",
+  "orientation": "portrait",
   "categories": ["news", "magazines"],
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/logo.png",
@@ -46,7 +48,7 @@
       "src": "/logo.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "/logo.png",
@@ -58,7 +60,13 @@
       "src": "/logo.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
   "shortcuts": [
@@ -66,13 +74,19 @@
       "name": "সেরা খবর",
       "short_name": "Top News",
       "url": "/?category=top",
-      "icons": [{ "src": "/logo.png", "sizes": "192x192" }]
+      "icons": [{ "src": "/logo.png", "sizes": "192x192", "type": "image/png" }]
     },
     {
       "name": "ট্রেন্ডিং",
       "short_name": "Trending",
       "url": "/?category=trending",
-      "icons": [{ "src": "/logo.png", "sizes": "192x192" }]
+      "icons": [{ "src": "/logo.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "সব খবর",
+      "short_name": "All News",
+      "url": "/?category=all",
+      "icons": [{ "src": "/logo.png", "sizes": "192x192", "type": "image/png" }]
     }
   ]
 }

@@ -2,7 +2,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v34 — Share fix + Inline comments
+ * FINAL v35 — Partial Share Page + All Fixes
  * =========================================================
  */
 
@@ -20,6 +20,7 @@ import { cacheNewsApi, purgeNewsApiCache, purgeArticleCache } from "./cache.js";
 
 const MAX_NEWS = 1000;
 const API_PAGE_SIZE = 10;
+const SHARE_SUMMARY_LIMIT = 300; // ✅ Share page-এ কত অক্ষর দেখাবে
 
 let tablesReadyPromise = null;
 
@@ -709,7 +710,7 @@ async function serveListingPage(env, category, searchQuery) {
 }
 
 /* =========================================================
- * ARTICLE PAGE — ✅ UPDATED (Inline comments + share fix)
+ * ARTICLE PAGE — Full content (SEO + Ad revenue)
  * ========================================================= */
 async function serveArticlePage(id, env) {
   const safeId = String(id || "").trim();
@@ -1163,7 +1164,6 @@ async function serveArticlePage(id, env) {
     });
   }
 
-  // পেজ লোডে inline comment লোড করুন
   loadInlineComments();
 
   // ===== SHARE with full fallback =====
@@ -1216,7 +1216,6 @@ async function serveArticlePage(id, env) {
     });
   }
 
-  // Comment modal button — scroll to inline section
   var commentBtn = document.getElementById('artCommentBtn');
   if (commentBtn) {
     commentBtn.addEventListener('click', function(e) {
@@ -1316,7 +1315,7 @@ async function ensureTablesOnce(env) {
 }
 
 /* =========================================================
- * SHARE PAGE
+ * SHARE PAGE — ✅ PARTIAL CONTENT + CTA (Traffic Boost)
  * ========================================================= */
 async function serveSharePage(id, env, requestUserAgentFromContext = "", requestUrl = null) {
   const safeId = String(id || "").trim();
@@ -1329,11 +1328,17 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
   if (!result) return Response.redirect("https://ajkernews.in/", 302);
 
   const title = cleanText(result.headline) || "Ajker News";
-  const description = cleanText(result.summary || "").slice(0, 160);
-  const fullSummary = cleanText(result.summary || result.main_topic || "");
+  const rawSummary = cleanText(result.summary || result.main_topic || "");
+  const description = rawSummary.slice(0, 160);
   const image = result.image_url || "https://ajkernews.in/logo.png";
   const canonical = `https://ajkernews.in/news/${encodeURIComponent(safeId)}`;
   const category = result.category || "general";
+
+  // ✅ PARTIAL summary — 300 characters max
+  const truncatedSummary = rawSummary.slice(0, SHARE_SUMMARY_LIMIT);
+  const displaySummary = rawSummary.length > SHARE_SUMMARY_LIMIT
+    ? truncatedSummary + "..."
+    : truncatedSummary;
 
   const catLabel = {
     top:'সেরা খবর', trending:'ট্রেন্ডিং', west_bengal:'পশ্চিমবঙ্গ',
@@ -1349,6 +1354,8 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${escapeHtml(title)} - Ajker News</title>
 <meta name="description" content="${escapeHtml(description)}">
+<meta name="robots" content="noindex, follow">
+<link rel="canonical" href="${escapeHtml(canonical)}">
 <meta property="og:title" content="${escapeHtml(title)}">
 <meta property="og:description" content="${escapeHtml(description)}">
 <meta property="og:image" content="${escapeHtml(image)}">
@@ -1374,7 +1381,56 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
   .article-text { font-size: 17px; line-height: 1.85; color: #222; margin-bottom: 18px; }
   .article-source { font-size: 14px; color: #888; padding-top: 14px; border-top: 1px solid #eee; }
   .article-source a { color: #007bff; text-decoration: none; }
-  .cta { display: block; width: 100%; text-align: center; padding: 14px; background: #000; color: #fff; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 16px; margin-top: 18px; }
+
+  /* ✅ CTA BOX */
+  .cta-box {
+    margin-top: 22px;
+    padding: 20px 18px;
+    background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%);
+    border-radius: 12px;
+    border: 1px solid #ffe082;
+    text-align: center;
+  }
+  .cta-hint {
+    font-size: 15px;
+    color: #7a5c00;
+    margin-bottom: 14px;
+    font-weight: 600;
+    line-height: 1.5;
+  }
+  .cta {
+    display: inline-block;
+    padding: 14px 28px;
+    background: #000;
+    color: #fff;
+    text-decoration: none;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 16px;
+    transition: transform 0.15s;
+  }
+  .cta:active { transform: scale(0.97); }
+
+  .follow-box {
+    margin-top: 20px;
+    padding: 16px;
+    background: #fff;
+    border-radius: 10px;
+    text-align: center;
+    border: 1px solid #e0e0e0;
+  }
+  .follow-box p { font-size: 14px; color: #666; margin-bottom: 10px; }
+  .follow-btn {
+    display: inline-block;
+    padding: 10px 22px;
+    background: #f44336;
+    color: #fff;
+    text-decoration: none;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 14px;
+  }
+
   .footer { text-align: center; color: #888; font-size: 13px; padding: 24px 16px 0; }
 </style>
 </head>
@@ -1389,13 +1445,25 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
     <div class="article-body">
       <a class="article-cat" href="https://ajkernews.in/?category=${encodeURIComponent(category)}">${escapeHtml(catLabel[category] || category)}</a>
       <h1 class="article-h1">${escapeHtml(title)}</h1>
-      <div class="article-text">${escapeHtml(fullSummary)}</div>
+      <div class="article-text">${escapeHtml(displaySummary)}</div>
       <div class="article-source">
         সূত্র: <a href="${escapeHtml(result.source_url || '#')}" target="_blank" rel="noopener noreferrer nofollow">${escapeHtml(result.source_name || 'Ajker News')}</a>
       </div>
-      <a class="cta" href="${escapeHtml(canonical)}">পূর্ণ খবর পড়ুন →</a>
+
+      <!-- ✅ CTA BOX -->
+      <div class="cta-box">
+        <p class="cta-hint">📖 এই খবরের সম্পূর্ণ বিবরণ পড়তে নিচের বাটনে ক্লিক করুন</p>
+        <a class="cta" href="${escapeHtml(canonical)}">পূর্ণ খবর পড়ুন →</a>
+      </div>
     </div>
   </article>
+
+  <!-- ✅ FOLLOW BOX -->
+  <div class="follow-box">
+    <p>আরও সর্বশেষ খবর পেতে আমাদের সাথে থাকুন</p>
+    <a class="follow-btn" href="https://ajkernews.in/">আজকের নিউজ হোম →</a>
+  </div>
+
   <div class="footer">
     &copy; ${new Date().getFullYear()} Ajker News. All rights reserved.
   </div>
@@ -1408,7 +1476,7 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
     headers: {
       "Content-Type": "text/html; charset=UTF-8",
       "Cache-Control": "public, max-age=300, s-maxage=600",
-      "X-Robots-Tag": "index, follow"
+      "X-Robots-Tag": "noindex, follow"
     }
   });
 }

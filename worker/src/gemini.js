@@ -7,12 +7,12 @@
  *   3. Retry on validation fail with simplified prompt
  *   4. Timeout 15s per call (overload-safe)
  *   5. Loose validation — soft Bangla check
- *   6. Parallel processing (max 3 articles, Gemini overload safe)
+ *   6. Parallel processing (max 3 articles per batch, all articles processed)
  *   7. Target 150 words (rich content)
  *   8. Auto model rotation on failure (no same-model retry)
  *
  * Free tier limits: Gemini 2.0 Flash = 15 RPM, 1500 RPD
- * Our usage: 3 requests per cron, 12 crons/day = 36 req/day (safe)
+ * Our usage: 12 requests per cron, 12 crons/day = 144 req/day (safe)
  */
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -23,11 +23,12 @@ const TARGET_SUMMARY_WORDS = 150;    // Aim
 const RETRY_MIN_WORDS = 60;          // Lower on retry
 
 // ✅ RELIABILITY SETTINGS — TUNED FOR GEMINI OVERLOAD
-const GEMINI_TIMEOUT_MS = 15000;     // was 25000 — faster timeout
+const GEMINI_TIMEOUT_MS = 15000;     // 15s timeout
 const MAX_OUTPUT_TOKENS = 8192;
-const MAX_PARALLEL = 3;              // was 6 — reduce Gemini load
+const MAX_PARALLEL = 3;              // Gemini overload safe — batch size
 const MAX_RETRIES_PER_ARTICLE = 2;
-const RETRY_DELAY_MS = 1500;
+const RETRY_DELAY_MS = 2000;         // 2s delay between retries
+const BATCH_DELAY_MS = 2500;         // 2.5s delay between batches (rate limit safe)
 
 // ✅ LOOSE schema — Gemini won't reject
 const RESPONSE_SCHEMA = {
@@ -141,7 +142,7 @@ async function discoverModels(apiKey) {
 }
 
 /* =========================================================
- * Main Entry — Parallel per-article (max 3)
+ * Main Entry — Batch processing (ALL articles processed)
  * ========================================================= */
 export async function processSelectedNews(articles, apiKey) {
   if (!apiKey) {
@@ -150,31 +151,44 @@ export async function processSelectedNews(articles, apiKey) {
   }
   if (!Array.isArray(articles) || articles.length === 0) return [];
 
-  const limited = articles.slice(0, MAX_PARALLEL);
-  console.log(`[GEMINI] Processing ${limited.length} articles in parallel`);
-
   const models = await discoverModels(apiKey);
+  const allResults = [];
+  const totalBatches = Math.ceil(articles.length / MAX_PARALLEL);
 
-  const settled = await Promise.allSettled(
-    limited.map(article => processOneArticle(article, models, apiKey))
-  );
+  console.log(`[GEMINI] Processing ${articles.length} articles in ${totalBatches} batches (batch size: ${MAX_PARALLEL})`);
 
-  const results = [];
-  for (let i = 0; i < settled.length; i++) {
-    const r = settled[i];
-    if (r.status === "fulfilled" && r.value) {
-      results.push(r.value);
-      console.log(`[GEMINI] ✅ ${limited[i].id}`);
-    } else {
-      const reason = r.status === "rejected"
-        ? (r.reason?.message || "rejected")
-        : "returned null";
-      console.warn(`[GEMINI] ❌ ${limited[i].id}: ${reason}`);
+  for (let i = 0; i < articles.length; i += MAX_PARALLEL) {
+    const batch = articles.slice(i, i + MAX_PARALLEL);
+    const batchNum = Math.floor(i / MAX_PARALLEL) + 1;
+
+    console.log(`[GEMINI] Batch ${batchNum}/${totalBatches}: ${batch.length} articles`);
+
+    const settled = await Promise.allSettled(
+      batch.map(article => processOneArticle(article, models, apiKey))
+    );
+
+    for (let j = 0; j < settled.length; j++) {
+      const r = settled[j];
+      if (r.status === "fulfilled" && r.value) {
+        allResults.push(r.value);
+        console.log(`[GEMINI] ✅ ${batch[j].id}`);
+      } else {
+        const reason = r.status === "rejected"
+          ? (r.reason?.message || "rejected")
+          : "returned null";
+        console.warn(`[GEMINI] ❌ ${batch[j].id}: ${reason}`);
+      }
+    }
+
+    // Batch delay to avoid rate limit (except after last batch)
+    if (i + MAX_PARALLEL < articles.length) {
+      console.log(`[GEMINI] Waiting ${BATCH_DELAY_MS}ms before next batch...`);
+      await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
     }
   }
 
-  console.log(`[GEMINI] Success: ${results.length}/${limited.length}`);
-  return results;
+  console.log(`[GEMINI] Success: ${allResults.length}/${articles.length}`);
+  return allResults;
 }
 
 /* =========================================================
@@ -470,12 +484,13 @@ function cleanText(value) {
 export function geminiStatus(apiKey) {
   return {
     configured: Boolean(apiKey),
-    mode: "per-article-parallel-with-retry",
+    mode: "batch-processing-all-articles",
     minWords: MIN_SUMMARY_WORDS,
     targetWords: TARGET_SUMMARY_WORDS,
     timeout: GEMINI_TIMEOUT_MS,
     maxTokens: MAX_OUTPUT_TOKENS,
     maxRetriesPerArticle: MAX_RETRIES_PER_ARTICLE,
-    maxParallel: MAX_PARALLEL
+    maxParallel: MAX_PARALLEL,
+    batchDelay: BATCH_DELAY_MS
   };
 }

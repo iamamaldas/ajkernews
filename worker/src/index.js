@@ -2,7 +2,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v32 — API_BASE Hardcoded + No-Cache Headers
+ * FINAL v33 — Full Fix (Push + Share + Gemini batch)
  * =========================================================
  */
 
@@ -474,7 +474,7 @@ async function updateNews(env) {
 
       geminiResults = await Promise.race([
         processSelectedNews(geminiInput, env.GEMINI_API_KEY),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Gemini total timeout')), 50000))
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Gemini total timeout')), 120000))
       ]).catch(err => {
         console.warn('[NEWS] Gemini timeout:', err.message);
         return [];
@@ -709,7 +709,7 @@ async function serveListingPage(env, category, searchQuery) {
 }
 
 /* =========================================================
- * ARTICLE PAGE — ✅ FIXED (API_BASE hardcoded + no-cache headers)
+ * ARTICLE PAGE
  * ========================================================= */
 async function serveArticlePage(id, env) {
   const safeId = String(id || "").trim();
@@ -876,7 +876,6 @@ async function serveArticlePage(id, env) {
     font-weight:500;
   }
 
-  /* ===== Actions Row — Exact Home Page Match ===== */
   .article-actions-row {
     display:flex;
     gap:20px;
@@ -1034,7 +1033,6 @@ async function serveArticlePage(id, env) {
 
 <script>
 (function() {
-  // ✅ FIX: API_BASE hardcoded to production domain
   var API_BASE = "https://ajkernews.in";
   var NEWS_ID = ${JSON.stringify(safeId)};
 
@@ -1186,7 +1184,7 @@ async function serveArticlePage(id, env) {
       var shareUrl = API_BASE + '/news/' + encodeURIComponent(NEWS_ID);
       var headline = document.querySelector('.article-h1');
       var headlineText = headline ? headline.textContent.trim() : 'খবর';
-      var text = headlineText + '\n\n' + shareUrl;
+      var text = headlineText + '\\n\\n' + shareUrl;
 
       if (navigator.share) {
         try {
@@ -1303,41 +1301,106 @@ async function ensureTablesOnce(env) {
 }
 
 /* =========================================================
- * SHARE PAGE
+ * SHARE PAGE — Full content + OG tags
  * ========================================================= */
 async function serveSharePage(id, env, requestUserAgentFromContext = "", requestUrl = null) {
   const safeId = String(id || "").trim();
   if (!safeId) return Response.redirect("https://ajkernews.in/", 302);
 
-  const userAgent = (requestUserAgentFromContext || "").toLowerCase();
-  const socialCrawlerPatterns = ["facebookexternalhit","facebot","twitterbot","linkedinbot","whatsapp","telegrambot","discordbot","slackbot","pinterest","skypeuripreview"];
+  const result = await env.DB.prepare(
+    `SELECT id, headline, summary, main_topic, image_url, published_at, created_at, source_name, source_url, category FROM news WHERE id = ? AND status = 'published' LIMIT 1`
+  ).bind(safeId).first();
 
-  if (socialCrawlerPatterns.some(pattern => userAgent.includes(pattern))) {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-        "X-Robots-Tag": "noindex, nofollow, noarchive"
-      }
-    });
-  }
-
-  const result = await env.DB.prepare(`SELECT id FROM news WHERE id = ? AND status = 'published' LIMIT 1`).bind(safeId).first();
   if (!result) return Response.redirect("https://ajkernews.in/", 302);
 
-  const homeUrl = `https://ajkernews.in/news/${encodeURIComponent(safeId)}`;
-  const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><meta http-equiv="refresh" content="0;url=${escapeHtml(homeUrl)}"><script>window.location.replace(${JSON.stringify(homeUrl)});</script></head><body><noscript><a href="${escapeHtml(homeUrl)}">পূর্ণ খবর দেখতে এই লিঙ্কে ক্লিক করুন</a></noscript></body></html>`;
+  const title = cleanText(result.headline) || "Ajker News";
+  const description = cleanText(result.summary || "").slice(0, 160);
+  const fullSummary = cleanText(result.summary || result.main_topic || "");
+  const image = result.image_url || "https://ajkernews.in/logo.png";
+  const canonical = `https://ajkernews.in/news/${encodeURIComponent(safeId)}`;
+  const category = result.category || "general";
+
+  const catLabel = {
+    top:'সেরা খবর', trending:'ট্রেন্ডিং', west_bengal:'পশ্চিমবঙ্গ',
+    kolkata:'কলকাতা', india:'ভারত', world:'বিশ্ব', business:'ব্যবসা',
+    sports:'খেলা', politics:'রাজনীতি', technology:'প্রযুক্তি',
+    entertainment:'বিনোদন', crime:'অপরাধ', district:'জেলা', general:'সাধারণ'
+  };
+
+  const html = `<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${escapeHtml(title)} - Ajker News</title>
+<meta name="description" content="${escapeHtml(description)}">
+<meta property="og:title" content="${escapeHtml(title)}">
+<meta property="og:description" content="${escapeHtml(description)}">
+<meta property="og:image" content="${escapeHtml(image)}">
+<meta property="og:url" content="${escapeHtml(canonical)}">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Ajker News">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${escapeHtml(title)}">
+<meta name="twitter:description" content="${escapeHtml(description)}">
+<meta name="twitter:image" content="${escapeHtml(image)}">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, sans-serif; }
+  body { background: #f5f5f5; color: #111; padding: 0 0 40px; }
+  .header { background: #fff; padding: 14px 16px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; gap: 10px; }
+  .header img { height: 28px; }
+  .header h1 { font-size: 20px; font-weight: 700; }
+  .container { max-width: 820px; margin: 0 auto; padding: 16px; }
+  .article-card { background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  .article-img { width: 100%; height: auto; display: block; }
+  .article-body { padding: 18px 20px 22px; }
+  .article-cat { display: inline-block; font-size: 12px; color: #f44336; font-weight: 700; margin-bottom: 8px; text-decoration: none; }
+  .article-h1 { font-size: 24px; line-height: 1.4; margin: 0 0 14px; color: #111; font-weight: 700; }
+  .article-text { font-size: 17px; line-height: 1.85; color: #222; margin-bottom: 18px; }
+  .article-source { font-size: 14px; color: #888; padding-top: 14px; border-top: 1px solid #eee; }
+  .article-source a { color: #007bff; text-decoration: none; }
+  .cta { display: block; width: 100%; text-align: center; padding: 14px; background: #000; color: #fff; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 16px; margin-top: 18px; }
+  .footer { text-align: center; color: #888; font-size: 13px; padding: 24px 16px 0; }
+</style>
+</head>
+<body>
+<div class="header">
+  <img src="https://ajkernews.in/logo.png" alt="Ajker News">
+  <h1>আজকের নিউজ</h1>
+</div>
+<div class="container">
+  <article class="article-card">
+    <img class="article-img" src="${escapeHtml(image)}" alt="${escapeHtml(title)}">
+    <div class="article-body">
+      <a class="article-cat" href="https://ajkernews.in/?category=${encodeURIComponent(category)}">${escapeHtml(catLabel[category] || category)}</a>
+      <h1 class="article-h1">${escapeHtml(title)}</h1>
+      <div class="article-text">${escapeHtml(fullSummary)}</div>
+      <div class="article-source">
+        সূত্র: <a href="${escapeHtml(result.source_url || '#')}" target="_blank" rel="noopener noreferrer nofollow">${escapeHtml(result.source_name || 'Ajker News')}</a>
+      </div>
+      <a class="cta" href="${escapeHtml(canonical)}">পূর্ণ খবর পড়ুন →</a>
+    </div>
+  </article>
+  <div class="footer">
+    &copy; ${new Date().getFullYear()} Ajker News. All rights reserved.
+  </div>
+</div>
+</body>
+</html>`;
 
   return new Response(html, {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=UTF-8",
-      "Cache-Control": "no-store",
-      "X-Robots-Tag": "noindex, nofollow, noarchive"
+      "Cache-Control": "public, max-age=300, s-maxage=600",
+      "X-Robots-Tag": "index, follow"
     }
   });
 }
 
+/* =========================================================
+ * AFFILIATE
+ * ========================================================= */
 async function handleAffiliate(url, env) {
   const ref = url.searchParams.get("ref") || "direct";
   let targetUrl = url.searchParams.get("url");
@@ -1423,12 +1486,14 @@ async function handleSubscribe(request, env) {
 
     if (existing) {
       await env.DB.prepare(`UPDATE push_subscriptions SET token = ?, keys_json = ? WHERE id = ?`).bind(token, keys, existing.id).run();
+      console.log('[SUBSCRIBE] Updated existing subscriber');
       return json({ success: true, message: "Updated" }, 200, 0);
     }
 
     await env.DB.prepare(`INSERT INTO push_subscriptions (id, endpoint, keys_json, token, created_at) VALUES (?, ?, ?, ?, ?)`)
       .bind(crypto.randomUUID(), endpoint, keys, token, now).run();
 
+    console.log('[SUBSCRIBE] New subscriber added');
     return json({ success: true }, 200, 0);
   } catch (error) {
     console.error("Subscribe error:", error?.message || String(error));
@@ -1455,9 +1520,15 @@ async function handleUnsubscribe(request, env) {
 }
 
 async function queueAndSendPushNotifications(env, newsIds) {
-  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) return;
+  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    console.warn('[PUSH] FIREBASE_SERVICE_ACCOUNT_JSON missing');
+    return;
+  }
   const ids = [...new Set((newsIds || []).filter(Boolean))];
-  if (!ids.length) return;
+  if (!ids.length) {
+    console.warn('[PUSH] No news IDs provided');
+    return;
+  }
 
   const placeholders = ids.map(() => "?").join(",");
   const latestNews = await env.DB.prepare(`
@@ -1466,13 +1537,19 @@ async function queueAndSendPushNotifications(env, newsIds) {
     ORDER BY created_at DESC, score DESC LIMIT 1
   `).bind(...ids).first();
 
-  if (!latestNews) return;
+  if (!latestNews) {
+    console.warn('[PUSH] No published news found for IDs:', ids);
+    return;
+  }
 
   const subs = await env.DB.prepare(
     `SELECT token FROM push_subscriptions WHERE token IS NOT NULL AND token != '' ORDER BY created_at DESC LIMIT 500`
   ).all();
 
-  if (!subs.results?.length) return;
+  if (!subs.results?.length) {
+    console.warn('[PUSH] No subscribers found in DB');
+    return;
+  }
 
   const tokens = subs.results.map(s => s.token).filter(Boolean);
   console.log(`[PUSH-FCM] Sending to ${tokens.length} subscribers`);
@@ -1480,7 +1557,10 @@ async function queueAndSendPushNotifications(env, newsIds) {
   let serviceAccount;
   try {
     serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
-  } catch (e) { return; }
+  } catch (e) {
+    console.error('[PUSH] Invalid FIREBASE_SERVICE_ACCOUNT_JSON:', e.message);
+    return;
+  }
 
   const fcm = new FCM(new FcmOptions({ serviceAccount }));
   const targetUrl = `https://ajkernews.in/news/${latestNews.id}`;
@@ -1490,20 +1570,32 @@ async function queueAndSendPushNotifications(env, newsIds) {
   try {
     const unregisteredTokens = await fcm.sendToTokens({
       notification: { title, body },
-      data: { url: targetUrl, image: latestNews.image_url || "", notificationId: `news:${latestNews.id}` },
+      data: {
+        url: targetUrl,
+        image: latestNews.image_url || "",
+        notificationId: `news:${latestNews.id}`,
+        title: title,
+        body: body
+      },
       webpush: {
         notification: {
           icon: "https://ajkernews.in/logo.png",
           badge: "https://ajkernews.in/logo.png",
-          image: latestNews.image_url || undefined
+          image: latestNews.image_url || undefined,
+          vibrate: [200, 100, 200],
+          tag: `news:${latestNews.id}`,
+          renotify: true
         },
         fcmOptions: { link: targetUrl }
       }
     }, tokens);
 
+    console.log(`[PUSH-FCM] Sent successfully. Unregistered: ${unregisteredTokens?.length || 0}`);
+
     if (unregisteredTokens && unregisteredTokens.length > 0) {
       const cleanPlaceholders = unregisteredTokens.map(() => "?").join(",");
       await env.DB.prepare(`DELETE FROM push_subscriptions WHERE token IN (${cleanPlaceholders})`).bind(...unregisteredTokens).run();
+      console.log(`[PUSH-FCM] Cleaned ${unregisteredTokens.length} unregistered tokens`);
     }
   } catch (error) {
     console.error("[PUSH-FCM] Send failed:", error?.message || String(error));

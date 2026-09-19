@@ -2,7 +2,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v26 — Firebase FCM + Gemini + Multi-lingual Indexing
+ * FINAL v27 — FCM + Gemini + Article Actions + HOME Footer
  * =========================================================
  */
 
@@ -53,9 +53,6 @@ function toTransliterated(text) {
  * ========================================================= */
 const BOT_REGEX = /googlebot|google-inspectiontool|apis-google|mediapartners-google|adsbot-google|googleother|feedfetcher-google|google-read-aloud|google-site-verification|storebot-google|googlebot-news|googlebot-image|googlebot-video|bingbot|msnbot|adidxbot|bingpreview|yandex|baiduspider|baiduboxapp|sogou|exabot|duckduckbot|duckassistbot|applebot|applebot-extended|slurp|twitterbot|facebookexternalhit|facebookcatalog|facebot|whatsapp|telegrambot|linkedinbot|pinterest|slackbot|discordbot|petalbot|semrushbot|ahrefsbot|mj12bot|dotbot|gptbot|chatgpt-user|perplexitybot|ccbot|anthropic-ai|claude-web|youbot|lighthouse|chrome-lighthouse/i;
 
-/* =========================================================
- * VAPID Email
- * ========================================================= */
 function getVapidEmail(env) {
   const raw = String(env.VAPID_EMAIL || "").trim();
   if (!raw) return "mailto:info@ajkernews.in";
@@ -153,6 +150,30 @@ export default {
       if (url.pathname === "/api/love") {
         if (request.method !== "POST") return json({ error: "POST required" }, 405, 0);
         return await toggleLove(request, env);
+      }
+
+      if (url.pathname === "/api/love-counts") {
+        // ✅ Bulk fetch love counts for multiple IDs
+        const idsParam = url.searchParams.get("ids") || "";
+        const ids = idsParam.split(",").map(s => s.trim()).filter(Boolean);
+        if (!ids.length) return json({ success: true, counts: {} }, 200, 30);
+        
+        try {
+          const placeholders = ids.map(() => "?").join(",");
+          const rows = await env.DB.prepare(
+            `SELECT news_id, COUNT(*) AS cnt FROM news_loves WHERE news_id IN (${placeholders}) GROUP BY news_id`
+          ).bind(...ids).all();
+          
+          const counts = {};
+          for (const id of ids) counts[id] = 0;
+          for (const row of (rows.results || [])) {
+            counts[row.news_id] = Number(row.cnt || 0);
+          }
+          
+          return json({ success: true, counts }, 200, 30);
+        } catch (error) {
+          return json({ success: false, error: error.message }, 500, 0);
+        }
       }
 
       if (url.pathname === "/api/comments") {
@@ -692,7 +713,7 @@ async function serveListingPage(env, category, searchQuery) {
 }
 
 /* =========================================================
- * ARTICLE PAGE — with love/comment/share + font controls
+ * ARTICLE PAGE — love/comment/share AT END OF CONTENT
  * ========================================================= */
 async function serveArticlePage(id, env) {
   const safeId = String(id || "").trim();
@@ -704,7 +725,6 @@ async function serveArticlePage(id, env) {
 
   if (!result) return Response.redirect("https://ajkernews.in/", 302);
 
-  // ✅ Get love count from DB
   let loveCount = 0;
   try {
     const loveRow = await env.DB.prepare(`SELECT COUNT(*) AS count FROM news_loves WHERE news_id = ?`).bind(safeId).first();
@@ -813,11 +833,44 @@ async function serveArticlePage(id, env) {
   .article-body { font-size:17px; color:#222; line-height:1.85; transition:font-size 0.2s ease; }
   .article-source { margin-top:20px; font-size:14px; color:#666; }
   .article-source a { color:#007bff; text-decoration:none; }
-  .article-actions { display:flex; gap:24px; margin:20px 0; padding:14px 0; border-top:1px solid #f0f0f0; border-bottom:1px solid #f0f0f0; }
-  .art-action-btn { display:flex; align-items:center; gap:6px; background:none; border:none; color:#666; font-size:14px; cursor:pointer; padding:0; -webkit-tap-highlight-color:transparent; }
-  .art-action-btn svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:2; }
-  .art-action-btn.loved svg { fill:#e74c3c !important; stroke:#e74c3c !important; }
-  .art-action-count { font-size:14px; font-weight:600; color:#555; }
+
+  /* ✅ Actions at END of content */
+  .article-actions-end {
+    display:flex;
+    align-items:center;
+    justify-content:space-around;
+    gap:16px;
+    margin:28px 0 20px;
+    padding:16px 12px;
+    background:#f8f9fa;
+    border-radius:10px;
+    border:1px solid #ececec;
+  }
+  .action-tab {
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:4px;
+    background:none;
+    border:none;
+    cursor:pointer;
+    color:#555;
+    font-size:12px;
+    font-weight:600;
+    padding:6px 14px;
+    border-radius:8px;
+    transition:all 0.15s;
+    -webkit-tap-highlight-color:transparent;
+    min-width:70px;
+  }
+  .action-tab:hover { background:#fff; }
+  .action-tab:active { transform:scale(0.95); }
+  .action-tab svg { width:26px; height:26px; fill:none; stroke:#666; stroke-width:2; transition:all 0.2s; }
+  .action-tab.loved svg { fill:#e74c3c; stroke:#e74c3c; }
+  .action-tab.loved { color:#e74c3c; }
+  .action-tab .tab-count { font-size:13px; font-weight:700; color:#333; }
+  .action-tab.loved .tab-count { color:#e74c3c; }
+
   .related-box { margin-top:32px; padding-top:20px; border-top:1px solid #eee; }
   .related-box h3 { font-size:18px; margin:0 0 14px; color:#111; }
   .related-box ul { list-style:none; padding:0; margin:0; }
@@ -832,6 +885,9 @@ async function serveArticlePage(id, env) {
     .font-btn { width:34px; height:34px; font-size:13px; }
     .article-body { font-size:16px; }
     .article-topbar { padding:6px 10px; }
+    .article-actions-end { padding:14px 8px; gap:8px; }
+    .action-tab { min-width:60px; padding:6px 10px; font-size:11px; }
+    .action-tab svg { width:24px; height:24px; }
   }
 </style>
 </head>
@@ -858,25 +914,29 @@ async function serveArticlePage(id, env) {
     <img itemprop="url" class="article-img" src="${escapeHtml(image)}" alt="${escapeHtml(title)}" width="1200" height="675" loading="eager" decoding="async">
   </div>
 
-  <div class="article-actions">
-    <button class="art-action-btn love-btn" id="artLoveBtn" onclick="articleToggleLove('${safeId}')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-      <span class="art-action-count" id="artLoveCount">${loveCount}</span>
-    </button>
-    <button class="art-action-btn" onclick="articleOpenComments('${safeId}')">
-      <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-      <span class="art-action-count">মন্তব্য</span>
-    </button>
-    <button class="art-action-btn" onclick="articleShare('${safeId}', '${escapeHtml(title).replace(/'/g, "\\'")}')">
-      <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-      <span class="art-action-count">শেয়ার</span>
-    </button>
-  </div>
-
   <div class="article-body" id="articleBody" itemprop="articleBody">
     <p>${escapeHtml(fullSummary)}</p>
   </div>
   ${result.source_url ? `<p class="article-source">সূত্র: <a href="${escapeHtml(result.source_url)}" rel="noopener noreferrer nofollow">${escapeHtml(result.source_name || "মূল উৎস")}</a></p>` : ""}
+
+  <!-- ✅ Actions at END of content -->
+  <div class="article-actions-end">
+    <button class="action-tab" id="artLoveBtn" onclick="articleToggleLove('${safeId}')">
+      <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+      <span class="tab-count" id="artLoveCount">${loveCount}</span>
+      <span>ভালোবাসা</span>
+    </button>
+    <button class="action-tab" onclick="articleOpenComments('${safeId}')">
+      <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+      <span class="tab-count">💬</span>
+      <span>মন্তব্য</span>
+    </button>
+    <button class="action-tab" onclick="articleShare('${safeId}', '${escapeHtml(title).replace(/'/g, "\\'")}')">
+      <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+      <span class="tab-count">📤</span>
+      <span>শেয়ার</span>
+    </button>
+  </div>
 </article>
 ${relatedHtml}
 <footer class="article-footer">
@@ -902,6 +962,7 @@ ${relatedHtml}
 
 <script>
 (function() {
+  // === Font size control ===
   var sizes = [15, 16, 17, 18, 19, 20, 22, 24, 26, 28];
   var current = 2;
   var saved = parseInt(localStorage.getItem('articleFontSize') || '2', 10);
@@ -921,6 +982,7 @@ ${relatedHtml}
     applyFont();
   }
 
+  // === Love / Comment / Share ===
   var NEWS_ID = '${safeId}';
   var LOVED_KEY = 'loved:' + NEWS_ID;
   var DEVICE_KEY = 'deviceId';
@@ -1061,7 +1123,7 @@ ${relatedHtml}
 }
 
 /* =========================================================
- * TABLES SETUP — includes token column for FCM
+ * TABLES SETUP
  * ========================================================= */
 async function ensureTables(env) {
   const queries = [
@@ -1225,7 +1287,7 @@ async function handleGetNewsInternal(url, env) {
 }
 
 /* =========================================================
- * PUSH NOTIFICATIONS — FIREBASE FCM
+ * PUSH NOTIFICATIONS
  * ========================================================= */
 async function handleSubscribe(request, env) {
   try {
@@ -1245,14 +1307,12 @@ async function handleSubscribe(request, env) {
 
     if (existing) {
       await env.DB.prepare(`UPDATE push_subscriptions SET token = ?, keys_json = ? WHERE id = ?`).bind(token, keys, existing.id).run();
-      console.log(`[SUBSCRIBE] Updated: ${token.slice(0, 20)}...`);
       return json({ success: true, message: "Updated" }, 200, 0);
     }
 
     await env.DB.prepare(`INSERT INTO push_subscriptions (id, endpoint, keys_json, token, created_at) VALUES (?, ?, ?, ?, ?)`)
       .bind(crypto.randomUUID(), endpoint, keys, token, now).run();
 
-    console.log(`[SUBSCRIBE] New FCM token: ${token.slice(0, 20)}...`);
     return json({ success: true }, 200, 0);
   } catch (error) {
     console.error("Subscribe error:", error?.message || String(error));
@@ -1279,36 +1339,24 @@ async function handleUnsubscribe(request, env) {
 }
 
 async function queueAndSendPushNotifications(env, newsIds) {
-  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    console.warn("[PUSH] FIREBASE_SERVICE_ACCOUNT_JSON secret missing");
-    return;
-  }
-
+  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) return;
   const ids = [...new Set((newsIds || []).filter(Boolean))];
   if (!ids.length) return;
 
   const placeholders = ids.map(() => "?").join(",");
   const latestNews = await env.DB.prepare(`
-    SELECT id, headline, summary, image_url
-    FROM news
+    SELECT id, headline, summary, image_url FROM news
     WHERE id IN (${placeholders}) AND status = 'published'
-    ORDER BY created_at DESC, score DESC
-    LIMIT 1
+    ORDER BY created_at DESC, score DESC LIMIT 1
   `).bind(...ids).first();
 
-  if (!latestNews) {
-    console.log("[PUSH] No latest news found");
-    return;
-  }
+  if (!latestNews) return;
 
   const subs = await env.DB.prepare(
     `SELECT token FROM push_subscriptions WHERE token IS NOT NULL AND token != '' ORDER BY created_at DESC LIMIT 500`
   ).all();
 
-  if (!subs.results?.length) {
-    console.log("[PUSH] No FCM subscribers");
-    return;
-  }
+  if (!subs.results?.length) return;
 
   const tokens = subs.results.map(s => s.token).filter(Boolean);
   console.log(`[PUSH-FCM] Sending to ${tokens.length} subscribers`);
@@ -1322,7 +1370,6 @@ async function queueAndSendPushNotifications(env, newsIds) {
   }
 
   const fcm = new FCM(new FcmOptions({ serviceAccount }));
-
   const targetUrl = `https://ajkernews.in/news/${latestNews.id}`;
   const title = String(latestNews.headline || "নতুন খবর").slice(0, 180);
   const body = String(latestNews.summary || "বিস্তারিত জানতে ক্লিক করুন").slice(0, 180);
@@ -1330,11 +1377,7 @@ async function queueAndSendPushNotifications(env, newsIds) {
   try {
     const unregisteredTokens = await fcm.sendToTokens({
       notification: { title, body },
-      data: {
-        url: targetUrl,
-        image: latestNews.image_url || "",
-        notificationId: `news:${latestNews.id}`
-      },
+      data: { url: targetUrl, image: latestNews.image_url || "", notificationId: `news:${latestNews.id}` },
       webpush: {
         notification: {
           icon: "https://ajkernews.in/logo.png",
@@ -1345,13 +1388,9 @@ async function queueAndSendPushNotifications(env, newsIds) {
       }
     }, tokens);
 
-    const sent = tokens.length - (unregisteredTokens?.length || 0);
-    console.log(`[PUSH-FCM] Sent: ${sent}, Invalid: ${unregisteredTokens?.length || 0}`);
-
     if (unregisteredTokens && unregisteredTokens.length > 0) {
       const cleanPlaceholders = unregisteredTokens.map(() => "?").join(",");
       await env.DB.prepare(`DELETE FROM push_subscriptions WHERE token IN (${cleanPlaceholders})`).bind(...unregisteredTokens).run();
-      console.log(`[PUSH-FCM] Removed ${unregisteredTokens.length} invalid tokens`);
     }
   } catch (error) {
     console.error("[PUSH-FCM] Send failed:", error?.message || String(error));
@@ -1406,37 +1445,29 @@ async function addComment(request, env) {
 }
 
 /* =========================================================
- * SITEMAP
+ * SITEMAP / RSS / ROBOTS
  * ========================================================= */
 async function generateSitemap(env) {
   try {
     const result = await env.DB.prepare(`SELECT id, published_at, created_at FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT 1000`).all();
     const news = result.results || [];
     const baseUrl = "https://ajkernews.in";
-
     let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>${baseUrl}/</loc><changefreq>hourly</changefreq><priority>1.0</priority></url>`;
-
     for (const item of news) {
       const displayDate = item.created_at || item.published_at;
       const lastmod = displayDate ? new Date(displayDate).toISOString() : new Date().toISOString();
       xml += `\n  <url><loc>${baseUrl}/news/${encodeURIComponent(item.id)}</loc><lastmod>${lastmod}</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>`;
     }
     xml += `\n</urlset>`;
-
     return new Response(xml, {
       status: 200,
-      headers: {
-        "Content-Type": "application/xml; charset=UTF-8",
-        "Cache-Control": "public, max-age=300, s-maxage=600",
-        ...corsHeaders()
-      }
+      headers: { "Content-Type": "application/xml; charset=UTF-8", "Cache-Control": "public, max-age=300, s-maxage=600", ...corsHeaders() }
     });
   } catch (error) {
     return new Response(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://ajkernews.in/</loc></url></urlset>`, {
-      status: 200,
-      headers: { "Content-Type": "application/xml; charset=UTF-8" }
+      status: 200, headers: { "Content-Type": "application/xml; charset=UTF-8" }
     });
   }
 }
@@ -1446,32 +1477,23 @@ async function generateNewsSitemap(env) {
     const result = await env.DB.prepare(`SELECT id, headline, summary, main_topic, category, published_at, created_at FROM news WHERE status = 'published' AND created_at >= datetime('now', '-2 days') ORDER BY created_at DESC LIMIT 1000`).all();
     const news = result.results || [];
     const base = "https://ajkernews.in";
-
     let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">`;
-
     for (const n of news) {
       const displayDate = n.created_at || n.published_at;
       const publishedAt = displayDate ? new Date(displayDate).toISOString() : new Date().toISOString();
       const safeTitle = String(n.headline || "News").slice(0, 110);
       const keywords = [n.category || "general", n.main_topic || ""].filter(Boolean).join(", ").slice(0, 200);
-
       xml += `\n  <url><loc>${base}/news/${encodeURIComponent(n.id)}</loc><lastmod>${publishedAt}</lastmod><news:news><news:publication><news:name>Ajker News</news:name><news:language>bn</news:language></news:publication><news:publication_date>${publishedAt}</news:publication_date><news:title>${escapeHtml(safeTitle)}</news:title>${keywords ? `<news:keywords>${escapeHtml(keywords)}</news:keywords>` : ""}<news:genres>Blog</news:genres></news:news></url>`;
     }
     xml += `\n</urlset>`;
-
     return new Response(xml, {
       status: 200,
-      headers: {
-        "Content-Type": "application/xml; charset=UTF-8",
-        "Cache-Control": "public, max-age=300, s-maxage=600",
-        ...corsHeaders()
-      }
+      headers: { "Content-Type": "application/xml; charset=UTF-8", "Cache-Control": "public, max-age=300, s-maxage=600", ...corsHeaders() }
     });
   } catch (error) {
     return new Response(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9"></urlset>`, {
-      status: 200,
-      headers: { "Content-Type": "application/xml; charset=UTF-8" }
+      status: 200, headers: { "Content-Type": "application/xml; charset=UTF-8" }
     });
   }
 }
@@ -1508,13 +1530,9 @@ Allow: /
 Sitemap: https://ajkernews.in/sitemap.xml
 Sitemap: https://ajkernews.in/news-sitemap.xml
 `;
-
   return new Response(text, {
     status: 200,
-    headers: {
-      "Content-Type": "text/plain; charset=UTF-8",
-      "Cache-Control": "public, max-age=3600, s-maxage=3600"
-    }
+    headers: { "Content-Type": "text/plain; charset=UTF-8", "Cache-Control": "public, max-age=3600, s-maxage=3600" }
   });
 }
 
@@ -1522,7 +1540,6 @@ async function generateRSS(env) {
   const result = await env.DB.prepare(`SELECT id, headline, summary, published_at, created_at, image_url, source_name FROM news WHERE status='published' ORDER BY created_at DESC LIMIT 50`).all();
   const news = result.results || [];
   const base = "https://ajkernews.in";
-
   const items = news.map(n => {
     const link = `${base}/news/${encodeURIComponent(n.id)}`;
     const displayDate = n.created_at || n.published_at;
@@ -1530,7 +1547,6 @@ async function generateRSS(env) {
     const safeDesc = String(n.summary || "").replace(/]]>/g, "]]]]><![CDATA[>");
     return `<item><title>${escapeHtml(n.headline)}</title><link>${link}</link><guid isPermaLink="true">${link}</guid><pubDate>${pubDate}</pubDate><description><![CDATA[${safeDesc}]]></description>${n.image_url ? `<enclosure url="${escapeHtml(n.image_url)}" type="image/jpeg"/>` : ""}</item>`;
   }).join("\n");
-
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
 <channel>
@@ -1544,12 +1560,8 @@ async function generateRSS(env) {
 ${items}
 </channel>
 </rss>`;
-
   return new Response(xml, {
-    headers: {
-      "Content-Type": "application/rss+xml; charset=UTF-8",
-      "Cache-Control": "public, max-age=300, s-maxage=600"
-    }
+    headers: { "Content-Type": "application/rss+xml; charset=UTF-8", "Cache-Control": "public, max-age=300, s-maxage=600" }
   });
 }
 

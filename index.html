@@ -113,16 +113,12 @@ body { background:#f5f5f5; color:#111111; padding-bottom:20px; -webkit-font-smoo
 .notif-prompt-btn.later { background: #f0f0f0; color: #333; }
 .notif-prompt-btn.enable { background: #000; color: #fff; }
 
-/* =========================================================
- * MOBILE OPTIMIZATION
- * ========================================================= */
 @media (max-width:480px) {
   .header { padding:6px 10px; min-height:46px; }
   .header-left h1 { font-size:17px; font-weight:700; letter-spacing:-0.2px; }
   .header-logo { height:22px; }
   .header-left, .header-home-link { gap:6px; }
   .header-right { gap:2px; }
-
   .refresh-btn { width:34px !important; height:34px !important; padding:2px !important; }
   .refresh-btn svg { width:18px !important; height:18px !important; }
   .search-btn { width:34px !important; height:34px !important; padding:2px !important; }
@@ -131,14 +127,11 @@ body { background:#f5f5f5; color:#111111; padding-bottom:20px; -webkit-font-smoo
   .hamburger span { width:16px !important; height:2px !important; }
   .notif-btn { width:34px !important; height:34px !important; padding:2px !important; }
   .notif-btn svg { width:20px !important; height:20px !important; }
-
   .trending-banner { padding:6px 12px; min-height:36px; }
   .trending-banner span { font-size:14px; font-weight:600; letter-spacing:0; }
   .banner-right-btn { padding:3px 10px; font-size:11px; border-radius:14px; height:24px; }
-
   .main-content { padding:8px; }
   #newsContainer { gap:8px; }
-
   .news-card { border-radius:10px; }
   .news-body { padding:11px 12px 13px; }
   .news-category { font-size:11px; margin-bottom:5px; }
@@ -148,25 +141,20 @@ body { background:#f5f5f5; color:#111111; padding-bottom:20px; -webkit-font-smoo
   .news-actions { gap:18px; margin-top:9px; padding-top:8px; }
   .action-btn svg { width:18px; height:18px; }
   .action-count { font-size:11px; }
-
   .search-modal { padding:70px 12px 20px; }
   .search-modal-box { padding:16px 16px 20px; border-radius:12px; }
   .close-search { font-size:24px; top:2px; right:8px; }
   .search-modal-box .search-submit-btn { padding:8px 20px; font-size:14px; }
   .search-modal-box input { font-size:16px; padding:11px 13px; }
   .search-input-wrapper { gap:12px; }
-
   .floating-app-btn { right:12px; bottom:16px; width:52px; height:52px; }
   .floating-app-btn span { font-size:8px; }
-
   .modal-content { width:94%; margin:4% auto; padding:14px; max-height:88vh; }
   #modal-body { padding-right:2px; }
-
   .notif-prompt-box { padding: 18px 14px 14px; }
   .notif-prompt-title { font-size: 17px; }
   .notif-prompt-text { font-size: 13px; }
   .notif-prompt-btn { padding: 10px 12px; font-size: 13px; }
-
   .footer { padding:18px 12px 12px; }
   .footer-links { gap:16px; margin-bottom:10px; }
   .footer-links a { font-size:12px; }
@@ -384,38 +372,6 @@ function getCategoryLabel(category) {
 function normalizeSearchText(value) {
   return String(value || '').normalize('NFKC').toLocaleLowerCase().replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/[\p{P}\p{S}]+/gu, ' ').replace(/\s+/g, ' ').trim();
 }
-function scoreSearchResult(news, query) {
-  const q = normalizeSearchText(query);
-  if (!q) return 0;
-  const tokens = q.split(' ').filter(Boolean);
-  const fields = [
-    normalizeSearchText(news.headline),
-    normalizeSearchText(news.main_topic),
-    normalizeSearchText(news.summary),
-    normalizeSearchText(news.category),
-    normalizeSearchText(getCategoryLabel(news.category)),
-    normalizeSearchText(news.source_name)
-  ];
-  const headline = fields[0] + ' ' + fields[1];
-  const allText = fields.join(' ');
-  let score = 0;
-  if (headline === q) score += 1000;
-  if (headline.includes(q)) score += 500;
-  if (allText.includes(q)) score += 250;
-  tokens.forEach(token => {
-    if (headline.includes(token)) score += 120;
-    else if (allText.includes(token)) score += 55;
-  });
-  return score;
-}
-function rankSearchResults(newsList, query) {
-  const q = normalizeSearchText(query);
-  if (!q) return newsList;
-  return newsList.map((news, index) => ({ news, index, score: scoreSearchResult(news, q) }))
-    .filter(item => item.score > 0)
-    .sort((a, b) => b.score - a.score || a.index - b.index)
-    .map(item => item.news);
-}
 
 // ===== PWA INSTALL =====
 window.addEventListener('beforeinstallprompt', (e) => {
@@ -436,17 +392,32 @@ function installApp() {
   alert('App installation not supported.');
 }
 
-// ===== REFRESH =====
+// ===== ✅ REFRESH — Always go to home and reload =====
 async function refreshNews() {
   const btn = document.getElementById('refreshBtn');
-  if (isLoadingNews) return;
-  btn.classList.add('spinning');
-  btn.disabled = true;
+  if (btn && btn.classList.contains('spinning')) return;
+  if (btn) btn.classList.add('spinning');
+  
+  // ✅ Force home if currently on article page
+  const currentPath = window.location.pathname;
+  if (currentPath.startsWith('/news/')) {
+    // On article page — go to home
+    window.location.href = '/';
+    return;
+  }
+  
+  // On home page — reload fresh
+  currentCategory = 'top';
+  currentSearchQuery = '';
+  currentOffset = 0;
+  hasMoreNews = false;
+  document.getElementById('categoryTitle').innerText = 'সেরা খবর';
+  
   try {
-    await loadNews(currentCategory || 'top', currentSearchQuery || '', { showLoading: true, keepExisting: false, autoSpin: false });
+    await loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: false });
   } catch (error) { console.error('Refresh error:', error); }
   finally {
-    setTimeout(() => { btn.classList.remove('spinning'); btn.disabled = false; }, 700);
+    setTimeout(() => { if (btn) { btn.classList.remove('spinning'); btn.disabled = false; } }, 700);
   }
 }
 
@@ -462,13 +433,10 @@ function showSkeleton(container, count = 3) {
 // ===== LOAD NEWS =====
 async function loadNews(category = 'top', search = '', options = {}) {
   currentOffset = 0;
-  const { showLoading = true, keepExisting = false, autoSpin = true } = options;
+  const { showLoading = true, keepExisting = false } = options;
   const container = document.getElementById('newsContainer');
   if (isLoadingNews) return;
   isLoadingNews = true;
-  const refreshBtn = document.getElementById('refreshBtn');
-  const shouldRestoreSpin = autoSpin && refreshBtn && !refreshBtn.classList.contains('spinning');
-  if (shouldRestoreSpin) refreshBtn.classList.add('spinning');
   currentSearchQuery = search || '';
   if (showLoading && !keepExisting) showSkeleton(container, 3);
   try {
@@ -487,19 +455,33 @@ async function loadNews(category = 'top', search = '', options = {}) {
     if (!data || !Array.isArray(data.news)) throw new Error('Invalid response');
     const normalized = data.news.map(normalizeNews).filter(Boolean);
     const sorted = sortByLatest(normalized);
-    currentNews = search ? rankSearchResults(sorted, search) : sorted;
+    currentNews = sorted;
     visibleCount = 10;
     hasMoreNews = data.has_more || false;
     renderNews(currentNews, hasMoreNews);
+    
+    // ✅ ✅ After render, fetch fresh love counts from server
+    try {
+      const ids = normalized.map(n => n.id);
+      if (ids.length) {
+        const loveRes = await fetch(`${WORKER_BASE}/api/love-counts?ids=${encodeURIComponent(ids.join(','))}`);
+        const loveData = await loveRes.json();
+        if (loveData.success && loveData.counts) {
+          Object.keys(loveData.counts).forEach(id => {
+            const count = loveData.counts[id];
+            const el = document.querySelector(`[data-love-count="${id}"]`);
+            if (el) el.textContent = String(count);
+          });
+        }
+      }
+    } catch (e) { console.warn('Love counts fetch failed:', e); }
   } catch (error) {
     console.error('News loading error:', error);
     isLoadingNews = false;
-    if (shouldRestoreSpin && refreshBtn) refreshBtn.classList.remove('spinning');
     if (!currentNews.length) container.innerHTML = '';
     return;
   }
   isLoadingNews = false;
-  if (shouldRestoreSpin && refreshBtn) refreshBtn.classList.remove('spinning');
 }
 
 // ===== BUILD NEWS HTML =====
@@ -637,35 +619,27 @@ let notificationSetupInProgress = false;
 async function toggleNotification() {
   const btn = document.getElementById('notifyBtn');
   if (notificationSetupInProgress) return;
-
   if (!('Notification' in window) || !('serviceWorker' in navigator)) {
     alert('এই ব্রাউজারে নোটিফিকেশন সাপোর্টেড নয়।');
     return;
   }
-
   notificationSetupInProgress = true;
   btn.disabled = true;
-
   try {
     let attempts = 0;
     while (!window.__firebaseReady && attempts < 20) {
       await new Promise(r => setTimeout(r, 200));
       attempts++;
     }
-
     if (!window.__firebaseReady) {
       alert('Firebase initialize হয়নি। পেজ reload করুন।');
       return;
     }
-
     const registration = await navigator.serviceWorker.ready;
-    console.log('[FCM] SW ready');
-
     const existingToken = await window.__firebase.getToken(window.__firebase.messaging, {
       vapidKey: window.__VAPID_KEY,
       serviceWorkerRegistration: registration
     }).catch(() => null);
-
     if (existingToken && Notification.permission === 'granted') {
       if (confirm('নোটিফিকেশন বন্ধ করতে চান?')) {
         await fetch(`${WORKER_BASE}/api/unsubscribe`, {
@@ -678,37 +652,26 @@ async function toggleNotification() {
       }
       return;
     }
-
     if (Notification.permission === 'denied') {
       alert('ব্রাউজার নোটিফিকেশন blocked। ব্রাউজার সেটিংস থেকে চালু করুন।');
       return;
     }
-
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') {
       alert('নোটিফিকেশন চালু করতে অনুমতি দিন।');
       return;
     }
-
     const fcmToken = await window.__firebase.getToken(window.__firebase.messaging, {
       vapidKey: window.__VAPID_KEY,
       serviceWorkerRegistration: registration
     });
-
-    if (!fcmToken) {
-      throw new Error('FCM token পাওয়া যায়নি');
-    }
-
-    console.log('[FCM] Token:', fcmToken.slice(0, 30) + '...');
-
+    if (!fcmToken) throw new Error('FCM token পাওয়া যায়নি');
     const res = await fetch(`${WORKER_BASE}/api/subscribe`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: fcmToken })
     });
-
     if (!res.ok) throw new Error('Subscribe HTTP ' + res.status);
-
     btn.classList.add('subscribed');
     alert('নোটিফিকেশন চালু হয়েছে! নতুন খবর এলে আমরা জানাব।');
   } catch (error) {
@@ -723,11 +686,8 @@ async function toggleNotification() {
 async function checkNotificationStatus() {
   if (!('Notification' in window)) return;
   const btn = document.getElementById('notifyBtn');
-  if (Notification.permission === 'granted') {
-    btn.classList.add('subscribed');
-  } else {
-    btn.classList.remove('subscribed');
-  }
+  if (Notification.permission === 'granted') btn.classList.add('subscribed');
+  else btn.classList.remove('subscribed');
 }
 
 // ===== COMMENTS =====
@@ -860,7 +820,7 @@ window.addEventListener('load', () => {
 
 // ===== INIT =====
 (async function initApp() {
-  await loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: true });
+  await loadNews('top', '', { showLoading: true, keepExisting: false });
 
   if ('serviceWorker' in navigator) {
     try {

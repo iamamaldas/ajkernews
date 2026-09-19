@@ -98,10 +98,11 @@ body { background:#f5f5f5; color:#111111; padding-bottom:20px; -webkit-font-smoo
 .floating-app-btn { position:fixed; right:16px; bottom:20px; width:60px; height:60px; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#ffffff; border:1px solid #e0e0e0; border-radius:50%; box-shadow:0 2px 10px rgba(0,0,0,0.10); cursor:pointer; z-index:700; text-decoration:none; }
 .floating-app-btn svg { width:24px; height:24px; margin-bottom:2px; }
 .floating-app-btn span { font-size:9px; font-weight:600; }
-.footer { padding:20px 12px 10px; text-align:center; background:#ffffff; border-top:1px solid #e0e0e0; margin-top:20px; }
-.footer-links { display:flex; justify-content:center; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
-.footer-links a { color:#000000; text-decoration:none; font-size:14px; }
-.footer-copy { color:#000000; font-size:11px; }
+.footer { padding:22px 12px 14px; text-align:center; background:#ffffff; border-top:1px solid #e0e0e0; margin-top:20px; }
+.footer-links { display:flex; justify-content:center; gap:20px; flex-wrap:wrap; margin-bottom:12px; padding:0 8px; }
+.footer-links a { color:#333; text-decoration:none; font-size:13px; font-weight:500; padding:4px 2px; transition:color 0.15s; }
+.footer-links a:hover { color:#007bff; }
+.footer-copy { color:#888; font-size:11px; }
 .notif-prompt-modal { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 2500; align-items: center; justify-content: center; padding: 20px; }
 .notif-prompt-modal.active { display: flex; }
 .notif-prompt-box { background: #fff; border-radius: 16px; padding: 24px 20px 20px; max-width: 360px; width: 100%; text-align: center; }
@@ -165,6 +166,10 @@ body { background:#f5f5f5; color:#111111; padding-bottom:20px; -webkit-font-smoo
   .notif-prompt-title { font-size: 17px; }
   .notif-prompt-text { font-size: 13px; }
   .notif-prompt-btn { padding: 10px 12px; font-size: 13px; }
+
+  .footer { padding:18px 12px 12px; }
+  .footer-links { gap:16px; margin-bottom:10px; }
+  .footer-links a { font-size:12px; }
 }
 </style>
 </head>
@@ -249,13 +254,9 @@ body { background:#f5f5f5; color:#111111; padding-bottom:20px; -webkit-font-smoo
 <footer class="footer">
   <div class="footer-links">
     <a href="javascript:void(0)" onclick="openModal('pages/about.html')">About</a>
-    <span>|</span>
     <a href="javascript:void(0)" onclick="openModal('pages/terms.html')">Terms</a>
-    <span>|</span>
     <a href="javascript:void(0)" onclick="openModal('pages/privacy.html')">Privacy</a>
-    <span>|</span>
     <a href="javascript:void(0)" onclick="openModal('pages/contact.html')">Contact</a>
-    <span>|</span>
     <a href="javascript:void(0)" onclick="openModal('pages/disclaimer.html')">Disclaimer</a>
   </div>
   <div class="footer-copy">&copy; <span id="currentYear">2026</span> Ajker News. All rights reserved.</div>
@@ -310,8 +311,6 @@ let currentOffset = 0;
 const PAGE_SIZE = 10;
 let hasMoreNews = false;
 let deferredPrompt = null;
-let __prefetchData = null;
-let __prefetchOffset = 0;
 
 // ===== HELPERS =====
 function sortByLatest(newsArray) {
@@ -444,8 +443,6 @@ async function refreshNews() {
   btn.classList.add('spinning');
   btn.disabled = true;
   try {
-    __prefetchData = null;
-    __prefetchOffset = 0;
     await loadNews(currentCategory || 'top', currentSearchQuery || '', { showLoading: true, keepExisting: false, autoSpin: false });
   } catch (error) { console.error('Refresh error:', error); }
   finally {
@@ -503,7 +500,6 @@ async function loadNews(category = 'top', search = '', options = {}) {
   }
   isLoadingNews = false;
   if (shouldRestoreSpin && refreshBtn) refreshBtn.classList.remove('spinning');
-  if (hasMoreNews) prefetchNextPage();
 }
 
 // ===== BUILD NEWS HTML =====
@@ -597,8 +593,6 @@ async function loadMoreNews() {
   loadMoreBtn.disabled = false;
 }
 
-async function prefetchNextPage() { /* simplified */ }
-
 // ===== LOVE =====
 async function toggleLove(id) {
   const deviceId = getDeviceId();
@@ -606,7 +600,7 @@ async function toggleLove(id) {
   const newLoved = !currentlyLoved;
   const currentCountEl = document.querySelector(`[data-love-count="${id}"]`);
   let currentCount = currentCountEl ? parseInt(currentCountEl.textContent, 10) : 0;
-  const newCount = newLoved ? currentCount + 1 : currentCount - 1;
+  const newCount = newLoved ? currentCount + 1 : Math.max(0, currentCount - 1);
   setNewsLoved(id, newLoved);
   updateLoveUI(id, newLoved, newCount);
   try {
@@ -866,13 +860,7 @@ window.addEventListener('load', () => {
 
 // ===== INIT =====
 (async function initApp() {
-  const urlParams = new URLSearchParams(window.location.search);
-  const sharedId = urlParams.get('shared') || urlParams.get('id');
-  if (sharedId) {
-    await loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: true });
-  } else {
-    await loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: true });
-  }
+  await loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: true });
 
   if ('serviceWorker' in navigator) {
     try {

@@ -2,7 +2,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v30 — FCM + Gemini + Article Page (Exact Home Page Icon Match)
+ * FINAL v31 — A- A+ Removed, Share/Love/Comment Fixed, Zoom Fit
  * =========================================================
  */
 
@@ -709,7 +709,7 @@ async function serveListingPage(env, category, searchQuery) {
 }
 
 /* =========================================================
- * ARTICLE PAGE — EXACT HOME PAGE ICON MATCH
+ * ARTICLE PAGE — A- A+ REMOVED, ICONS MATCH HOME PAGE
  * ========================================================= */
 async function serveArticlePage(id, env) {
   const safeId = String(id || "").trim();
@@ -843,16 +843,12 @@ async function serveArticlePage(id, env) {
   .header-title { font-size:24px; line-height:1; font-weight:700; color:#111111; white-space:nowrap; letter-spacing:-0.3px; overflow:hidden; text-overflow:ellipsis; }
 
   .header-right { display:flex; align-items:center; gap:8px; flex-shrink:0; }
-  .font-controls { display:flex; align-items:center; gap:6px; }
-  .font-btn { width:36px; height:36px; border:1px solid #ddd; background:#fff; border-radius:8px; font-size:14px; font-weight:700; cursor:pointer; color:#333; display:inline-flex; align-items:center; justify-content:center; user-select:none; -webkit-tap-highlight-color:transparent; transition:background 0.15s, transform 0.1s; padding:0; line-height:1; font-family:inherit; }
-  .font-btn:hover { background:#f5f5f5; }
-  .font-btn:active { background:#eaeaea; transform:scale(0.94); }
 
   .article-main { padding:16px; max-width: min(820px, 95vw); margin:0 auto; }
   .article-cat { display:inline-block; font-size:12px; color:#f44336; font-weight:700; margin-bottom:8px; text-decoration:none; }
   .article-h1 { font-size:24px; line-height:1.35; margin:0 0 14px; color:#111; font-weight:700; }
   .article-img { width:100%; height:auto; border-radius:8px; display:block; margin:0 0 18px; background:#f3f3f3; }
-  .article-body { font-size:17px; color:#222; line-height:1.85; transition:font-size 0.15s ease; }
+  .article-body { font-size:17px; color:#222; line-height:1.85; }
   .article-body p { margin-bottom:14px; }
 
   .article-source-row {
@@ -951,7 +947,6 @@ async function serveArticlePage(id, env) {
     .back-btn { width:32px; height:32px; }
     .back-btn svg { width:20px; height:20px; }
     .header-right { gap:6px; }
-    .font-btn { width:34px; height:34px; font-size:13px; }
     .article-main { padding:12px; }
     .article-h1 { font-size:21px; }
     .article-body { font-size:16px; }
@@ -973,12 +968,7 @@ async function serveArticlePage(id, env) {
     <img src="/logo.png" class="header-logo" alt="Ajker News">
     <span class="header-title">আজকের নিউজ</span>
   </div>
-  <div class="header-right">
-    <div class="font-controls">
-      <button type="button" class="font-btn" id="fontDec" aria-label="Smaller">A-</button>
-      <button type="button" class="font-btn" id="fontInc" aria-label="Bigger">A+</button>
-    </div>
-  </div>
+  <div class="header-right"></div>
 </div>
 
 <main class="article-main">
@@ -1004,18 +994,15 @@ async function serveArticlePage(id, env) {
     </div>
 
     <div class="article-actions-row">
-      <!-- Comment Icon (Exact Home Page Match) -->
       <button type="button" class="action-btn-art" id="artCommentBtn" aria-label="Comment">
         <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
       </button>
 
-      <!-- Love Icon (Exact Home Page Match) -->
       <button type="button" class="action-btn-art" id="artLoveBtn" aria-label="Love">
         <svg viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
         <span class="action-num" id="artLoveCount">${loveCount}</span>
       </button>
 
-      <!-- Share Icon (Exact Home Page Match) -->
       <button type="button" class="action-btn-art" id="artShareBtn" aria-label="Share">
         <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
       </button>
@@ -1047,32 +1034,9 @@ async function serveArticlePage(id, env) {
 
 <script>
 (function() {
-  // ✅ FIX: API_BASE hardcoded to production domain for reliable API calls
-  var API_BASE = "https://ajkernews.in";
+  // ✅ FIX: API_BASE dynamically uses current origin so it works on ANY domain
+  var API_BASE = window.location.origin;
   var NEWS_ID = ${JSON.stringify(safeId)};
-
-  var sizes = [15, 16, 17, 18, 19, 20, 22, 24, 26, 28];
-  var current = 2;
-  try {
-    var saved = parseInt(localStorage.getItem('articleFontSize') || '2', 10);
-    if (!isNaN(saved) && saved >= 0 && saved < sizes.length) current = saved;
-  } catch (e) {}
-
-  function applyFont() {
-    var body = document.getElementById('articleBody');
-    if (body) body.style.fontSize = sizes[current] + 'px';
-    try { localStorage.setItem('articleFontSize', String(current)); } catch (e) {}
-  }
-  function changeFont(delta) {
-    current = Math.max(0, Math.min(sizes.length - 1, current + delta));
-    applyFont();
-  }
-
-  var fontDecBtn = document.getElementById('fontDec');
-  var fontIncBtn = document.getElementById('fontInc');
-  if (fontDecBtn) fontDecBtn.addEventListener('click', function(e) { e.preventDefault(); changeFont(-1); });
-  if (fontIncBtn) fontIncBtn.addEventListener('click', function(e) { e.preventDefault(); changeFont(1); });
-  applyFont();
 
   var LOVED_KEY = 'loved:' + NEWS_ID;
   var DEVICE_KEY = 'deviceId';
@@ -1723,7 +1687,7 @@ function corsHeaders() {
   return {
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET, POST, OPTIONS",
-    "access-control-allow-headers": "Content-Type",
+    "access-control-allow-headers": "Content-Type, Accept, Origin, User-Agent",
     "access-control-max-age": "86400"
   };
 }

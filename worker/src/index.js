@@ -2,7 +2,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v30 — FCM + Gemini + Article Page (Exact Image Match Icons)
+ * FINAL v30 — FCM + Gemini + Article Page (Exact Home Page Icon Match)
  * =========================================================
  */
 
@@ -709,7 +709,7 @@ async function serveListingPage(env, category, searchQuery) {
 }
 
 /* =========================================================
- * ARTICLE PAGE — EXACT IMAGE MATCH (Icons)
+ * ARTICLE PAGE — EXACT HOME PAGE ICON MATCH
  * ========================================================= */
 async function serveArticlePage(id, env) {
   const safeId = String(id || "").trim();
@@ -880,52 +880,41 @@ async function serveArticlePage(id, env) {
     font-weight:500;
   }
 
-  /* ===== Actions Row — Exact Image Match ===== */
+  /* ===== Actions Row — Exact Home Page Match ===== */
   .article-actions-row {
     display:flex;
-    align-items:center;
-    gap:40px;
-    padding:18px 0 14px;
+    gap:20px;
+    margin-top:12px;
+    padding-top:10px;
+    border-top:1px solid #f0f0f0;
   }
   .action-btn-art {
-    display:inline-flex;
+    display:flex;
     align-items:center;
-    gap:10px;
+    gap:5px;
     background:none;
     border:none;
+    color:#666;
+    font-size:14px;
     cursor:pointer;
     padding:0;
-    color:#4a4a4a;
-    font-size:17px;
-    font-weight:500;
-    -webkit-tap-highlight-color:transparent;
-    transition:transform 0.1s ease;
-    line-height:1;
-    font-family:inherit;
   }
-  .action-btn-art:active { transform:scale(0.92); }
   .action-btn-art svg {
-    width:32px;
-    height:32px;
+    width:20px;
+    height:20px;
     fill:none;
-    stroke:#4a4a4a;
-    stroke-width:1.8;
-    stroke-linecap:round;
-    stroke-linejoin:round;
-    transition:stroke 0.15s, fill 0.15s;
-    flex-shrink:0;
-    display:block;
+    stroke:currentColor;
+    stroke-width:2;
   }
-  .action-btn-art .action-num {
-    font-size:17px;
-    font-weight:500;
-    color:#4a4a4a;
-    min-width:12px;
-    display:inline-block;
-    line-height:1;
+  .action-btn-art.loved svg {
+    fill:#e74c3c !important;
+    stroke:#e74c3c !important;
   }
-  .action-btn-art.loved svg { fill:#e74c3c; stroke:#e74c3c; }
-  .action-btn-art.loved .action-num { color:#e74c3c; }
+  .action-num {
+    font-size:12px;
+    color:#555;
+    font-weight:600;
+  }
 
   .related-box { margin:32px 0 0; padding-top:22px; border-top:1px solid #eee; }
   .related-box h3 { font-size:18px; margin:0 0 14px; color:#111; font-weight:700; }
@@ -964,9 +953,9 @@ async function serveArticlePage(id, env) {
     .article-body { font-size:16px; }
     .article-source-link { font-size:15px; }
     .article-date { font-size:13px; }
-    .article-actions-row { gap:36px; padding:16px 0 12px; }
-    .action-btn-art svg { width:30px; height:30px; }
-    .action-btn-art .action-num { font-size:16px; }
+    .article-actions-row { gap:18px; margin-top:9px; padding-top:8px; }
+    .action-btn-art svg { width:18px; height:18px; }
+    .action-num { font-size:11px; }
   }
 </style>
 </head>
@@ -1011,30 +1000,20 @@ async function serveArticlePage(id, env) {
     </div>
 
     <div class="article-actions-row">
-      <!-- Comment Icon — rounded bubble with left tail (exact image match) -->
+      <!-- Comment Icon (Exact Home Page Match) -->
       <button type="button" class="action-btn-art" id="artCommentBtn" aria-label="Comment">
-        <svg viewBox="0 0 32 32" fill="none" stroke="#4a4a4a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M16 3.5c-7.18 0-13 4.93-13 11 0 3.4 1.82 6.43 4.71 8.47-.24 2.17-1 4.22-2.21 6.03-.26.4.15.87.58.68 2.55-1.11 4.73-2.6 6.4-4.17 1.1.22 2.27.34 3.52.34 7.18 0 13-4.93 13-11S23.18 3.5 16 3.5z"/>
-        </svg>
+        <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
       </button>
 
-      <!-- Heart Icon — outline, exact image match -->
+      <!-- Love Icon (Exact Home Page Match) -->
       <button type="button" class="action-btn-art" id="artLoveBtn" aria-label="Love">
-        <svg viewBox="0 0 32 32" fill="none" stroke="#4a4a4a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M16 27.5S4 20 4 11.8C4 7.6 7.5 4.5 11.8 4.5c2.5 0 4.8 1.3 6.2 3.4l-2 1.6 2-1.6c1.4-2.1 3.7-3.4 6.2-3.4 4.3 0 7.8 3.1 7.8 7.3C28 20 16 27.5 16 27.5z"/>
-        </svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
         <span class="action-num" id="artLoveCount">${loveCount}</span>
       </button>
 
-      <!-- Share Icon — 3 circles + 2 lines (exact image match) -->
+      <!-- Share Icon (Exact Home Page Match) -->
       <button type="button" class="action-btn-art" id="artShareBtn" aria-label="Share">
-        <svg viewBox="0 0 32 32" fill="none" stroke="#4a4a4a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="24" cy="6" r="4"/>
-          <circle cx="8" cy="16" r="4"/>
-          <circle cx="24" cy="26" r="4"/>
-          <line x1="11.2" y1="14.2" x2="20.8" y2="7.8"/>
-          <line x1="11.2" y1="17.8" x2="20.8" y2="24.2"/>
-        </svg>
+        <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
       </button>
     </div>
   </article>
@@ -1064,7 +1043,8 @@ async function serveArticlePage(id, env) {
 
 <script>
 (function() {
-  var API_BASE = 'https://ajkernews.in';
+  // ✅ FIX: API_BASE dynamically set to current origin so it works everywhere
+  var API_BASE = window.location.origin;
   var NEWS_ID = ${JSON.stringify(safeId)};
 
   var sizes = [15, 16, 17, 18, 19, 20, 22, 24, 26, 28];
@@ -1128,7 +1108,9 @@ async function serveArticlePage(id, env) {
       if (data && data.success && data.counts && typeof data.counts[NEWS_ID] === 'number') {
         updateLoveUI(isLoved(), data.counts[NEWS_ID]);
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error('Failed to fetch love counts:', e);
+    }
   })();
 
   var loveBtn = document.getElementById('artLoveBtn');
@@ -1154,7 +1136,9 @@ async function serveArticlePage(id, env) {
         if (data && typeof data.love_count === 'number') {
           updateLoveUI(newLoved, data.love_count);
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error('Love toggle error:', e);
+      }
     });
   }
 
@@ -1195,6 +1179,7 @@ async function serveArticlePage(id, env) {
         return '<div style="border-bottom:1px solid #f0f0f0;padding:10px 0;"><strong style="font-size:14px;">' + escapeHtml(c.author_name) + '</strong><p style="margin:5px 0 0;font-size:14px;color:#444;">' + escapeHtml(c.comment_text) + '</p></div>';
       }).join('');
     } catch (e) {
+      console.error('Comment load error:', e);
       list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">মন্তব্য লোড করা যায়নি।</p>';
     }
   }
@@ -1220,6 +1205,7 @@ async function serveArticlePage(id, env) {
           alert('মন্তব্য পাঠানো যায়নি');
         }
       } catch (e) {
+        console.error('Comment submit error:', e);
         alert('মন্তব্য পাঠানো যায়নি');
       }
     });

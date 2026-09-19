@@ -2,7 +2,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v31 — A- A+ Removed, Share/Love/Comment Fixed, Zoom Fit
+ * FINAL v32 — API_BASE Hardcoded + No-Cache Headers
  * =========================================================
  */
 
@@ -709,7 +709,7 @@ async function serveListingPage(env, category, searchQuery) {
 }
 
 /* =========================================================
- * ARTICLE PAGE — A- A+ REMOVED, ICONS MATCH HOME PAGE
+ * ARTICLE PAGE — ✅ FIXED (API_BASE hardcoded + no-cache headers)
  * ========================================================= */
 async function serveArticlePage(id, env) {
   const safeId = String(id || "").trim();
@@ -1034,8 +1034,8 @@ async function serveArticlePage(id, env) {
 
 <script>
 (function() {
-  // ✅ FIX: API_BASE dynamically uses current origin so it works on ANY domain
-  var API_BASE = window.location.origin;
+  // ✅ FIX: API_BASE hardcoded to production domain
+  var API_BASE = "https://ajkernews.in";
   var NEWS_ID = ${JSON.stringify(safeId)};
 
   var LOVED_KEY = 'loved:' + NEWS_ID;
@@ -1232,7 +1232,9 @@ async function serveArticlePage(id, env) {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=UTF-8",
-      "Cache-Control": "public, max-age=300, s-maxage=600",
+      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+      "Pragma": "no-cache",
+      "Expires": "0",
       "X-Robots-Tag": "index, follow, max-image-preview:large"
     }
   });

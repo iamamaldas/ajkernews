@@ -22,19 +22,20 @@ const messaging = firebase.messaging();
 messaging.onBackgroundMessage((payload) => {
   console.log('[FCM-SW] Background message received:', JSON.stringify(payload));
 
-  const notificationTitle = payload.notification?.title || 'আজকের নিউজ';
-  const notificationBody = payload.notification?.body || 'নতুন খবর এসেছে';
+  const notificationTitle = payload.notification?.title || payload.data?.title || 'আজকের নিউজ';
+  const notificationBody = payload.notification?.body || payload.data?.body || 'নতুন খবর এসেছে';
 
   const notificationOptions = {
     body: notificationBody,
-    icon: payload.notification?.icon || '/logo.png',
+    icon: payload.notification?.icon || payload.data?.icon || '/logo.png',
     badge: '/logo.png',
-    image: payload.data?.image || undefined,
+    image: payload.data?.image || payload.notification?.image || undefined,
     vibrate: [200, 100, 200],
     tag: payload.data?.notificationId || 'ajker-news',
     renotify: true,
+    requireInteraction: false,
     data: {
-      url: payload.data?.url || 'https://ajkernews.in/',
+      url: payload.data?.url || payload.fcmOptions?.link || 'https://ajkernews.in/',
       notificationId: payload.data?.notificationId || ''
     }
   };

@@ -27,7 +27,7 @@
 <style>
 * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
 html { scroll-behavior: smooth; font-size: 16px; -webkit-text-size-adjust: 100%; }
-body { background:#f5f5f5; color:#111111; padding-bottom:20px; -webkit-font-smoothing:antialiased; max-width: 100vw; overflow-x: hidden; }
+body { background:#f5f5f5; color:#111111; -webkit-font-smoothing:antialiased; max-width: 100vw; overflow-x: hidden; min-height: 100vh; display: flex; flex-direction: column; padding-bottom: 80px; }
 .header { position:sticky; top:0; z-index:1000; display:flex; align-items:center; justify-content:space-between; padding:12px 16px; min-height:60px; background:#ffffff; border-bottom:1px solid #e0e0e0; }
 .header-left { display:flex; align-items:center; gap:10px; }
 .header-home-link { display:flex; align-items:center; gap:10px; color:inherit; text-decoration:none; }
@@ -69,7 +69,7 @@ body { background:#f5f5f5; color:#111111; padding-bottom:20px; -webkit-font-smoo
 .modal-content { position:relative; width:90%; max-width:800px; margin:3% auto; padding:24px; background:#fefefe; border-radius:8px; max-height:90vh; display:flex; flex-direction:column; overflow:hidden; }
 .close-modal { float:right; color:#aaaaaa; font-size:28px; font-weight:bold; cursor:pointer; align-self:flex-end; margin-bottom:8px; line-height:1; }
 #modal-body { flex:1; overflow-y:auto; padding-right:4px; }
-.main-content { padding:16px; max-width: min(820px, 95vw); margin: 0 auto; }
+.main-content { padding:16px; max-width: min(820px, 95vw); margin: 0 auto; flex: 1 0 auto; width: 100%; }
 #newsContainer { min-height:200px; display:flex; flex-direction:column; gap:12px; }
 .news-skeleton { display:block; width:100%; background:#fff; border:1px solid #e5e5e5; border-radius:12px; overflow:hidden; }
 .skeleton-image { width:100%; aspect-ratio:16/9; background:linear-gradient(90deg,#f0f0f0 25%,#e8e8e8 50%,#f0f0f0 75%); background-size:200% 100%; animation:shimmer 1.5s infinite; }
@@ -98,7 +98,7 @@ body { background:#f5f5f5; color:#111111; padding-bottom:20px; -webkit-font-smoo
 .floating-app-btn { position:fixed; right:16px; bottom:20px; width:60px; height:60px; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#ffffff; border:1px solid #e0e0e0; border-radius:50%; box-shadow:0 2px 10px rgba(0,0,0,0.10); cursor:pointer; z-index:700; text-decoration:none; }
 .floating-app-btn svg { width:24px; height:24px; margin-bottom:2px; }
 .floating-app-btn span { font-size:9px; font-weight:600; }
-.footer { padding:22px 12px 14px; text-align:center; background:#ffffff; border-top:1px solid #e0e0e0; margin-top:20px; }
+.footer { padding:22px 12px 14px; text-align:center; background:#ffffff; border-top:1px solid #e0e0e0; margin-top:auto; flex-shrink: 0; }
 .footer-links { display:flex; justify-content:center; gap:20px; flex-wrap:wrap; margin-bottom:12px; padding:0 8px; }
 .footer-links a { color:#333; text-decoration:none; font-size:13px; font-weight:500; padding:4px 2px; transition:color 0.15s; }
 .footer-links a:hover { color:#007bff; }
@@ -201,7 +201,7 @@ body { background:#f5f5f5; color:#111111; padding-bottom:20px; -webkit-font-smoo
 </div>
 <div class="trending-banner">
   <span id="categoryTitle">সেরা খবর</span>
-  <button class="banner-right-btn" onclick="installApp()">📲 Install</button>
+  <button class="banner-right-btn" onclick="installApp()">📲 Install App</button>
 </div>
 <div class="search-modal" id="searchModal">
   <div class="search-modal-box">
@@ -608,14 +608,14 @@ async function toggleLove(id) {
   } catch (error) { console.error('Love error:', error); }
 }
 
-// ===== SHARE (full fallback) =====
+// ===== SHARE (short + engaging) =====
 async function shareNews(id, headline, summary) {
   const shareUrl = `${SITE_URL}/news/${encodeURIComponent(id)}`;
-  const shareText = `${headline}\n\n${summary}\n\n${shareUrl}`;
+  const shareText = `🔥 ${headline}\n\n👉 বিস্তারিত জানতে ক্লিক করুন\n${shareUrl}`;
 
   if (navigator.share) {
     try {
-      await navigator.share({ title: headline, text: summary, url: shareUrl });
+      await navigator.share({ title: headline, text: `🔥 ${headline}\n\n👉 বিস্তারিত জানতে ক্লিক করুন`, url: shareUrl });
       return;
     } catch (err) {
       if (err && err.name === 'AbortError') return;

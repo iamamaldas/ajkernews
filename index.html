@@ -265,7 +265,7 @@ body { background:#f5f5f5; color:#111111; padding-bottom:20px; -webkit-font-smoo
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
-  import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging.js";
+  import { getMessaging, getToken, onMessage, deleteToken } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyBdduTjoMMRUeMUnzN7sRHl70Wl0Bi9Mts",
@@ -280,7 +280,7 @@ body { background:#f5f5f5; color:#111111; padding-bottom:20px; -webkit-font-smoo
   const app = initializeApp(firebaseConfig);
   const messaging = getMessaging(app);
 
-  window.__firebase = { app, messaging, getToken, onMessage };
+  window.__firebase = { app, messaging, getToken, onMessage, deleteToken };
   window.__VAPID_KEY = "BPIJghMstrMW--U1O0rRUbDVm1epdMAOaR6WZ3mRE03C2bD33IYL_02NDKYk8us6WnRFGHQ7wPnvhEKCXeuzmlA";
   window.__firebaseReady = true;
 
@@ -608,23 +608,74 @@ async function toggleLove(id) {
   } catch (error) { console.error('Love error:', error); }
 }
 
-// ===== SHARE =====
+// ===== SHARE (full fallback) =====
 async function shareNews(id, headline, summary) {
   const shareUrl = `${SITE_URL}/news/${encodeURIComponent(id)}`;
   const shareText = `${headline}\n\n${summary}\n\n${shareUrl}`;
+
   if (navigator.share) {
-    try { await navigator.share({ text: shareText }); return; } catch (e) {}
+    try {
+      await navigator.share({ title: headline, text: summary, url: shareUrl });
+      return;
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+    }
   }
+
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(shareText);
+      showCopyToast('লিংক কপি হয়েছে');
+      return;
+    } catch (err) {}
+  }
+
   try {
-    await navigator.clipboard.writeText(shareText);
-    const toast = document.getElementById('copyToast');
-    toast.classList.add('show');
-    setTimeout(() => toast.classList.remove('show'), 1800);
-  } catch (e) { console.error(e); }
+    const textarea = document.createElement('textarea');
+    textarea.value = shareText;
+    textarea.style.position = 'fixed';
+    textarea.style.top = '0';
+    textarea.style.left = '0';
+    textarea.style.width = '2em';
+    textarea.style.height = '2em';
+    textarea.style.padding = '0';
+    textarea.style.border = 'none';
+    textarea.style.outline = 'none';
+    textarea.style.boxShadow = 'none';
+    textarea.style.background = 'transparent';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+    const successful = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    if (successful) {
+      showCopyToast('লিংক কপি হয়েছে');
+      return;
+    }
+  } catch (err) {
+    console.error('execCommand copy failed:', err);
+  }
+
+  prompt('লিংক কপি করুন:', shareText);
+}
+
+function showCopyToast(message) {
+  let toast = document.getElementById('copyToast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'copyToast';
+    toast.className = 'copy-toast';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2000);
 }
 
 /* =========================================================
- * NOTIFICATION — FCM
+ * NOTIFICATION — FCM (FIXED toggle logic)
  * ========================================================= */
 let notificationSetupInProgress = false;
 
@@ -635,6 +686,47 @@ async function toggleNotification() {
     alert('এই ব্রাউজারে নোটিফিকেশন সাপোর্টেড নয়।');
     return;
   }
+
+  const isCurrentlySubscribed = btn.classList.contains('subscribed');
+
+  // ✅ Unsubscribe path
+  if (isCurrentlySubscribed) {
+    if (!confirm('নোটিফিকেশন বন্ধ করতে চান?')) return;
+    notificationSetupInProgress = true;
+    btn.disabled = true;
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const existingToken = await window.__firebase.getToken(window.__firebase.messaging, {
+        vapidKey: window.__VAPID_KEY,
+        serviceWorkerRegistration: registration
+      }).catch(() => null);
+
+      if (existingToken) {
+        await fetch(`${WORKER_BASE}/api/unsubscribe`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint: existingToken, token: existingToken })
+        }).catch(() => {});
+      }
+
+      try {
+        await window.__firebase.deleteToken(window.__firebase.messaging);
+      } catch (e) { /* ignore */ }
+
+      btn.classList.remove('subscribed');
+      localStorage.setItem('notifSubscribed', '0');
+      alert('নোটিফিকেশন বন্ধ করা হয়েছে।');
+    } catch (error) {
+      console.error('[FCM] Unsubscribe error:', error);
+      alert('নোটিফিকেশন বন্ধ করা যায়নি: ' + (error?.message || error));
+    } finally {
+      notificationSetupInProgress = false;
+      btn.disabled = false;
+    }
+    return;
+  }
+
+  // ✅ Subscribe path
   notificationSetupInProgress = true;
   btn.disabled = true;
   try {
@@ -647,44 +739,34 @@ async function toggleNotification() {
       alert('Firebase initialize হয়নি। পেজ reload করুন।');
       return;
     }
-    const registration = await navigator.serviceWorker.ready;
-    const existingToken = await window.__firebase.getToken(window.__firebase.messaging, {
-      vapidKey: window.__VAPID_KEY,
-      serviceWorkerRegistration: registration
-    }).catch(() => null);
-    if (existingToken && Notification.permission === 'granted') {
-      if (confirm('নোটিফিকেশন বন্ধ করতে চান?')) {
-        await fetch(`${WORKER_BASE}/api/unsubscribe`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ endpoint: existingToken, token: existingToken })
-        }).catch(() => {});
-        btn.classList.remove('subscribed');
-        alert('নোটিফিকেশন বন্ধ।');
-      }
-      return;
-    }
+
     if (Notification.permission === 'denied') {
       alert('ব্রাউজার নোটিফিকেশন blocked। ব্রাউজার সেটিংস থেকে চালু করুন।');
       return;
     }
+
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') {
       alert('নোটিফিকেশন চালু করতে অনুমতি দিন।');
       return;
     }
+
+    const registration = await navigator.serviceWorker.ready;
     const fcmToken = await window.__firebase.getToken(window.__firebase.messaging, {
       vapidKey: window.__VAPID_KEY,
       serviceWorkerRegistration: registration
     });
     if (!fcmToken) throw new Error('FCM token পাওয়া যায়নি');
+
     const res = await fetch(`${WORKER_BASE}/api/subscribe`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: fcmToken })
     });
     if (!res.ok) throw new Error('Subscribe HTTP ' + res.status);
+
     btn.classList.add('subscribed');
+    localStorage.setItem('notifSubscribed', '1');
     alert('নোটিফিকেশন চালু হয়েছে! নতুন খবর এলে আমরা জানাব।');
   } catch (error) {
     console.error('[FCM] Setup error:', error);
@@ -698,11 +780,17 @@ async function toggleNotification() {
 async function checkNotificationStatus() {
   if (!('Notification' in window)) return;
   const btn = document.getElementById('notifyBtn');
-  if (Notification.permission === 'granted') btn.classList.add('subscribed');
-  else btn.classList.remove('subscribed');
+  if (!btn) return;
+  const localFlag = localStorage.getItem('notifSubscribed');
+  const permissionGranted = Notification.permission === 'granted';
+  if (permissionGranted && localFlag === '1') {
+    btn.classList.add('subscribed');
+  } else {
+    btn.classList.remove('subscribed');
+  }
 }
 
-// ===== COMMENTS =====
+// ===== COMMENTS (home page modal) =====
 async function openCommentModal(id) {
   const modal = document.getElementById('modal');
   const body = document.getElementById('modal-body');

@@ -1189,11 +1189,11 @@ async function serveArticlePage(id, env) {
       var shareUrl = API_BASE + '/news/' + encodeURIComponent(NEWS_ID);
       var headline = document.querySelector('.article-h1');
       var headlineText = headline ? headline.textContent.trim() : 'খবর';
-      var text = headlineText + '\\n\\n' + shareUrl;
+      var text = '🔥 ' + headlineText + '\\n\\n👉 বিস্তারিত জানতে ক্লিক করুন\\n' + shareUrl;
 
       if (navigator.share) {
         try {
-          await navigator.share({ title: headlineText, text: text, url: shareUrl });
+          await navigator.share({ title: headlineText, text: '🔥 ' + headlineText + '\\n\\n👉 বিস্তারিত জানতে ক্লিক করুন', url: shareUrl });
           return;
         } catch (err) {
           if (err && err.name === 'AbortError') return;

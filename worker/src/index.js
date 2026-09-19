@@ -2,7 +2,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v33 — Full Fix (Push + Share + Gemini batch)
+ * FINAL v34 — Share fix + Inline comments
  * =========================================================
  */
 
@@ -709,7 +709,7 @@ async function serveListingPage(env, category, searchQuery) {
 }
 
 /* =========================================================
- * ARTICLE PAGE
+ * ARTICLE PAGE — ✅ UPDATED (Inline comments + share fix)
  * ========================================================= */
 async function serveArticlePage(id, env) {
   const safeId = String(id || "").trim();
@@ -911,6 +911,19 @@ async function serveArticlePage(id, env) {
     font-weight:600;
   }
 
+  /* ✅ COMMENTS SECTION */
+  .comments-section { margin:32px 0 0; padding-top:22px; border-top:1px solid #eee; }
+  .comments-section h3 { font-size:18px; margin:0 0 14px; color:#111; font-weight:700; }
+  .comment-item { border-bottom:1px solid #f0f0f0; padding:10px 0; }
+  .comment-item strong { font-size:14px; color:#111; }
+  .comment-item p { margin:5px 0 0; font-size:14px; color:#444; line-height:1.6; }
+  .comment-form { margin-top:14px; padding-top:14px; border-top:1px solid #f0f0f0; }
+  .comment-form input,
+  .comment-form textarea { width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:8px; margin-bottom:8px; font-size:14px; outline:none; font-family:inherit; background:#fafafa; }
+  .comment-form textarea { height:80px; resize:vertical; }
+  .comment-form button { background:#000; color:#fff; border:none; padding:10px 22px; border-radius:8px; font-weight:600; cursor:pointer; font-size:14px; }
+  .comment-form button:disabled { opacity:0.6; cursor:not-allowed; }
+
   .related-box { margin:32px 0 0; padding-top:22px; border-top:1px solid #eee; }
   .related-box h3 { font-size:18px; margin:0 0 14px; color:#111; font-weight:700; }
   .related-box ul { list-style:none; padding:0; margin:0; }
@@ -921,19 +934,6 @@ async function serveArticlePage(id, env) {
   .article-footer { margin:36px 16px 0; padding-top:22px; border-top:1px solid #eee; text-align:center; color:#888; font-size:13px; }
   .article-footer a { color:#555; text-decoration:none; font-weight:600; letter-spacing:0.5px; }
   .article-footer a:hover { color:#007bff; }
-
-  #artCommentModal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:2000; align-items:center; justify-content:center; padding:16px; }
-  #artCommentModal.active { display:flex; }
-  #artCommentModal .modal-box { background:#fff; border-radius:12px; width:100%; max-width:520px; max-height:85vh; display:flex; flex-direction:column; overflow:hidden; }
-  #artCommentModal .modal-header { display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid #eee; }
-  #artCommentModal .modal-header h3 { font-size:17px; font-weight:700; margin:0; }
-  #artCommentModal .modal-close { background:none; border:none; font-size:26px; cursor:pointer; color:#888; line-height:1; padding:0 6px; }
-  #artCommentModal .modal-list { padding:14px 16px; overflow-y:auto; flex:1; -webkit-overflow-scrolling:touch; }
-  #artCommentModal .modal-form { padding:12px 16px; border-top:1px solid #eee; background:#fafafa; }
-  #artCommentModal .modal-form input,
-  #artCommentModal .modal-form textarea { width:100%; padding:9px 12px; border:1px solid #ddd; border-radius:6px; margin-bottom:8px; font-size:14px; outline:none; font-family:inherit; }
-  #artCommentModal .modal-form textarea { height:70px; resize:vertical; }
-  #artCommentModal .modal-form button { background:#000; color:#fff; border:none; padding:10px 20px; border-radius:6px; font-weight:600; cursor:pointer; font-size:14px; }
 
   @media (min-width: 1400px) {
     .article-main { max-width: 900px; }
@@ -1008,6 +1008,19 @@ async function serveArticlePage(id, env) {
     </div>
   </article>
 
+  <!-- ✅ INLINE COMMENTS SECTION -->
+  <section class="comments-section" id="commentsSection">
+    <h3>মন্তব্য</h3>
+    <div id="inlineCommentsList">
+      <p style="color:#888;text-align:center;padding:12px;">লোড হচ্ছে...</p>
+    </div>
+    <div class="comment-form">
+      <input type="text" id="inlineCommentAuthor" placeholder="আপনার নাম (ঐচ্ছিক)">
+      <textarea id="inlineCommentText" placeholder="আপনার মন্তব্য লিখুন..."></textarea>
+      <button type="button" id="inlineCommentSubmit">পাঠান</button>
+    </div>
+  </section>
+
   ${relatedHtml}
 </main>
 
@@ -1015,21 +1028,6 @@ async function serveArticlePage(id, env) {
   <p><a href="https://ajkernews.in/">HOME</a></p>
   <p style="margin-top:10px;">&copy; ${new Date().getFullYear()} Ajker News. All rights reserved.</p>
 </footer>
-
-<div id="artCommentModal">
-  <div class="modal-box">
-    <div class="modal-header">
-      <h3>মন্তব্য</h3>
-      <button type="button" class="modal-close" id="artModalClose">&times;</button>
-    </div>
-    <div class="modal-list" id="artCommentsList"></div>
-    <div class="modal-form">
-      <input type="text" id="artCommentAuthor" placeholder="আপনার নাম (ঐচ্ছিক)">
-      <textarea id="artCommentText" placeholder="আপনার মন্তব্য লিখুন..."></textarea>
-      <button type="button" id="artCommentSubmit">পাঠান</button>
-    </div>
-  </div>
-</div>
 
 <script>
 (function() {
@@ -1108,29 +1106,9 @@ async function serveArticlePage(id, env) {
     });
   }
 
-  var commentModal = document.getElementById('artCommentModal');
-  var commentBtn = document.getElementById('artCommentBtn');
-  var modalClose = document.getElementById('artModalClose');
-  var commentSubmit = document.getElementById('artCommentSubmit');
-
-  function openComments() {
-    if (commentModal) commentModal.classList.add('active');
-    loadComments();
-  }
-  function closeComments() {
-    if (commentModal) commentModal.classList.remove('active');
-  }
-
-  if (commentBtn) commentBtn.addEventListener('click', function(e) { e.preventDefault(); openComments(); });
-  if (modalClose) modalClose.addEventListener('click', closeComments);
-  if (commentModal) {
-    commentModal.addEventListener('click', function(e) {
-      if (e.target === commentModal) closeComments();
-    });
-  }
-
-  async function loadComments() {
-    var list = document.getElementById('artCommentsList');
+  // ✅ INLINE COMMENTS — load + submit
+  async function loadInlineComments() {
+    var list = document.getElementById('inlineCommentsList');
     if (!list) return;
     list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">লোড হচ্ছে...</p>';
     try {
@@ -1142,7 +1120,7 @@ async function serveArticlePage(id, env) {
         return;
       }
       list.innerHTML = comments.map(function(c) {
-        return '<div style="border-bottom:1px solid #f0f0f0;padding:10px 0;"><strong style="font-size:14px;">' + escapeHtml(c.author_name) + '</strong><p style="margin:5px 0 0;font-size:14px;color:#444;">' + escapeHtml(c.comment_text) + '</p></div>';
+        return '<div class="comment-item"><strong>' + escapeHtml(c.author_name) + '</strong><p>' + escapeHtml(c.comment_text) + '</p></div>';
       }).join('');
     } catch (e) {
       console.error('Comment load error:', e);
@@ -1150,14 +1128,17 @@ async function serveArticlePage(id, env) {
     }
   }
 
-  if (commentSubmit) {
-    commentSubmit.addEventListener('click', async function(e) {
+  var inlineSubmit = document.getElementById('inlineCommentSubmit');
+  if (inlineSubmit) {
+    inlineSubmit.addEventListener('click', async function(e) {
       e.preventDefault();
-      var authorEl = document.getElementById('artCommentAuthor');
-      var textEl = document.getElementById('artCommentText');
+      var authorEl = document.getElementById('inlineCommentAuthor');
+      var textEl = document.getElementById('inlineCommentText');
       var author = (authorEl && authorEl.value || '').trim() || 'Guest';
       var text = (textEl && textEl.value || '').trim();
       if (!text) { alert('মন্তব্য লিখুন!'); return; }
+      inlineSubmit.disabled = true;
+      inlineSubmit.textContent = 'পাঠানো হচ্ছে...';
       try {
         var res = await fetch(API_BASE + '/api/comments', {
           method: 'POST',
@@ -1166,17 +1147,26 @@ async function serveArticlePage(id, env) {
         });
         if (res.ok) {
           if (textEl) textEl.value = '';
-          await loadComments();
+          if (authorEl) authorEl.value = '';
+          await loadInlineComments();
+          alert('মন্তব্য পাঠানো হয়েছে!');
         } else {
           alert('মন্তব্য পাঠানো যায়নি');
         }
       } catch (e) {
         console.error('Comment submit error:', e);
         alert('মন্তব্য পাঠানো যায়নি');
+      } finally {
+        inlineSubmit.disabled = false;
+        inlineSubmit.textContent = 'পাঠান';
       }
     });
   }
 
+  // পেজ লোডে inline comment লোড করুন
+  loadInlineComments();
+
+  // ===== SHARE with full fallback =====
   var shareBtn = document.getElementById('artShareBtn');
   if (shareBtn) {
     shareBtn.addEventListener('click', async function(e) {
@@ -1194,25 +1184,50 @@ async function serveArticlePage(id, env) {
           if (err && err.name === 'AbortError') return;
         }
       }
-      try {
-        if (navigator.clipboard && window.isSecureContext) {
+
+      if (navigator.clipboard && window.isSecureContext) {
+        try {
           await navigator.clipboard.writeText(text);
           alert('লিংক কপি হয়েছে');
           return;
-        }
-      } catch (err) {}
+        } catch (err) {}
+      }
+
       try {
         var ta = document.createElement('textarea');
         ta.value = text;
         ta.style.position = 'fixed';
-        ta.style.left = '-9999px';
+        ta.style.top = '0';
+        ta.style.left = '0';
+        ta.style.opacity = '0';
         document.body.appendChild(ta);
+        ta.focus();
         ta.select();
-        document.execCommand('copy');
+        ta.setSelectionRange(0, ta.value.length);
+        var ok = document.execCommand('copy');
         document.body.removeChild(ta);
-        alert('লিংক কপি হয়েছে');
-      } catch (err) {
-        prompt('লিংক কপি করুন:', text);
+        if (ok) {
+          alert('লিংক কপি হয়েছে');
+          return;
+        }
+      } catch (err) {}
+
+      prompt('লিংক কপি করুন:', text);
+    });
+  }
+
+  // Comment modal button — scroll to inline section
+  var commentBtn = document.getElementById('artCommentBtn');
+  if (commentBtn) {
+    commentBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      var section = document.getElementById('commentsSection');
+      if (section) {
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        setTimeout(function() {
+          var input = document.getElementById('inlineCommentText');
+          if (input) input.focus();
+        }, 400);
       }
     });
   }
@@ -1301,7 +1316,7 @@ async function ensureTablesOnce(env) {
 }
 
 /* =========================================================
- * SHARE PAGE — Full content + OG tags
+ * SHARE PAGE
  * ========================================================= */
 async function serveSharePage(id, env, requestUserAgentFromContext = "", requestUrl = null) {
   const safeId = String(id || "").trim();

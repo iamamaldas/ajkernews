@@ -263,7 +263,6 @@ body { background:#f5f5f5; color:#111111; padding-bottom:20px; -webkit-font-smoo
   <span>App</span>
 </button>
 
-<!-- Firebase SDK -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
   import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging.js";
@@ -374,30 +373,42 @@ function getCategoryLabel(category) {
   const labels = { top: 'সেরা খবর', trending: 'ট্রেন্ডিং', all: 'সব খবর', entertainment: 'বিনোদন', general: 'সাধারণ', india: 'ভারত', technology: 'প্রযুক্তি', west_bengal: 'পশ্চিমবঙ্গ', business: 'ব্যবসা', sports: 'খেলা', politics: 'রাজনীতি', world: 'বিশ্ব', kolkata: 'কলকাতা', district: 'জেলা', crime: 'অপরাধ' };
   return labels[category] || category || 'সাধারণ';
 }
-function normalizeSearchText(value) {
-  return String(value || '').normalize('NFKC').toLocaleLowerCase().replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/[\p{P}\p{S}]+/gu, ' ').replace(/\s+/g, ' ').trim();
-}
 
 // ===== PWA INSTALL =====
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
+  console.log('[PWA] Install prompt ready');
 });
-function installApp() {
-  const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
-  if (isStandalone) { alert('App already installed!'); return; }
-  if (deferredPrompt) {
-    deferredPrompt.prompt();
-    deferredPrompt.userChoice.then((choiceResult) => {
-      if (choiceResult.outcome === 'accepted') alert('App installed!');
-      deferredPrompt = null;
-    });
+
+async function installApp() {
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+  if (isStandalone) {
+    alert('App already installed!');
     return;
   }
-  alert('App installation not supported.');
+  
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      console.log('[PWA] User accepted install');
+    } else {
+      console.log('[PWA] User dismissed install');
+    }
+    deferredPrompt = null;
+    return;
+  }
+  
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  if (isIOS) {
+    alert('App install করতে: Share বাটনে ক্লিক করুন → "Add to Home Screen" নির্বাচন করুন।');
+  } else {
+    alert('App install করতে ব্রাউজার মেনু (⋮) → "Install app" বা "Add to Home Screen" নির্বাচন করুন।');
+  }
 }
 
-// ===== ✅ REFRESH — Always go to home and reload =====
+// ===== REFRESH =====
 async function refreshNews() {
   const btn = document.getElementById('refreshBtn');
   if (btn && btn.classList.contains('spinning')) return;
@@ -825,10 +836,23 @@ window.addEventListener('load', () => {
 
   if ('serviceWorker' in navigator) {
     try {
-      const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { updateViaCache: 'none' });
-      console.log('[SW] Firebase SW registered:', reg.scope);
+      const fcmReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
+        updateViaCache: 'none',
+        scope: '/firebase-cloud-messaging-push-scope'
+      });
+      console.log('[SW] Firebase SW registered:', fcmReg.scope);
     } catch (err) {
       console.error('[SW] Firebase SW registration failed:', err);
+    }
+
+    try {
+      const mainReg = await navigator.serviceWorker.register('/sw.js', {
+        updateViaCache: 'none',
+        scope: '/'
+      });
+      console.log('[SW] Main SW registered:', mainReg.scope);
+    } catch (err) {
+      console.error('[SW] Main SW registration failed:', err);
     }
   }
 

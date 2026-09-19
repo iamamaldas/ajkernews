@@ -6,7 +6,6 @@
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging-compat.js');
 
-// Firebase configuration (public-safe)
 firebase.initializeApp({
   apiKey: "AIzaSyBdduTjoMMRUeMUnzN7sRHl70Wl0Bi9Mts",
   authDomain: "ajkernewsnotifications.firebaseapp.com",
@@ -18,7 +17,6 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-// Handle background messages (when app is closed or in background)
 messaging.onBackgroundMessage((payload) => {
   console.log('[FCM-SW] Background message received:', JSON.stringify(payload));
 
@@ -43,7 +41,6 @@ messaging.onBackgroundMessage((payload) => {
   return self.registration.showNotification(notificationTitle, notificationOptions);
 });
 
-// Handle notification click
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
@@ -64,7 +61,6 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-// Handle subscription change
 self.addEventListener('pushsubscriptionchange', (event) => {
   event.waitUntil(
     self.registration.pushManager.getSubscription().then((subscription) => {

@@ -811,7 +811,7 @@ async function serveArticlePage(id, env) {
 <html lang="bn">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
 <title>${escapeHtml(title)} - Ajker News</title>
 <meta name="description" content="${escapeHtml(description)}">
 <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1">
@@ -830,8 +830,8 @@ async function serveArticlePage(id, env) {
 <script type="application/ld+json">${breadcrumbLd}</script>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
-  html { scroll-behavior: smooth; }
-  body { background:#ffffff; color:#111111; -webkit-font-smoothing:antialiased; padding-bottom:20px; }
+  html { scroll-behavior: smooth; font-size: 16px; -webkit-text-size-adjust: 100%; }
+  body { background:#ffffff; color:#111111; -webkit-font-smoothing:antialiased; padding-bottom:20px; max-width: 100vw; overflow-x: hidden; }
 
   .header { position:sticky; top:0; z-index:1000; display:flex; align-items:center; justify-content:space-between; padding:12px 16px; min-height:60px; background:#ffffff; border-bottom:1px solid #e0e0e0; }
   .header-left { display:flex; align-items:center; gap:10px; min-width:0; flex-shrink:1; }
@@ -848,7 +848,7 @@ async function serveArticlePage(id, env) {
   .font-btn:hover { background:#f5f5f5; }
   .font-btn:active { background:#eaeaea; transform:scale(0.94); }
 
-  .article-main { padding:16px; max-width:820px; margin:0 auto; }
+  .article-main { padding:16px; max-width: min(820px, 95vw); margin:0 auto; }
   .article-cat { display:inline-block; font-size:12px; color:#f44336; font-weight:700; margin-bottom:8px; text-decoration:none; }
   .article-h1 { font-size:24px; line-height:1.35; margin:0 0 14px; color:#111; font-weight:700; }
   .article-img { width:100%; height:auto; border-radius:8px; display:block; margin:0 0 18px; background:#f3f3f3; }
@@ -939,6 +939,10 @@ async function serveArticlePage(id, env) {
   #artCommentModal .modal-form textarea { width:100%; padding:9px 12px; border:1px solid #ddd; border-radius:6px; margin-bottom:8px; font-size:14px; outline:none; font-family:inherit; }
   #artCommentModal .modal-form textarea { height:70px; resize:vertical; }
   #artCommentModal .modal-form button { background:#000; color:#fff; border:none; padding:10px 20px; border-radius:6px; font-weight:600; cursor:pointer; font-size:14px; }
+
+  @media (min-width: 1400px) {
+    .article-main { max-width: 900px; }
+  }
 
   @media (max-width:480px) {
     .header { padding:8px 12px; min-height:54px; }
@@ -1043,8 +1047,8 @@ async function serveArticlePage(id, env) {
 
 <script>
 (function() {
-  // ✅ FIX: API_BASE dynamically set to current origin so it works everywhere
-  var API_BASE = window.location.origin;
+  // ✅ FIX: API_BASE hardcoded to production domain for reliable API calls
+  var API_BASE = "https://ajkernews.in";
   var NEWS_ID = ${JSON.stringify(safeId)};
 
   var sizes = [15, 16, 17, 18, 19, 20, 22, 24, 26, 28];

@@ -387,7 +387,7 @@ async function installApp() {
     alert('App already installed!');
     return;
   }
-  
+
   if (deferredPrompt) {
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
@@ -399,7 +399,7 @@ async function installApp() {
     deferredPrompt = null;
     return;
   }
-  
+
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
   if (isIOS) {
     alert('App install করতে: Share বাটনে ক্লিক করুন → "Add to Home Screen" নির্বাচন করুন।');
@@ -413,19 +413,19 @@ async function refreshNews() {
   const btn = document.getElementById('refreshBtn');
   if (btn && btn.classList.contains('spinning')) return;
   if (btn) btn.classList.add('spinning');
-  
+
   const currentPath = window.location.pathname;
   if (currentPath.startsWith('/news/')) {
     window.location.href = '/';
     return;
   }
-  
+
   currentCategory = 'top';
   currentSearchQuery = '';
   currentOffset = 0;
   hasMoreNews = false;
   document.getElementById('categoryTitle').innerText = 'সেরা খবর';
-  
+
   try {
     await loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: false });
   } catch (error) { console.error('Refresh error:', error); }
@@ -472,7 +472,7 @@ async function loadNews(category = 'top', search = '', options = {}) {
     visibleCount = 10;
     hasMoreNews = data.has_more || false;
     renderNews(currentNews, hasMoreNews);
-    
+
     try {
       const ids = normalized.map(n => n.id);
       if (ids.length) {
@@ -608,19 +608,30 @@ async function toggleLove(id) {
   } catch (error) { console.error('Love error:', error); }
 }
 
-// ===== SHARE (short + engaging) =====
+// ===== SHARE (headline + summary snippet + CTA) =====
 async function shareNews(id, headline, summary) {
   const shareUrl = `${SITE_URL}/news/${encodeURIComponent(id)}`;
-  const shareText = `🔥 ${headline}\n\n👉 বিস্তারিত জানতে ক্লিক করুন\n${shareUrl}`;
+  const safeSummary = String(summary || '').trim();
+  const shortSummary = safeSummary.slice(0, 100).trim();
+  const summaryPart = shortSummary
+    ? `📰 ${shortSummary}${safeSummary.length > 100 ? '...' : ''}\n\n`
+    : '';
 
   if (navigator.share) {
     try {
-      await navigator.share({ title: headline, text: `🔥 ${headline}\n\n👉 বিস্তারিত জানতে ক্লিক করুন`, url: shareUrl });
+      await navigator.share({
+        title: headline,
+        text: `🔥 ${headline}\n\n${summaryPart}👉 বিস্তারিত পড়ুন`,
+        url: shareUrl
+      });
       return;
     } catch (err) {
       if (err && err.name === 'AbortError') return;
     }
   }
+
+  // Fallback: full text with URL inline
+  const shareText = `🔥 ${headline}\n\n${summaryPart}👉 বিস্তারিত পড়ুন: ${shareUrl}`;
 
   if (navigator.clipboard && window.isSecureContext) {
     try {
@@ -675,7 +686,7 @@ function showCopyToast(message) {
 }
 
 /* =========================================================
- * NOTIFICATION — FCM (FIXED toggle logic)
+ * NOTIFICATION — FCM
  * ========================================================= */
 let notificationSetupInProgress = false;
 
@@ -689,7 +700,7 @@ async function toggleNotification() {
 
   const isCurrentlySubscribed = btn.classList.contains('subscribed');
 
-  // ✅ Unsubscribe path
+  // Unsubscribe path
   if (isCurrentlySubscribed) {
     if (!confirm('নোটিফিকেশন বন্ধ করতে চান?')) return;
     notificationSetupInProgress = true;
@@ -726,7 +737,7 @@ async function toggleNotification() {
     return;
   }
 
-  // ✅ Subscribe path
+  // Subscribe path
   notificationSetupInProgress = true;
   btn.disabled = true;
   try {

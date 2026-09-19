@@ -2,7 +2,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v27 — FCM + Gemini + Article Actions + HOME Footer
+ * FINAL v30 — FCM + Gemini + Article Page (Exact Image Match Icons)
  * =========================================================
  */
 
@@ -48,9 +48,6 @@ function toTransliterated(text) {
   return result.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 }
 
-/* =========================================================
- * BOT DETECTION
- * ========================================================= */
 const BOT_REGEX = /googlebot|google-inspectiontool|apis-google|mediapartners-google|adsbot-google|googleother|feedfetcher-google|google-read-aloud|google-site-verification|storebot-google|googlebot-news|googlebot-image|googlebot-video|bingbot|msnbot|adidxbot|bingpreview|yandex|baiduspider|baiduboxapp|sogou|exabot|duckduckbot|duckassistbot|applebot|applebot-extended|slurp|twitterbot|facebookexternalhit|facebookcatalog|facebot|whatsapp|telegrambot|linkedinbot|pinterest|slackbot|discordbot|petalbot|semrushbot|ahrefsbot|mj12bot|dotbot|gptbot|chatgpt-user|perplexitybot|ccbot|anthropic-ai|claude-web|youbot|lighthouse|chrome-lighthouse/i;
 
 function getVapidEmail(env) {
@@ -153,23 +150,22 @@ export default {
       }
 
       if (url.pathname === "/api/love-counts") {
-        // ✅ Bulk fetch love counts for multiple IDs
         const idsParam = url.searchParams.get("ids") || "";
         const ids = idsParam.split(",").map(s => s.trim()).filter(Boolean);
         if (!ids.length) return json({ success: true, counts: {} }, 200, 30);
-        
+
         try {
           const placeholders = ids.map(() => "?").join(",");
           const rows = await env.DB.prepare(
             `SELECT news_id, COUNT(*) AS cnt FROM news_loves WHERE news_id IN (${placeholders}) GROUP BY news_id`
           ).bind(...ids).all();
-          
+
           const counts = {};
           for (const id of ids) counts[id] = 0;
           for (const row of (rows.results || [])) {
             counts[row.news_id] = Number(row.cnt || 0);
           }
-          
+
           return json({ success: true, counts }, 200, 30);
         } catch (error) {
           return json({ success: false, error: error.message }, 500, 0);
@@ -713,7 +709,7 @@ async function serveListingPage(env, category, searchQuery) {
 }
 
 /* =========================================================
- * ARTICLE PAGE — love/comment/share AT END OF CONTENT
+ * ARTICLE PAGE — EXACT IMAGE MATCH (Icons)
  * ========================================================= */
 async function serveArticlePage(id, env) {
   const safeId = String(id || "").trim();
@@ -739,6 +735,22 @@ async function serveArticlePage(id, env) {
   const publishedAt = displayDate;
   const canonical = `https://ajkernews.in/news/${encodeURIComponent(safeId)}`;
   const category = result.category || "general";
+
+  let formattedDate = "";
+  try {
+    const d = new Date(displayDate);
+    formattedDate = d.toLocaleDateString('bn-BD', { day: 'numeric', month: 'long', year: 'numeric' }) + ' ' + d.toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' });
+  } catch (e) { formattedDate = displayDate; }
+
+  let sourceDomain = "";
+  try {
+    if (result.source_url) {
+      const u = new URL(result.source_url);
+      sourceDomain = u.hostname.replace(/^www\./, '');
+    } else {
+      sourceDomain = result.source_name || "Ajker News";
+    }
+  } catch (e) { sourceDomain = result.source_name || "Ajker News"; }
 
   let relatedNews = [];
   try {
@@ -817,243 +829,364 @@ async function serveArticlePage(id, env) {
 <script type="application/ld+json">${newsArticleLd}</script>
 <script type="application/ld+json">${breadcrumbLd}</script>
 <style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { max-width:780px; margin:0 auto; padding:16px; font-family:Inter,-apple-system,sans-serif; color:#111; line-height:1.7; background:#fff; }
-  .article-topbar { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px; padding:8px 12px; background:#f8f8f8; border-radius:8px; }
-  .article-topbar a { color:#007bff; text-decoration:none; font-size:14px; font-weight:500; }
-  .font-controls { display:flex; align-items:center; gap:6px; }
-  .font-controls .fc-label { font-size:12px; color:#666; margin-right:4px; }
-  .font-btn { width:36px; height:36px; border:1px solid #ddd; background:#fff; border-radius:6px; font-size:14px; font-weight:700; cursor:pointer; color:#333; display:inline-flex; align-items:center; justify-content:center; user-select:none; -webkit-tap-highlight-color:transparent; transition:background 0.15s; }
-  .font-btn:hover { background:#f0f0f0; }
-  .font-btn:active { background:#e5e5e5; transform:scale(0.95); }
-  .article-cat { display:inline-block; font-size:12px; color:#f44336; font-weight:700; margin-bottom:8px; text-decoration:none; }
-  .article-h1 { font-size:26px; line-height:1.35; margin:0 0 12px; color:#111; }
-  .article-meta { font-size:13px; color:#888; margin-bottom:16px; }
-  .article-img { width:100%; height:auto; border-radius:8px; display:block; margin-bottom:18px; }
-  .article-body { font-size:17px; color:#222; line-height:1.85; transition:font-size 0.2s ease; }
-  .article-source { margin-top:20px; font-size:14px; color:#666; }
-  .article-source a { color:#007bff; text-decoration:none; }
+  * { margin:0; padding:0; box-sizing:border-box; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  html { scroll-behavior: smooth; }
+  body { background:#ffffff; color:#111111; -webkit-font-smoothing:antialiased; padding-bottom:20px; }
 
-  /* ✅ Actions at END of content */
-  .article-actions-end {
+  .header { position:sticky; top:0; z-index:1000; display:flex; align-items:center; justify-content:space-between; padding:12px 16px; min-height:60px; background:#ffffff; border-bottom:1px solid #e0e0e0; }
+  .header-left { display:flex; align-items:center; gap:10px; min-width:0; flex-shrink:1; }
+  .back-btn { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; background:transparent; border:none; cursor:pointer; -webkit-tap-highlight-color:transparent; padding:4px; border-radius:50%; transition:background 0.15s; text-decoration:none; flex-shrink:0; }
+  .back-btn:hover { background:#f0f0f0; }
+  .back-btn:active { background:#e5e5e5; }
+  .back-btn svg { width:22px; height:22px; stroke:#111; stroke-width:2.2; fill:none; stroke-linecap:round; stroke-linejoin:round; }
+  .header-logo { height:28px; width:auto; object-fit:contain; flex-shrink:0; }
+  .header-title { font-size:24px; line-height:1; font-weight:700; color:#111111; white-space:nowrap; letter-spacing:-0.3px; overflow:hidden; text-overflow:ellipsis; }
+
+  .header-right { display:flex; align-items:center; gap:8px; flex-shrink:0; }
+  .font-controls { display:flex; align-items:center; gap:6px; }
+  .font-btn { width:36px; height:36px; border:1px solid #ddd; background:#fff; border-radius:8px; font-size:14px; font-weight:700; cursor:pointer; color:#333; display:inline-flex; align-items:center; justify-content:center; user-select:none; -webkit-tap-highlight-color:transparent; transition:background 0.15s, transform 0.1s; padding:0; line-height:1; font-family:inherit; }
+  .font-btn:hover { background:#f5f5f5; }
+  .font-btn:active { background:#eaeaea; transform:scale(0.94); }
+
+  .article-main { padding:16px; max-width:820px; margin:0 auto; }
+  .article-cat { display:inline-block; font-size:12px; color:#f44336; font-weight:700; margin-bottom:8px; text-decoration:none; }
+  .article-h1 { font-size:24px; line-height:1.35; margin:0 0 14px; color:#111; font-weight:700; }
+  .article-img { width:100%; height:auto; border-radius:8px; display:block; margin:0 0 18px; background:#f3f3f3; }
+  .article-body { font-size:17px; color:#222; line-height:1.85; transition:font-size 0.15s ease; }
+  .article-body p { margin-bottom:14px; }
+
+  .article-source-row {
     display:flex;
     align-items:center;
-    justify-content:space-around;
-    gap:16px;
-    margin:28px 0 20px;
-    padding:16px 12px;
-    background:#f8f9fa;
-    border-radius:10px;
-    border:1px solid #ececec;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-top:22px;
+    padding-top:16px;
+    padding-bottom:16px;
+    border-top:1px solid #e8e8e8;
+    border-bottom:1px solid #e8e8e8;
   }
-  .action-tab {
+  .article-source-link {
+    color:#007bff;
+    text-decoration:none;
+    font-weight:600;
+    font-size:16px;
+  }
+  .article-source-link:hover { text-decoration:underline; }
+  .article-date {
+    color:#999999;
+    font-size:14px;
+    font-weight:500;
+  }
+
+  /* ===== Actions Row — Exact Image Match ===== */
+  .article-actions-row {
     display:flex;
-    flex-direction:column;
     align-items:center;
-    gap:4px;
+    gap:40px;
+    padding:18px 0 14px;
+  }
+  .action-btn-art {
+    display:inline-flex;
+    align-items:center;
+    gap:10px;
     background:none;
     border:none;
     cursor:pointer;
-    color:#555;
-    font-size:12px;
-    font-weight:600;
-    padding:6px 14px;
-    border-radius:8px;
-    transition:all 0.15s;
+    padding:0;
+    color:#4a4a4a;
+    font-size:17px;
+    font-weight:500;
     -webkit-tap-highlight-color:transparent;
-    min-width:70px;
+    transition:transform 0.1s ease;
+    line-height:1;
+    font-family:inherit;
   }
-  .action-tab:hover { background:#fff; }
-  .action-tab:active { transform:scale(0.95); }
-  .action-tab svg { width:26px; height:26px; fill:none; stroke:#666; stroke-width:2; transition:all 0.2s; }
-  .action-tab.loved svg { fill:#e74c3c; stroke:#e74c3c; }
-  .action-tab.loved { color:#e74c3c; }
-  .action-tab .tab-count { font-size:13px; font-weight:700; color:#333; }
-  .action-tab.loved .tab-count { color:#e74c3c; }
+  .action-btn-art:active { transform:scale(0.92); }
+  .action-btn-art svg {
+    width:32px;
+    height:32px;
+    fill:none;
+    stroke:#4a4a4a;
+    stroke-width:1.8;
+    stroke-linecap:round;
+    stroke-linejoin:round;
+    transition:stroke 0.15s, fill 0.15s;
+    flex-shrink:0;
+    display:block;
+  }
+  .action-btn-art .action-num {
+    font-size:17px;
+    font-weight:500;
+    color:#4a4a4a;
+    min-width:12px;
+    display:inline-block;
+    line-height:1;
+  }
+  .action-btn-art.loved svg { fill:#e74c3c; stroke:#e74c3c; }
+  .action-btn-art.loved .action-num { color:#e74c3c; }
 
-  .related-box { margin-top:32px; padding-top:20px; border-top:1px solid #eee; }
-  .related-box h3 { font-size:18px; margin:0 0 14px; color:#111; }
+  .related-box { margin:32px 0 0; padding-top:22px; border-top:1px solid #eee; }
+  .related-box h3 { font-size:18px; margin:0 0 14px; color:#111; font-weight:700; }
   .related-box ul { list-style:none; padding:0; margin:0; }
-  .related-box li { margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #f0f0f0; }
-  .related-box a { color:#111; text-decoration:none; font-size:15px; line-height:1.5; }
-  .article-footer { margin-top:40px; padding-top:20px; border-top:1px solid #eee; text-align:center; color:#888; font-size:13px; }
+  .related-box li { margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #f5f5f5; }
+  .related-box a { color:#111; text-decoration:none; font-size:15px; line-height:1.55; font-weight:600; }
+  .related-box a:hover { color:#007bff; }
+
+  .article-footer { margin:36px 16px 0; padding-top:22px; border-top:1px solid #eee; text-align:center; color:#888; font-size:13px; }
   .article-footer a { color:#555; text-decoration:none; font-weight:600; letter-spacing:0.5px; }
   .article-footer a:hover { color:#007bff; }
+
+  #artCommentModal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:2000; align-items:center; justify-content:center; padding:16px; }
+  #artCommentModal.active { display:flex; }
+  #artCommentModal .modal-box { background:#fff; border-radius:12px; width:100%; max-width:520px; max-height:85vh; display:flex; flex-direction:column; overflow:hidden; }
+  #artCommentModal .modal-header { display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid #eee; }
+  #artCommentModal .modal-header h3 { font-size:17px; font-weight:700; margin:0; }
+  #artCommentModal .modal-close { background:none; border:none; font-size:26px; cursor:pointer; color:#888; line-height:1; padding:0 6px; }
+  #artCommentModal .modal-list { padding:14px 16px; overflow-y:auto; flex:1; -webkit-overflow-scrolling:touch; }
+  #artCommentModal .modal-form { padding:12px 16px; border-top:1px solid #eee; background:#fafafa; }
+  #artCommentModal .modal-form input,
+  #artCommentModal .modal-form textarea { width:100%; padding:9px 12px; border:1px solid #ddd; border-radius:6px; margin-bottom:8px; font-size:14px; outline:none; font-family:inherit; }
+  #artCommentModal .modal-form textarea { height:70px; resize:vertical; }
+  #artCommentModal .modal-form button { background:#000; color:#fff; border:none; padding:10px 20px; border-radius:6px; font-weight:600; cursor:pointer; font-size:14px; }
+
   @media (max-width:480px) {
-    body { padding:12px; }
-    .article-h1 { font-size:22px; }
+    .header { padding:8px 12px; min-height:54px; }
+    .header-title { font-size:20px; }
+    .header-logo { height:24px; }
+    .back-btn { width:32px; height:32px; }
+    .back-btn svg { width:20px; height:20px; }
+    .header-right { gap:6px; }
     .font-btn { width:34px; height:34px; font-size:13px; }
+    .article-main { padding:12px; }
+    .article-h1 { font-size:21px; }
     .article-body { font-size:16px; }
-    .article-topbar { padding:6px 10px; }
-    .article-actions-end { padding:14px 8px; gap:8px; }
-    .action-tab { min-width:60px; padding:6px 10px; font-size:11px; }
-    .action-tab svg { width:24px; height:24px; }
+    .article-source-link { font-size:15px; }
+    .article-date { font-size:13px; }
+    .article-actions-row { gap:36px; padding:16px 0 12px; }
+    .action-btn-art svg { width:30px; height:30px; }
+    .action-btn-art .action-num { font-size:16px; }
   }
 </style>
 </head>
 <body>
-<div class="article-topbar">
-  <a href="https://ajkernews.in/">← আজকের নিউজ হোম</a>
-  <div class="font-controls">
-    <span class="fc-label">ফন্ট:</span>
-    <button class="font-btn" id="fontDec" onclick="changeFontSize(-1)" aria-label="Font smaller">A-</button>
-    <button class="font-btn" id="fontInc" onclick="changeFontSize(1)" aria-label="Font bigger">A+</button>
+
+<div class="header">
+  <div class="header-left">
+    <a href="https://ajkernews.in/" class="back-btn" aria-label="Back to home">
+      <svg viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+    </a>
+    <img src="/logo.png" class="header-logo" alt="Ajker News">
+    <span class="header-title">আজকের নিউজ</span>
+  </div>
+  <div class="header-right">
+    <div class="font-controls">
+      <button type="button" class="font-btn" id="fontDec" aria-label="Smaller">A-</button>
+      <button type="button" class="font-btn" id="fontInc" aria-label="Bigger">A+</button>
+    </div>
   </div>
 </div>
-<article itemscope itemtype="https://schema.org/NewsArticle">
-  <meta itemprop="datePublished" content="${escapeHtml(publishedAt)}">
-  <meta itemprop="dateModified" content="${escapeHtml(publishedAt)}">
-  <meta itemprop="mainEntityOfPage" content="${escapeHtml(canonical)}">
-  <a class="article-cat" href="https://ajkernews.in/?category=${encodeURIComponent(category)}">${escapeHtml(catLabel[category] || category)}</a>
-  <h1 class="article-h1" itemprop="headline">${escapeHtml(title)}</h1>
-  <div class="article-meta">
-    <span itemprop="author" itemscope itemtype="https://schema.org/Organization"><span itemprop="name">${escapeHtml(result.source_name || "Ajker News")}</span></span>
-    • <time datetime="${escapeHtml(publishedAt)}">${escapeHtml(publishedAt)}</time>
-  </div>
-  <div itemprop="image" itemscope itemtype="https://schema.org/ImageObject">
-    <img itemprop="url" class="article-img" src="${escapeHtml(image)}" alt="${escapeHtml(title)}" width="1200" height="675" loading="eager" decoding="async">
-  </div>
 
-  <div class="article-body" id="articleBody" itemprop="articleBody">
-    <p>${escapeHtml(fullSummary)}</p>
-  </div>
-  ${result.source_url ? `<p class="article-source">সূত্র: <a href="${escapeHtml(result.source_url)}" rel="noopener noreferrer nofollow">${escapeHtml(result.source_name || "মূল উৎস")}</a></p>` : ""}
+<main class="article-main">
+  <article itemscope itemtype="https://schema.org/NewsArticle">
+    <meta itemprop="datePublished" content="${escapeHtml(publishedAt)}">
+    <meta itemprop="dateModified" content="${escapeHtml(publishedAt)}">
+    <meta itemprop="mainEntityOfPage" content="${escapeHtml(canonical)}">
 
-  <!-- ✅ Actions at END of content -->
-  <div class="article-actions-end">
-    <button class="action-tab" id="artLoveBtn" onclick="articleToggleLove('${safeId}')">
-      <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-      <span class="tab-count" id="artLoveCount">${loveCount}</span>
-      <span>ভালোবাসা</span>
-    </button>
-    <button class="action-tab" onclick="articleOpenComments('${safeId}')">
-      <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-      <span class="tab-count">💬</span>
-      <span>মন্তব্য</span>
-    </button>
-    <button class="action-tab" onclick="articleShare('${safeId}', '${escapeHtml(title).replace(/'/g, "\\'")}')">
-      <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-      <span class="tab-count">📤</span>
-      <span>শেয়ার</span>
-    </button>
-  </div>
-</article>
-${relatedHtml}
+    <a class="article-cat" href="https://ajkernews.in/?category=${encodeURIComponent(category)}">${escapeHtml(catLabel[category] || category)}</a>
+    <h1 class="article-h1" itemprop="headline">${escapeHtml(title)}</h1>
+
+    <div itemprop="image" itemscope itemtype="https://schema.org/ImageObject">
+      <img itemprop="url" class="article-img" src="${escapeHtml(image)}" alt="${escapeHtml(title)}" width="1200" height="675" loading="eager" decoding="async">
+    </div>
+
+    <div class="article-body" id="articleBody" itemprop="articleBody">
+      <p>${escapeHtml(fullSummary)}</p>
+    </div>
+
+    <div class="article-source-row">
+      <a class="article-source-link" href="${escapeHtml(result.source_url || '#')}" rel="noopener noreferrer nofollow" target="_blank">${escapeHtml(sourceDomain)}</a>
+      <span class="article-date">${escapeHtml(formattedDate)}</span>
+    </div>
+
+    <div class="article-actions-row">
+      <!-- Comment Icon — rounded bubble with left tail (exact image match) -->
+      <button type="button" class="action-btn-art" id="artCommentBtn" aria-label="Comment">
+        <svg viewBox="0 0 32 32" fill="none" stroke="#4a4a4a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 3.5c-7.18 0-13 4.93-13 11 0 3.4 1.82 6.43 4.71 8.47-.24 2.17-1 4.22-2.21 6.03-.26.4.15.87.58.68 2.55-1.11 4.73-2.6 6.4-4.17 1.1.22 2.27.34 3.52.34 7.18 0 13-4.93 13-11S23.18 3.5 16 3.5z"/>
+        </svg>
+      </button>
+
+      <!-- Heart Icon — outline, exact image match -->
+      <button type="button" class="action-btn-art" id="artLoveBtn" aria-label="Love">
+        <svg viewBox="0 0 32 32" fill="none" stroke="#4a4a4a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 27.5S4 20 4 11.8C4 7.6 7.5 4.5 11.8 4.5c2.5 0 4.8 1.3 6.2 3.4l-2 1.6 2-1.6c1.4-2.1 3.7-3.4 6.2-3.4 4.3 0 7.8 3.1 7.8 7.3C28 20 16 27.5 16 27.5z"/>
+        </svg>
+        <span class="action-num" id="artLoveCount">${loveCount}</span>
+      </button>
+
+      <!-- Share Icon — 3 circles + 2 lines (exact image match) -->
+      <button type="button" class="action-btn-art" id="artShareBtn" aria-label="Share">
+        <svg viewBox="0 0 32 32" fill="none" stroke="#4a4a4a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="24" cy="6" r="4"/>
+          <circle cx="8" cy="16" r="4"/>
+          <circle cx="24" cy="26" r="4"/>
+          <line x1="11.2" y1="14.2" x2="20.8" y2="7.8"/>
+          <line x1="11.2" y1="17.8" x2="20.8" y2="24.2"/>
+        </svg>
+      </button>
+    </div>
+  </article>
+
+  ${relatedHtml}
+</main>
+
 <footer class="article-footer">
   <p><a href="https://ajkernews.in/">HOME</a></p>
   <p style="margin-top:10px;">&copy; ${new Date().getFullYear()} Ajker News. All rights reserved.</p>
 </footer>
 
-<!-- Comment Modal -->
-<div id="artCommentModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:2000; align-items:center; justify-content:center; padding:16px;">
-  <div style="background:#fff; border-radius:12px; width:100%; max-width:520px; max-height:85vh; display:flex; flex-direction:column; overflow:hidden;">
-    <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid #eee;">
-      <h3 style="font-size:17px; font-weight:700; margin:0;">মন্তব্য</h3>
-      <button onclick="articleCloseComments()" style="background:none; border:none; font-size:26px; cursor:pointer; color:#888; line-height:1;">&times;</button>
+<div id="artCommentModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>মন্তব্য</h3>
+      <button type="button" class="modal-close" id="artModalClose">&times;</button>
     </div>
-    <div id="artCommentsList" style="padding:14px 16px; overflow-y:auto; flex:1;"></div>
-    <div style="padding:12px 16px; border-top:1px solid #eee; background:#fafafa;">
-      <input type="text" id="artCommentAuthor" placeholder="আপনার নাম (ঐচ্ছিক)" style="width:100%; padding:9px 12px; border:1px solid #ddd; border-radius:6px; margin-bottom:8px; font-size:14px;">
-      <textarea id="artCommentText" placeholder="আপনার মন্তব্য লিখুন..." style="width:100%; padding:9px 12px; border:1px solid #ddd; border-radius:6px; height:70px; font-size:14px; resize:vertical;"></textarea>
-      <button onclick="articleSubmitComment('${safeId}')" style="margin-top:8px; background:#000; color:#fff; border:none; padding:10px 20px; border-radius:6px; font-weight:600; cursor:pointer; font-size:14px;">পাঠান</button>
+    <div class="modal-list" id="artCommentsList"></div>
+    <div class="modal-form">
+      <input type="text" id="artCommentAuthor" placeholder="আপনার নাম (ঐচ্ছিক)">
+      <textarea id="artCommentText" placeholder="আপনার মন্তব্য লিখুন..."></textarea>
+      <button type="button" id="artCommentSubmit">পাঠান</button>
     </div>
   </div>
 </div>
 
 <script>
 (function() {
-  // === Font size control ===
+  var API_BASE = 'https://ajkernews.in';
+  var NEWS_ID = ${JSON.stringify(safeId)};
+
   var sizes = [15, 16, 17, 18, 19, 20, 22, 24, 26, 28];
   var current = 2;
-  var saved = parseInt(localStorage.getItem('articleFontSize') || '2', 10);
-  if (!isNaN(saved) && saved >= 0 && saved < sizes.length) current = saved;
+  try {
+    var saved = parseInt(localStorage.getItem('articleFontSize') || '2', 10);
+    if (!isNaN(saved) && saved >= 0 && saved < sizes.length) current = saved;
+  } catch (e) {}
+
   function applyFont() {
     var body = document.getElementById('articleBody');
     if (body) body.style.fontSize = sizes[current] + 'px';
-    localStorage.setItem('articleFontSize', String(current));
+    try { localStorage.setItem('articleFontSize', String(current)); } catch (e) {}
   }
-  window.changeFontSize = function(delta) {
+  function changeFont(delta) {
     current = Math.max(0, Math.min(sizes.length - 1, current + delta));
-    applyFont();
-  };
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', applyFont);
-  } else {
     applyFont();
   }
 
-  // === Love / Comment / Share ===
-  var NEWS_ID = '${safeId}';
+  var fontDecBtn = document.getElementById('fontDec');
+  var fontIncBtn = document.getElementById('fontInc');
+  if (fontDecBtn) fontDecBtn.addEventListener('click', function(e) { e.preventDefault(); changeFont(-1); });
+  if (fontIncBtn) fontIncBtn.addEventListener('click', function(e) { e.preventDefault(); changeFont(1); });
+  applyFont();
+
   var LOVED_KEY = 'loved:' + NEWS_ID;
   var DEVICE_KEY = 'deviceId';
 
   function getDeviceId() {
-    var id = localStorage.getItem(DEVICE_KEY);
-    if (!id) {
-      id = 'user-' + Date.now() + '-' + Math.random().toString(36).substring(2, 10);
-      localStorage.setItem(DEVICE_KEY, id);
-    }
-    return id;
+    try {
+      var id = localStorage.getItem(DEVICE_KEY);
+      if (!id) {
+        id = 'user-' + Date.now() + '-' + Math.random().toString(36).substring(2, 10);
+        localStorage.setItem(DEVICE_KEY, id);
+      }
+      return id;
+    } catch (e) { return 'user-anonymous'; }
   }
-
-  function isLoved() { return localStorage.getItem(LOVED_KEY) === '1'; }
+  function isLoved() {
+    try { return localStorage.getItem(LOVED_KEY) === '1'; } catch (e) { return false; }
+  }
   function setLoved(v) {
-    if (v) localStorage.setItem(LOVED_KEY, '1');
-    else localStorage.removeItem(LOVED_KEY);
+    try {
+      if (v) localStorage.setItem(LOVED_KEY, '1');
+      else localStorage.removeItem(LOVED_KEY);
+    } catch (e) {}
   }
   function updateLoveUI(loved, count) {
     var btn = document.getElementById('artLoveBtn');
     var countEl = document.getElementById('artLoveCount');
     if (btn) btn.classList.toggle('loved', !!loved);
-    if (countEl && count !== undefined) countEl.textContent = count;
+    if (countEl && count !== undefined && count !== null) countEl.textContent = String(count);
   }
 
-  // ✅ Apply saved love state on load
   updateLoveUI(isLoved());
 
-  window.articleToggleLove = async function(id) {
-    var currentlyLoved = isLoved();
-    var newLoved = !currentlyLoved;
-    var countEl = document.getElementById('artLoveCount');
-    var currentCount = countEl ? parseInt(countEl.textContent, 10) || 0 : 0;
-    var newCount = newLoved ? currentCount + 1 : Math.max(0, currentCount - 1);
-
-    setLoved(newLoved);
-    updateLoveUI(newLoved, newCount);
-
+  (async function() {
     try {
-      var res = await fetch('https://ajkernews.in/api/love', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: id, deviceId: getDeviceId() })
-      });
+      var res = await fetch(API_BASE + '/api/love-counts?ids=' + encodeURIComponent(NEWS_ID));
       var data = await res.json();
-      if (data && typeof data.love_count === 'number') {
-        updateLoveUI(newLoved, data.love_count);
+      if (data && data.success && data.counts && typeof data.counts[NEWS_ID] === 'number') {
+        updateLoveUI(isLoved(), data.counts[NEWS_ID]);
       }
-    } catch (e) {
-      setLoved(currentlyLoved);
-      updateLoveUI(currentlyLoved, currentCount);
-    }
-  };
+    } catch (e) {}
+  })();
 
-  window.articleOpenComments = async function(id) {
-    var modal = document.getElementById('artCommentModal');
-    modal.style.display = 'flex';
-    await articleLoadComments(id);
-  };
+  var loveBtn = document.getElementById('artLoveBtn');
+  if (loveBtn) {
+    loveBtn.addEventListener('click', async function(e) {
+      e.preventDefault();
+      var currentlyLoved = isLoved();
+      var newLoved = !currentlyLoved;
+      var countEl = document.getElementById('artLoveCount');
+      var currentCount = countEl ? parseInt(countEl.textContent, 10) || 0 : 0;
+      var newCount = newLoved ? currentCount + 1 : Math.max(0, currentCount - 1);
 
-  window.articleCloseComments = function() {
-    document.getElementById('artCommentModal').style.display = 'none';
-  };
+      setLoved(newLoved);
+      updateLoveUI(newLoved, newCount);
 
-  async function articleLoadComments(id) {
+      try {
+        var res = await fetch(API_BASE + '/api/love', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: NEWS_ID, deviceId: getDeviceId() })
+        });
+        var data = await res.json();
+        if (data && typeof data.love_count === 'number') {
+          updateLoveUI(newLoved, data.love_count);
+        }
+      } catch (e) {}
+    });
+  }
+
+  var commentModal = document.getElementById('artCommentModal');
+  var commentBtn = document.getElementById('artCommentBtn');
+  var modalClose = document.getElementById('artModalClose');
+  var commentSubmit = document.getElementById('artCommentSubmit');
+
+  function openComments() {
+    if (commentModal) commentModal.classList.add('active');
+    loadComments();
+  }
+  function closeComments() {
+    if (commentModal) commentModal.classList.remove('active');
+  }
+
+  if (commentBtn) commentBtn.addEventListener('click', function(e) { e.preventDefault(); openComments(); });
+  if (modalClose) modalClose.addEventListener('click', closeComments);
+  if (commentModal) {
+    commentModal.addEventListener('click', function(e) {
+      if (e.target === commentModal) closeComments();
+    });
+  }
+
+  async function loadComments() {
     var list = document.getElementById('artCommentsList');
+    if (!list) return;
     list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">লোড হচ্ছে...</p>';
     try {
-      var res = await fetch('https://ajkernews.in/api/comments?id=' + encodeURIComponent(id));
+      var res = await fetch(API_BASE + '/api/comments?id=' + encodeURIComponent(NEWS_ID));
       var data = await res.json();
-      var comments = data.comments || [];
+      var comments = (data && data.comments) || [];
       if (!comments.length) {
         list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">এখনো কোনো মন্তব্য নেই। প্রথম মন্তব্য করুন!</p>';
         return;
@@ -1066,42 +1199,71 @@ ${relatedHtml}
     }
   }
 
-  window.articleSubmitComment = async function(newsId) {
-    var authorEl = document.getElementById('artCommentAuthor');
-    var textEl = document.getElementById('artCommentText');
-    var author = (authorEl.value || '').trim() || 'Guest';
-    var text = (textEl.value || '').trim();
-    if (!text) { alert('মন্তব্য লিখুন!'); return; }
-    try {
-      var res = await fetch('https://ajkernews.in/api/comments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newsId: newsId, author: author, text: text })
-      });
-      if (res.ok) {
-        textEl.value = '';
-        await articleLoadComments(newsId);
-      } else {
+  if (commentSubmit) {
+    commentSubmit.addEventListener('click', async function(e) {
+      e.preventDefault();
+      var authorEl = document.getElementById('artCommentAuthor');
+      var textEl = document.getElementById('artCommentText');
+      var author = (authorEl && authorEl.value || '').trim() || 'Guest';
+      var text = (textEl && textEl.value || '').trim();
+      if (!text) { alert('মন্তব্য লিখুন!'); return; }
+      try {
+        var res = await fetch(API_BASE + '/api/comments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ newsId: NEWS_ID, author: author, text: text })
+        });
+        if (res.ok) {
+          if (textEl) textEl.value = '';
+          await loadComments();
+        } else {
+          alert('মন্তব্য পাঠানো যায়নি');
+        }
+      } catch (e) {
         alert('মন্তব্য পাঠানো যায়নি');
       }
-    } catch (e) {
-      alert('মন্তব্য পাঠানো যায়নি');
-    }
-  };
+    });
+  }
 
-  window.articleShare = async function(id, headline) {
-    var shareUrl = 'https://ajkernews.in/news/' + encodeURIComponent(id);
-    var text = headline + '\n\n' + shareUrl;
-    if (navigator.share) {
-      try { await navigator.share({ text: text }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
-    }
-    try {
-      await navigator.clipboard.writeText(text);
-      alert('লিংক কপি হয়েছে');
-    } catch (e) {
-      prompt('লিংক কপি করুন:', text);
-    }
-  };
+  var shareBtn = document.getElementById('artShareBtn');
+  if (shareBtn) {
+    shareBtn.addEventListener('click', async function(e) {
+      e.preventDefault();
+      var shareUrl = API_BASE + '/news/' + encodeURIComponent(NEWS_ID);
+      var headline = document.querySelector('.article-h1');
+      var headlineText = headline ? headline.textContent.trim() : 'খবর';
+      var text = headlineText + '\n\n' + shareUrl;
+
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: headlineText, text: text, url: shareUrl });
+          return;
+        } catch (err) {
+          if (err && err.name === 'AbortError') return;
+        }
+      }
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+          alert('লিংক কপি হয়েছে');
+          return;
+        }
+      } catch (err) {}
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        alert('লিংক কপি হয়েছে');
+      } catch (err) {
+        prompt('লিংক কপি করুন:', text);
+      }
+    });
+  }
 
   function escapeHtml(v) {
     if (v === null || v === undefined) return '';
@@ -1293,9 +1455,7 @@ async function handleSubscribe(request, env) {
   try {
     const body = await request.json();
     const token = body?.token || body?.endpoint;
-    if (!token) {
-      return json({ success: false, error: "Token required" }, 400, 0);
-    }
+    if (!token) return json({ success: false, error: "Token required" }, 400, 0);
 
     const endpoint = body?.endpoint || `fcm:${token.slice(0, 32)}`;
     const keys = JSON.stringify(body?.keys || {});
@@ -1364,10 +1524,7 @@ async function queueAndSendPushNotifications(env, newsIds) {
   let serviceAccount;
   try {
     serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
-  } catch (e) {
-    console.error("[PUSH-FCM] Invalid service account JSON:", e.message);
-    return;
-  }
+  } catch (e) { return; }
 
   const fcm = new FCM(new FcmOptions({ serviceAccount }));
   const targetUrl = `https://ajkernews.in/news/${latestNews.id}`;

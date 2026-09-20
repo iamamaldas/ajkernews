@@ -15,37 +15,43 @@ firebase.initializeApp({
   appId: "1:430988740362:web:ccb5e3cd2eeefc82345cf3"
 });
 
-const messaging = firebase.messaging();
+let messaging = null;
+try {
+  messaging = firebase.messaging();
+  messaging.onBackgroundMessage((payload) => {
+    console.log('[FCM-SW] Background message:', JSON.stringify(payload));
 
-messaging.onBackgroundMessage((payload) => {
-  console.log('[FCM-SW] Background message received:', JSON.stringify(payload));
+    const notificationTitle = payload.notification?.title || payload.data?.title || 'আজকের নিউজ';
+    const notificationBody = payload.notification?.body || payload.data?.body || 'নতুন খবর এসেছে';
 
-  const notificationTitle = payload.notification?.title || payload.data?.title || 'আজকের নিউজ';
-  const notificationBody = payload.notification?.body || payload.data?.body || 'নতুন খবর এসেছে';
+    const notificationOptions = {
+      body: notificationBody,
+      icon: payload.notification?.icon || payload.data?.icon || '/logo.png',
+      badge: '/logo.png',
+      image: payload.data?.image || payload.notification?.image || undefined,
+      vibrate: [200, 100, 200],
+      tag: payload.data?.notificationId || 'ajker-news',
+      renotify: true,
+      requireInteraction: false,
+      data: {
+        url: payload.data?.url || payload.fcmOptions?.link || 'https://ajkernews.in/',
+        notificationId: payload.data?.notificationId || ''
+      }
+    };
 
-  const notificationOptions = {
-    body: notificationBody,
-    icon: payload.notification?.icon || payload.data?.icon || '/logo.png',
-    badge: '/logo.png',
-    image: payload.data?.image || payload.notification?.image || undefined,
-    vibrate: [200, 100, 200],
-    tag: payload.data?.notificationId || 'ajker-news',
-    renotify: true,
-    requireInteraction: false,
-    data: {
-      url: payload.data?.url || payload.fcmOptions?.link || 'https://ajkernews.in/',
-      notificationId: payload.data?.notificationId || ''
-    }
-  };
-
-  return self.registration.showNotification(notificationTitle, notificationOptions);
-});
+    return self.registration.showNotification(notificationTitle, notificationOptions);
+  });
+} catch (e) {
+  console.error('[FCM-SW] messaging init failed:', e);
+}
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   const targetUrl = event.notification.data?.url || 'https://ajkernews.in/';
-  const fullUrl = targetUrl.startsWith('http') ? targetUrl : `https://ajkernews.in${targetUrl.startsWith('/') ? targetUrl : '/' + targetUrl}`;
+  const fullUrl = targetUrl.startsWith('http')
+    ? targetUrl
+    : `https://ajkernews.in${targetUrl.startsWith('/') ? targetUrl : '/' + targetUrl}`;
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {

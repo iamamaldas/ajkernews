@@ -306,9 +306,9 @@ const PAGE_SIZE = 10;
 let hasMoreNews = false;
 let deferredPrompt = null;
 
-// In-memory cache: key -> { news, hasMore, ts }
+// In-memory cache
 const newsCache = new Map();
-const CACHE_TTL = 90 * 1000; // 90 seconds
+const CACHE_TTL = 90 * 1000;
 
 // ===== HELPERS =====
 function sortByLatest(newsArray) {
@@ -436,7 +436,7 @@ function showSkeleton(container, count = 3) {
   container.innerHTML = html;
 }
 
-// ===== LOAD NEWS (with cache + instant first paint) =====
+// ===== LOAD NEWS =====
 async function loadNews(category = 'top', search = '', options = {}) {
   currentOffset = 0;
   currentCategory = category || 'top';
@@ -448,14 +448,14 @@ async function loadNews(category = 'top', search = '', options = {}) {
   // 1) Show cached data instantly if available
   const cacheKey = `${category}::${search || ''}`;
   const cached = newsCache.get(cacheKey);
-  const cacheValid = cached && (Date.now() - cached.ts) < CACHE_TTL);
+  const cacheValid = cached && (Date.now() - cached.ts) < CACHE_TTL;
 
   if (cacheValid && !forceNetwork) {
     currentNews = cached.news;
     visibleCount = cached.visibleCount || 10;
     hasMoreNews = cached.hasMore;
     renderNews(currentNews, hasMoreNews);
-    // Still refresh from network in background
+    // Refresh from network in background
     loadNewsNetwork(category, search, true).catch(() => {});
     return;
   }
@@ -467,6 +467,8 @@ async function loadNews(category = 'top', search = '', options = {}) {
 
   try {
     await loadNewsNetwork(category, search, false);
+  } catch (err) {
+    console.error('loadNews failed:', err);
   } finally {
     isLoadingNews = false;
   }
@@ -513,13 +515,16 @@ async function loadNewsNetwork(category, search, isBackground) {
 
     renderNews(currentNews, hasMoreNews);
 
-    // Update love counts in background (non-blocking)
+    // Update love counts (non-blocking)
     updateLoveCounts(normalized);
+
+    // Persist to localStorage
+    scheduleSaveCache();
   } catch (error) {
     console.error('News loading error:', error);
     if (!currentNews.length) {
       const container = document.getElementById('newsContainer');
-      container.innerHTML = '';
+      container.innerHTML = '<p style="text-align:center;padding:40px;color:#888;">খবর লোড করা যায়নি। আবার চেষ্টা করুন।</p>';
     }
   }
 }
@@ -629,7 +634,6 @@ async function loadMoreNews() {
     hasMoreNews = data.has_more || false;
     renderNews(currentNews, hasMoreNews);
 
-    // Update cache
     const cacheKey = `${currentCategory}::${currentSearchQuery || ''}`;
     newsCache.set(cacheKey, {
       news: currentNews,
@@ -639,6 +643,7 @@ async function loadMoreNews() {
     });
 
     updateLoveCounts(newNews);
+    scheduleSaveCache();
   } catch (error) { console.error('Load more error:', error); }
   loadMoreBtn.disabled = false;
 }
@@ -824,7 +829,7 @@ async function checkNotificationStatus() {
   }
 }
 
-// ===== COMMENTS (home page modal) =====
+// ===== COMMENTS =====
 async function openCommentModal(id) {
   const modal = document.getElementById('modal');
   const body = document.getElementById('modal-body');
@@ -944,7 +949,24 @@ function handleNotificationPromptLater() {
   hideNotificationPrompt();
 }
 
-// ===== INIT — Instant paint =====
+// ===== CACHE PERSIST =====
+let saveTimer = null;
+function scheduleSaveCache() {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      if (currentNews.length) {
+        localStorage.setItem('newsCache:v1', JSON.stringify({
+          news: currentNews.slice(0, 30),
+          hasMore: hasMoreNews,
+          ts: Date.now()
+        }));
+      }
+    } catch (e) { /* ignore */ }
+  }, 2000);
+}
+
+// ===== INIT =====
 (async function initApp() {
   // 1) Render cached news instantly (if any)
   try {
@@ -961,20 +983,12 @@ function handleNotificationPromptLater() {
   } catch (e) { /* ignore */ }
 
   // 2) Fetch fresh news from network
-  await loadNews('top', '', { showLoading: !currentNews.length, keepExisting: !!currentNews.length });
+  await loadNews('top', '', {
+    showLoading: !currentNews.length,
+    keepExisting: !!currentNews.length
+  });
 
-  // 3) Save to localStorage for next visit
-  try {
-    if (currentNews.length) {
-      localStorage.setItem('newsCache:v1', JSON.stringify({
-        news: currentNews.slice(0, 30),
-        hasMore: hasMoreNews,
-        ts: Date.now()
-      }));
-    }
-  } catch (e) { /* ignore */ }
-
-  // 4) Register service workers
+  // 3) Register service workers
   if ('serviceWorker' in navigator) {
     try {
       const fcmReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
@@ -1006,23 +1020,7 @@ function handleNotificationPromptLater() {
   await checkNotificationStatus();
 })();
 
-// Save to localStorage whenever currentNews changes (throttled)
-let saveTimer = null;
-function scheduleSaveCache() {
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    try {
-      if (currentNews.length) {
-        localStorage.setItem('newsCache:v1', JSON.stringify({
-          news: currentNews.slice(0, 30),
-          hasMore: hasMoreNews,
-          ts: Date.now()
-        }));
-      }
-    } catch (e) {}
-  }, 2000);
-}
-
+// ===== NOTIFICATION PROMPT TIMER =====
 window.addEventListener('load', () => {
   setTimeout(async () => {
     try {

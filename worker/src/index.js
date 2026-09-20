@@ -2,7 +2,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v36 — Trending Fix + Speed Optimization
+ * FINAL v37 — Trending Fix + Push Test Endpoint
  * =========================================================
  */
 
@@ -200,14 +200,52 @@ export default {
           const recent = await env.DB.prepare(`SELECT id, headline, status, created_at, published_at FROM news ORDER BY created_at DESC LIMIT 10`).all();
           const pushSubs = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_subscriptions`).first();
           const fcmSubs = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_subscriptions WHERE token IS NOT NULL AND token != ''`).first();
+          const hasServiceAccount = !!env.FIREBASE_SERVICE_ACCOUNT_JSON;
+          const hasVapidPublic = !!env.VAPID_PUBLIC_KEY;
           return json({
             success: true,
             stats: stats.results || [],
             recent: recent.results || [],
             push: {
               subscribers: Number(pushSubs?.total || 0),
-              fcmTokens: Number(fcmSubs?.total || 0)
+              fcmTokens: Number(fcmSubs?.total || 0),
+              hasServiceAccount: hasServiceAccount,
+              hasVapidPublic: hasVapidPublic
             }
+          }, 200, 0);
+        } catch (error) {
+          return json({ success: false, error: error.message }, 500, 0);
+        }
+      }
+
+      if (url.pathname === "/api/push-test" && request.method === "POST") {
+        try {
+          const latest = await env.DB.prepare(
+            `SELECT id, headline FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT 1`
+          ).first();
+          if (!latest) return json({ success: false, error: "No published news found" }, 400, 0);
+
+          const subs = await env.DB.prepare(
+            `SELECT COUNT(*) AS cnt FROM push_subscriptions WHERE token IS NOT NULL AND token != ''`
+          ).first();
+          const tokenCount = Number(subs?.cnt || 0);
+
+          console.log(`[PUSH-TEST] Triggering for news: ${latest.id}, subscribers: ${tokenCount}`);
+          console.log(`[PUSH-TEST] Service account present: ${!!env.FIREBASE_SERVICE_ACCOUNT_JSON}`);
+
+          ctx.waitUntil(
+            queueAndSendPushNotifications(env, [latest.id]).catch(err =>
+              console.error('[PUSH-TEST] Error:', err?.message || String(err))
+            )
+          );
+
+          return json({
+            success: true,
+            message: `Push test triggered for news`,
+            newsId: latest.id,
+            headline: latest.headline,
+            subscribers: tokenCount,
+            hasServiceAccount: !!env.FIREBASE_SERVICE_ACCOUNT_JSON
           }, 200, 0);
         } catch (error) {
           return json({ success: false, error: error.message }, 500, 0);
@@ -1560,7 +1598,6 @@ async function handleGetNewsInternal(url, env) {
     const transliterated = toTransliterated(query);
     result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.status = 'published' AND (news.search_text LIKE ? OR news.headline LIKE ? OR news.summary LIKE ? OR news.main_topic LIKE ?) GROUP BY news.id ORDER BY news.created_at DESC, news.published_at DESC LIMIT ? OFFSET ?`).bind(`%${transliterated}%`, `%${query}%`, `%${query}%`, `%${query}%`, queryLimit, offset).all();
   } else if (category === "trending") {
-    // ⭐ TRENDING FIX — Most loved first, then highest score, then latest
     result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.status = 'published' GROUP BY news.id ORDER BY COUNT(nl.id) DESC, news.score DESC, news.created_at DESC LIMIT ? OFFSET ?`).bind(queryLimit, offset).all();
   } else if (category !== "top" && category !== "all") {
     result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.status = 'published' AND news.category = ? GROUP BY news.id ORDER BY news.created_at DESC, news.published_at DESC LIMIT ? OFFSET ?`).bind(category, queryLimit, offset).all();
@@ -1629,7 +1666,7 @@ async function handleUnsubscribe(request, env) {
 
 async function queueAndSendPushNotifications(env, newsIds) {
   if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    console.warn('[PUSH] FIREBASE_SERVICE_ACCOUNT_JSON missing');
+    console.error('[PUSH-FATAL] FIREBASE_SERVICE_ACCOUNT_JSON secret is MISSING in Cloudflare Worker!');
     return;
   }
   const ids = [...new Set((newsIds || []).filter(Boolean))];

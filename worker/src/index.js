@@ -1,8 +1,8 @@
-// auto-deploy test - 2026-09-19
+// auto-deploy test - 2026-09-20
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v35 — Share Text Fix (headline + summary snippet + CTA)
+ * FINAL v36 — Trending Fix + Speed Optimization
  * =========================================================
  */
 
@@ -614,7 +614,6 @@ async function serveListingPage(env, category, searchQuery) {
     let newsHtml = "";
     for (const item of news) {
       const link = `https://ajkernews.in/news/${encodeURIComponent(item.id)}`;
-      const image = item.image_url || "https://ajkernews.in/logo.png";
       const displayDate = item.created_at || item.published_at;
       const publishedDate = displayDate ? new Date(displayDate).toISOString() : new Date().toISOString();
       const cat = catLabel[item.category] || item.category || 'সংবাদ';
@@ -1561,7 +1560,8 @@ async function handleGetNewsInternal(url, env) {
     const transliterated = toTransliterated(query);
     result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.status = 'published' AND (news.search_text LIKE ? OR news.headline LIKE ? OR news.summary LIKE ? OR news.main_topic LIKE ?) GROUP BY news.id ORDER BY news.created_at DESC, news.published_at DESC LIMIT ? OFFSET ?`).bind(`%${transliterated}%`, `%${query}%`, `%${query}%`, `%${query}%`, queryLimit, offset).all();
   } else if (category === "trending") {
-    result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.status = 'published' GROUP BY news.id ORDER BY news.score DESC, news.created_at DESC LIMIT ? OFFSET ?`).bind(queryLimit, offset).all();
+    // ⭐ TRENDING FIX — Most loved first, then highest score, then latest
+    result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.status = 'published' GROUP BY news.id ORDER BY COUNT(nl.id) DESC, news.score DESC, news.created_at DESC LIMIT ? OFFSET ?`).bind(queryLimit, offset).all();
   } else if (category !== "top" && category !== "all") {
     result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.status = 'published' AND news.category = ? GROUP BY news.id ORDER BY news.created_at DESC, news.published_at DESC LIMIT ? OFFSET ?`).bind(category, queryLimit, offset).all();
   } else {

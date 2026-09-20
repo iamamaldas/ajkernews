@@ -16,6 +16,8 @@
 <meta name="apple-mobile-web-app-title" content="Ajker News">
 <link rel="apple-touch-icon" href="/logo.png">
 <link rel="icon" type="image/png" sizes="512x512" href="/logo.png">
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="dns-prefetch" href="https://www.gstatic.com">
 <meta property="og:title" content="Ajker News | আজকের নিউজ">
 <meta property="og:description" content="কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ বাংলা খবর।">
 <meta property="og:type" content="website">
@@ -73,20 +75,20 @@ body { background:#f5f5f5; color:#111111; -webkit-font-smoothing:antialiased; ma
 #newsContainer { min-height:200px; display:flex; flex-direction:column; gap:12px; }
 .news-skeleton { display:block; width:100%; background:#fff; border:1px solid #e5e5e5; border-radius:12px; overflow:hidden; }
 .skeleton-image { width:100%; aspect-ratio:16/9; background:linear-gradient(90deg,#f0f0f0 25%,#e8e8e8 50%,#f0f0f0 75%); background-size:200% 100%; animation:shimmer 1.5s infinite; }
-.skeleton-body { padding:13px 14px 15px; }
+.skeleton-body { padding:16px 16px 18px; }
 .skeleton-line { height:14px; background:linear-gradient(90deg,#f0f0f0 25%,#e8e8e8 50%,#f0f0f0 75%); background-size:200% 100%; animation:shimmer 1.5s infinite; border-radius:4px; margin-bottom:8px; }
 .skeleton-line.title { height:22px; width:85%; }
 .skeleton-line.title-2 { height:22px; width:60%; }
 @keyframes shimmer { 0%{background-position:-200% 0;} 100%{background-position:200% 0;} }
-.news-card { display:block; width:100%; background:#ffffff; border-radius:12px; overflow:hidden; text-decoration:none; color:#111111; box-shadow:0 1px 3px rgba(0,0,0,0.06); opacity:0; transform:translateY(20px); transition:opacity 0.5s ease, transform 0.5s ease; }
+.news-card { display:block; width:100%; background:#ffffff; border-radius:12px; overflow:hidden; text-decoration:none; color:#111111; box-shadow:0 1px 3px rgba(0,0,0,0.06); opacity:0; transform:translateY(20px); transition:opacity 0.4s ease, transform 0.4s ease; }
 .news-card.visible { opacity:1; transform:translateY(0); }
 .news-image-wrapper { position:relative; width:100%; aspect-ratio:16/9; background:#f3f3f3; overflow:hidden; cursor:pointer; }
 .news-image { display:block; width:100%; aspect-ratio:16/9; object-fit:cover; }
-.news-body { padding:13px 14px 15px; }
+.news-body { padding:16px 16px 18px; }
 .news-category { display:inline-block; margin-bottom:6px; font-size:12px; font-weight:700; color:#f44336; }
-.news-title { font-size:19px; line-height:1.4; font-weight:700; margin-bottom:12px; cursor:pointer; }
-.news-summary { font-size:15px; line-height:1.65; color:#444444; cursor:pointer; }
-.news-meta { display:flex; align-items:center; justify-content:space-between; margin-top:9px; font-size:12px; color:#888888; }
+.news-title { font-size:22px; line-height:1.45; font-weight:700; margin-bottom:12px; cursor:pointer; letter-spacing:-0.2px; }
+.news-summary { font-size:17px; line-height:1.7; color:#444444; cursor:pointer; }
+.news-meta { display:flex; align-items:center; justify-content:space-between; margin-top:10px; font-size:12.5px; color:#888888; }
 .news-source-link { color:#007bff; text-decoration:none; font-weight:500; cursor:pointer; }
 .news-source-link:hover { text-decoration:underline; }
 .news-actions { display:flex; gap:20px; margin-top:12px; padding-top:10px; border-top:1px solid #f0f0f0; }
@@ -138,11 +140,11 @@ body { background:#f5f5f5; color:#111111; -webkit-font-smoothing:antialiased; ma
   .main-content { padding:8px; }
   #newsContainer { gap:8px; }
   .news-card { border-radius:10px; }
-  .news-body { padding:11px 12px 13px; }
+  .news-body { padding:14px 14px 16px; }
   .news-category { font-size:11px; margin-bottom:5px; }
-  .news-title { font-size:17px; line-height:1.35; margin-bottom:8px; }
-  .news-summary { font-size:13.5px; line-height:1.55; color:#555; }
-  .news-meta { font-size:11px; margin-top:7px; }
+  .news-title { font-size:19px; line-height:1.4; margin-bottom:9px; letter-spacing:-0.1px; }
+  .news-summary { font-size:15px; line-height:1.6; color:#555; }
+  .news-meta { font-size:11.5px; margin-top:7px; }
   .news-actions { gap:18px; margin-top:9px; padding-top:8px; }
   .action-btn svg { width:18px; height:18px; }
   .action-count { font-size:11px; }
@@ -171,7 +173,7 @@ body { background:#f5f5f5; color:#111111; -webkit-font-smoothing:antialiased; ma
 <div class="header">
   <div class="header-left">
     <a href="/" class="header-home-link">
-      <img src="/logo.png" class="header-logo" alt="Ajker News Logo">
+      <img src="/logo.png" class="header-logo" alt="Ajker News Logo" width="28" height="28">
       <h1>আজকের নিউজ</h1>
     </a>
   </div>
@@ -304,6 +306,10 @@ const PAGE_SIZE = 10;
 let hasMoreNews = false;
 let deferredPrompt = null;
 
+// In-memory cache: key -> { news, hasMore, ts }
+const newsCache = new Map();
+const CACHE_TTL = 90 * 1000; // 90 seconds
+
 // ===== HELPERS =====
 function sortByLatest(newsArray) {
   if (!Array.isArray(newsArray)) return [];
@@ -378,28 +384,17 @@ function getCategoryLabel(category) {
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
-  console.log('[PWA] Install prompt ready');
 });
 
 async function installApp() {
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
-  if (isStandalone) {
-    alert('App already installed!');
-    return;
-  }
-
+  if (isStandalone) { alert('App already installed!'); return; }
   if (deferredPrompt) {
     deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      console.log('[PWA] User accepted install');
-    } else {
-      console.log('[PWA] User dismissed install');
-    }
+    await deferredPrompt.userChoice;
     deferredPrompt = null;
     return;
   }
-
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
   if (isIOS) {
     alert('App install করতে: Share বাটনে ক্লিক করুন → "Add to Home Screen" নির্বাচন করুন।');
@@ -415,22 +410,20 @@ async function refreshNews() {
   if (btn) btn.classList.add('spinning');
 
   const currentPath = window.location.pathname;
-  if (currentPath.startsWith('/news/')) {
-    window.location.href = '/';
-    return;
-  }
+  if (currentPath.startsWith('/news/')) { window.location.href = '/'; return; }
 
   currentCategory = 'top';
   currentSearchQuery = '';
   currentOffset = 0;
   hasMoreNews = false;
+  newsCache.clear();
   document.getElementById('categoryTitle').innerText = 'সেরা খবর';
 
   try {
-    await loadNews('top', '', { showLoading: true, keepExisting: false, autoSpin: false });
+    await loadNews('top', '', { showLoading: true, keepExisting: false, forceNetwork: true });
   } catch (error) { console.error('Refresh error:', error); }
   finally {
-    setTimeout(() => { if (btn) { btn.classList.remove('spinning'); btn.disabled = false; } }, 700);
+    setTimeout(() => { if (btn) { btn.classList.remove('spinning'); btn.disabled = false; } }, 500);
   }
 }
 
@@ -443,57 +436,109 @@ function showSkeleton(container, count = 3) {
   container.innerHTML = html;
 }
 
-// ===== LOAD NEWS =====
+// ===== LOAD NEWS (with cache + instant first paint) =====
 async function loadNews(category = 'top', search = '', options = {}) {
   currentOffset = 0;
-  const { showLoading = true, keepExisting = false } = options;
+  currentCategory = category || 'top';
+  const { showLoading = true, keepExisting = false, forceNetwork = false } = options;
   const container = document.getElementById('newsContainer');
+
   if (isLoadingNews) return;
+
+  // 1) Show cached data instantly if available
+  const cacheKey = `${category}::${search || ''}`;
+  const cached = newsCache.get(cacheKey);
+  const cacheValid = cached && (Date.now() - cached.ts) < CACHE_TTL);
+
+  if (cacheValid && !forceNetwork) {
+    currentNews = cached.news;
+    visibleCount = cached.visibleCount || 10;
+    hasMoreNews = cached.hasMore;
+    renderNews(currentNews, hasMoreNews);
+    // Still refresh from network in background
+    loadNewsNetwork(category, search, true).catch(() => {});
+    return;
+  }
+
+  // 2) No cache -> show skeleton, fetch from network
   isLoadingNews = true;
   currentSearchQuery = search || '';
   if (showLoading && !keepExisting) showSkeleton(container, 3);
+
+  try {
+    await loadNewsNetwork(category, search, false);
+  } finally {
+    isLoadingNews = false;
+  }
+}
+
+async function loadNewsNetwork(category, search, isBackground) {
   try {
     const params = new URLSearchParams();
     params.set('category', category || 'all');
     params.set('limit', '10');
     if (search) params.set('q', search);
+
     const url = API_URL + '?' + params.toString();
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
     let response;
-    try { response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' }, signal: controller.signal }); }
-    finally { clearTimeout(timeoutId); }
+    try {
+      response = await fetch(url, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        cache: 'default',
+        signal: controller.signal
+      });
+    } finally { clearTimeout(timeoutId); }
+
     if (!response.ok) throw new Error('News API HTTP ' + response.status);
     const data = await response.json();
     if (!data || !Array.isArray(data.news)) throw new Error('Invalid response');
+
     const normalized = data.news.map(normalizeNews).filter(Boolean);
     const sorted = sortByLatest(normalized);
     currentNews = sorted;
     visibleCount = 10;
     hasMoreNews = data.has_more || false;
+
+    // Store in cache
+    const cacheKey = `${category}::${search || ''}`;
+    newsCache.set(cacheKey, {
+      news: sorted,
+      hasMore: hasMoreNews,
+      visibleCount,
+      ts: Date.now()
+    });
+
     renderNews(currentNews, hasMoreNews);
 
-    try {
-      const ids = normalized.map(n => n.id);
-      if (ids.length) {
-        const loveRes = await fetch(`${WORKER_BASE}/api/love-counts?ids=${encodeURIComponent(ids.join(','))}`);
-        const loveData = await loveRes.json();
-        if (loveData.success && loveData.counts) {
-          Object.keys(loveData.counts).forEach(id => {
-            const count = loveData.counts[id];
-            const el = document.querySelector(`[data-love-count="${id}"]`);
-            if (el) el.textContent = String(count);
-          });
-        }
-      }
-    } catch (e) { console.warn('Love counts fetch failed:', e); }
+    // Update love counts in background (non-blocking)
+    updateLoveCounts(normalized);
   } catch (error) {
     console.error('News loading error:', error);
-    isLoadingNews = false;
-    if (!currentNews.length) container.innerHTML = '';
-    return;
+    if (!currentNews.length) {
+      const container = document.getElementById('newsContainer');
+      container.innerHTML = '';
+    }
   }
-  isLoadingNews = false;
+}
+
+async function updateLoveCounts(normalized) {
+  try {
+    const ids = normalized.map(n => n.id).filter(Boolean);
+    if (!ids.length) return;
+    const loveRes = await fetch(`${WORKER_BASE}/api/love-counts?ids=${encodeURIComponent(ids.join(','))}`);
+    const loveData = await loveRes.json();
+    if (loveData.success && loveData.counts) {
+      Object.keys(loveData.counts).forEach(id => {
+        const count = loveData.counts[id];
+        document.querySelectorAll(`[data-love-count="${id}"]`).forEach(el => {
+          el.textContent = String(count);
+        });
+      });
+    }
+  } catch (e) { /* silent */ }
 }
 
 // ===== BUILD NEWS HTML =====
@@ -514,7 +559,7 @@ function buildNewsHtml(news) {
 
   return `<article class="news-card" data-news-id="${escapeHtml(news.id)}">
     <div class="news-image-wrapper" onclick="window.location.href='${articleUrl}'">
-      <img class="news-image" src="${escapeHtml(image)}" alt="${escapeHtml(headline)}" loading="lazy" onerror="this.onerror=null;this.src='/logo.png';">
+      <img class="news-image" src="${escapeHtml(image)}" alt="${escapeHtml(headline)}" loading="lazy" decoding="async" width="800" height="450" onerror="this.onerror=null;this.src='/logo.png';">
     </div>
     <div class="news-body">
       <div class="news-category">${escapeHtml(category)}</div>
@@ -583,6 +628,17 @@ async function loadMoreNews() {
     visibleCount = currentNews.length;
     hasMoreNews = data.has_more || false;
     renderNews(currentNews, hasMoreNews);
+
+    // Update cache
+    const cacheKey = `${currentCategory}::${currentSearchQuery || ''}`;
+    newsCache.set(cacheKey, {
+      news: currentNews,
+      hasMore: hasMoreNews,
+      visibleCount,
+      ts: Date.now()
+    });
+
+    updateLoveCounts(newNews);
   } catch (error) { console.error('Load more error:', error); }
   loadMoreBtn.disabled = false;
 }
@@ -608,14 +664,12 @@ async function toggleLove(id) {
   } catch (error) { console.error('Love error:', error); }
 }
 
-// ===== SHARE (plain text, no emoji) =====
+// ===== SHARE =====
 async function shareNews(id, headline, summary) {
   const shareUrl = `${SITE_URL}/news/${encodeURIComponent(id)}`;
   const safeSummary = String(summary || '').trim();
   const shortSummary = safeSummary.slice(0, 100).trim();
-  const summaryPart = shortSummary
-    ? `${shortSummary}${safeSummary.length > 100 ? '...' : ''}\n\n`
-    : '';
+  const summaryPart = shortSummary ? `${shortSummary}${safeSummary.length > 100 ? '...' : ''}\n\n` : '';
 
   if (navigator.share) {
     try {
@@ -625,9 +679,7 @@ async function shareNews(id, headline, summary) {
         url: shareUrl
       });
       return;
-    } catch (err) {
-      if (err && err.name === 'AbortError') return;
-    }
+    } catch (err) { if (err && err.name === 'AbortError') return; }
   }
 
   const shareText = `${headline}\n\n${summaryPart}বিস্তারিত পড়ুন: ${shareUrl}`;
@@ -644,31 +696,13 @@ async function shareNews(id, headline, summary) {
     const textarea = document.createElement('textarea');
     textarea.value = shareText;
     textarea.style.position = 'fixed';
-    textarea.style.top = '0';
-    textarea.style.left = '0';
-    textarea.style.width = '2em';
-    textarea.style.height = '2em';
-    textarea.style.padding = '0';
-    textarea.style.border = 'none';
-    textarea.style.outline = 'none';
-    textarea.style.boxShadow = 'none';
-    textarea.style.background = 'transparent';
-    textarea.style.opacity = '0';
+    textarea.style.left = '-9999px';
     document.body.appendChild(textarea);
-    textarea.focus();
     textarea.select();
-    textarea.setSelectionRange(0, textarea.value.length);
-    const successful = document.execCommand('copy');
+    document.execCommand('copy');
     document.body.removeChild(textarea);
-    if (successful) {
-      showCopyToast('লিংক কপি হয়েছে');
-      return;
-    }
-  } catch (err) {
-    console.error('execCommand copy failed:', err);
-  }
-
-  prompt('লিংক কপি করুন:', shareText);
+    showCopyToast('লিংক কপি হয়েছে');
+  } catch (err) { prompt('লিংক কপি করুন:', shareText); }
 }
 
 function showCopyToast(message) {
@@ -684,9 +718,7 @@ function showCopyToast(message) {
   setTimeout(() => toast.classList.remove('show'), 2000);
 }
 
-/* =========================================================
- * NOTIFICATION — FCM
- * ========================================================= */
+/* ===== NOTIFICATION — FCM ===== */
 let notificationSetupInProgress = false;
 
 async function toggleNotification() {
@@ -699,7 +731,6 @@ async function toggleNotification() {
 
   const isCurrentlySubscribed = btn.classList.contains('subscribed');
 
-  // Unsubscribe path
   if (isCurrentlySubscribed) {
     if (!confirm('নোটিফিকেশন বন্ধ করতে চান?')) return;
     notificationSetupInProgress = true;
@@ -718,16 +749,11 @@ async function toggleNotification() {
           body: JSON.stringify({ endpoint: existingToken, token: existingToken })
         }).catch(() => {});
       }
-
-      try {
-        await window.__firebase.deleteToken(window.__firebase.messaging);
-      } catch (e) { /* ignore */ }
-
+      try { await window.__firebase.deleteToken(window.__firebase.messaging); } catch (e) {}
       btn.classList.remove('subscribed');
       localStorage.setItem('notifSubscribed', '0');
       alert('নোটিফিকেশন বন্ধ করা হয়েছে।');
     } catch (error) {
-      console.error('[FCM] Unsubscribe error:', error);
       alert('নোটিফিকেশন বন্ধ করা যায়নি: ' + (error?.message || error));
     } finally {
       notificationSetupInProgress = false;
@@ -736,7 +762,6 @@ async function toggleNotification() {
     return;
   }
 
-  // Subscribe path
   notificationSetupInProgress = true;
   btn.disabled = true;
   try {
@@ -779,7 +804,6 @@ async function toggleNotification() {
     localStorage.setItem('notifSubscribed', '1');
     alert('নোটিফিকেশন চালু হয়েছে! নতুন খবর এলে আমরা জানাব।');
   } catch (error) {
-    console.error('[FCM] Setup error:', error);
     alert('নোটিফিকেশন চালু করা যায়নি: ' + (error?.message || error));
   } finally {
     notificationSetupInProgress = false;
@@ -919,19 +943,38 @@ function handleNotificationPromptLater() {
   localStorage.setItem(NOTIFICATION_LATER_KEY, String(Date.now()));
   hideNotificationPrompt();
 }
-window.addEventListener('load', () => {
-  setTimeout(async () => {
-    try {
-      const eligible = await shouldShowNotificationPrompt();
-      if (eligible) showNotificationPrompt();
-    } catch (err) {}
-  }, NOTIFICATION_PROMPT_DELAY);
-});
 
-// ===== INIT =====
+// ===== INIT — Instant paint =====
 (async function initApp() {
-  await loadNews('top', '', { showLoading: true, keepExisting: false });
+  // 1) Render cached news instantly (if any)
+  try {
+    const cached = localStorage.getItem('newsCache:v1');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && Array.isArray(parsed.news) && parsed.news.length) {
+        currentNews = parsed.news;
+        visibleCount = Math.min(10, parsed.news.length);
+        hasMoreNews = !!parsed.hasMore;
+        renderNews(currentNews, hasMoreNews);
+      }
+    }
+  } catch (e) { /* ignore */ }
 
+  // 2) Fetch fresh news from network
+  await loadNews('top', '', { showLoading: !currentNews.length, keepExisting: !!currentNews.length });
+
+  // 3) Save to localStorage for next visit
+  try {
+    if (currentNews.length) {
+      localStorage.setItem('newsCache:v1', JSON.stringify({
+        news: currentNews.slice(0, 30),
+        hasMore: hasMoreNews,
+        ts: Date.now()
+      }));
+    }
+  } catch (e) { /* ignore */ }
+
+  // 4) Register service workers
   if ('serviceWorker' in navigator) {
     try {
       const fcmReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
@@ -941,6 +984,12 @@ window.addEventListener('load', () => {
       console.log('[SW] Firebase SW registered:', fcmReg.scope);
     } catch (err) {
       console.error('[SW] Firebase SW registration failed:', err);
+      try {
+        const fallbackReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+        console.log('[SW] Firebase SW (fallback) registered:', fallbackReg.scope);
+      } catch (e2) {
+        console.error('[SW] Fallback registration failed:', e2);
+      }
     }
 
     try {
@@ -956,6 +1005,32 @@ window.addEventListener('load', () => {
 
   await checkNotificationStatus();
 })();
+
+// Save to localStorage whenever currentNews changes (throttled)
+let saveTimer = null;
+function scheduleSaveCache() {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      if (currentNews.length) {
+        localStorage.setItem('newsCache:v1', JSON.stringify({
+          news: currentNews.slice(0, 30),
+          hasMore: hasMoreNews,
+          ts: Date.now()
+        }));
+      }
+    } catch (e) {}
+  }, 2000);
+}
+
+window.addEventListener('load', () => {
+  setTimeout(async () => {
+    try {
+      const eligible = await shouldShowNotificationPrompt();
+      if (eligible) showNotificationPrompt();
+    } catch (err) {}
+  }, NOTIFICATION_PROMPT_DELAY);
+});
 </script>
 </body>
 </html>

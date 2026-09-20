@@ -1,27 +1,32 @@
 /*
- * News database cleanup — MAX 1000 records (Free Tier Safe)
+ * News database cleanup — MAX 1000 published records
  * + 48h+ old candidates deleted
  * + 24h+ old rejected news deleted
  * Uses db.batch() for fast deletion
  */
 
 const MAX_TOTAL_NEWS = 1000;
-const BATCH_DELETE_SIZE = 100;
+const MAX_DELETE_PER_RUN = 50;   // was 100 — safer to avoid sudden drops
 const CANDIDATE_MAX_AGE_HOURS = 48;
 const REJECTED_MAX_AGE_HOURS = 24;
 
 export async function getNewsCount(db) {
-  const result = await db.prepare(`SELECT COUNT(*) AS total FROM news`).first();
+  // Only count PUBLISHED news
+  const result = await db.prepare(`SELECT COUNT(*) AS total FROM news WHERE status = 'published'`).first();
   return Number(result?.total || 0);
 }
 
 export async function getOldestNews(db, limit = 10) {
   const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 200);
 
+  // Only delete PUBLISHED news with valid created_at
   const result = await db
     .prepare(`
       SELECT id, source_url, status, created_at
       FROM news
+      WHERE status = 'published'
+        AND created_at IS NOT NULL
+        AND created_at != ''
       ORDER BY created_at ASC
       LIMIT ?
     `)
@@ -33,7 +38,6 @@ export async function getOldestNews(db, limit = 10) {
 
 export async function deleteNewsById(db, id) {
   if (!id) return false;
-
   const result = await db.prepare(`DELETE FROM news WHERE id = ?`).bind(id).run();
   return Number(result?.meta?.changes || 0) > 0;
 }
@@ -48,7 +52,7 @@ export async function enforceNewsLimit(db) {
   }
 
   const excess = total - MAX_TOTAL_NEWS;
-  const toDelete = Math.min(excess, BATCH_DELETE_SIZE);
+  const toDelete = Math.min(excess, MAX_DELETE_PER_RUN);
   const oldest = await getOldestNews(db, toDelete);
 
   if (oldest.length === 0) {
@@ -56,9 +60,7 @@ export async function enforceNewsLimit(db) {
   }
 
   try {
-    const statements = oldest.map(a =>
-      db.prepare(`DELETE FROM news WHERE id = ?`).bind(a.id)
-    );
+    const statements = oldest.map(a => db.prepare(`DELETE FROM news WHERE id = ?`).bind(a.id));
     const results = await db.batch(statements);
 
     for (let i = 0; i < results.length; i++) {
@@ -67,7 +69,6 @@ export async function enforceNewsLimit(db) {
         deletedIds.push(oldest[i].id);
       }
     }
-
     total -= deleted;
   } catch (error) {
     console.error("[CLEANUP] Batch delete failed:", error?.message || String(error));
@@ -76,9 +77,6 @@ export async function enforceNewsLimit(db) {
   return { total, deleted, deletedIds };
 }
 
-/* =========================================================
- * Candidate Cleanup — 48h+ old candidates deleted
- * ========================================================= */
 export async function cleanOldCandidates(db) {
   try {
     const result = await db.prepare(`
@@ -98,9 +96,6 @@ export async function cleanOldCandidates(db) {
   }
 }
 
-/* =========================================================
- * Rejected Cleanup — 24h+ old rejected news deleted
- * ========================================================= */
 export async function cleanRejectedNews(db) {
   try {
     const result = await db.prepare(`

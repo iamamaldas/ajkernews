@@ -1,5 +1,6 @@
 /*
  * Cloudflare Cache API helper — Multi-key purge
+ * v2 — Added dynamic TTL support for cacheNewsApi
  */
 
 const NEWS_API_TTL = 60;
@@ -42,11 +43,20 @@ export async function putCachedResponse(request, response, ttl, cacheKey = null)
 }
 
 export async function cacheFirst(request, producer, options = {}) {
-  const ttl = Number(options.ttl || NEWS_API_TTL);
+  const ttl = Number(options.ttl !== undefined ? options.ttl : NEWS_API_TTL);
   const cacheKey = options.cacheKey || null;
 
   if (request.method !== "GET" && request.method !== "HEAD") {
     return producer();
+  }
+
+  // ✅ If TTL is 0, skip cache entirely and always fetch fresh
+  if (ttl === 0) {
+    const fresh = await producer();
+    if (fresh && fresh.ok) {
+      fresh.headers.set("X-Ajker-Cache", "BYPASS");
+    }
+    return fresh;
   }
 
   const cached = await getCachedResponse(request, cacheKey);
@@ -73,8 +83,9 @@ export async function cacheFirst(request, producer, options = {}) {
   return fresh;
 }
 
-export async function cacheNewsApi(request, producer) {
-  return cacheFirst(request, producer, { ttl: NEWS_API_TTL });
+// ✅ FIXED: Added TTL parameter support
+export async function cacheNewsApi(request, producer, ttl = NEWS_API_TTL) {
+  return cacheFirst(request, producer, { ttl });
 }
 
 export async function cacheArticlePage(request, producer) {
@@ -101,18 +112,23 @@ export async function purgeArticleCache(origin, id) {
 
 export async function purgeNewsApiCache(origin) {
   const cache = getCache();
+  // ✅ EXPANDED: More URL variations to ensure full purge
   const variations = [
     `/api/news`,
     `/api/news?category=top&limit=10`,
     `/api/news?category=top&limit=20`,
+    `/api/news?category=top&limit=10&offset=0`,
     `/api/news?category=all&limit=10`,
     `/api/news?category=all&limit=20`,
+    `/api/news?category=all&limit=10&offset=0`,
     `/api/news?category=trending&limit=10`,
     `/api/news?category=trending&limit=20`,
     `/api/news?limit=10`,
     `/api/news?limit=20`,
     `/api/news?offset=0&limit=10`,
-    `/api/news?category=top&limit=10&offset=0`
+    `/api/news?category=top&limit=20&offset=0`,
+    `/api/news?category=all&limit=20&offset=0`,
+    `/api/news?category=trending&limit=10&offset=0`
   ];
 
   let purged = 0;

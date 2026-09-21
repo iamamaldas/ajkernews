@@ -35,7 +35,7 @@ html { scroll-behavior: smooth; font-size: 16px; -webkit-text-size-adjust: 100%;
 body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; max-width: 100vw; overflow-x: hidden; min-height: 100vh; display: flex; flex-direction: column; padding-bottom: 0; }
 
 /* ============================================
-   ✅ ULTRA MODERN HEADER
+   ✅ ULTRA MODERN HEADER — Outline Title
    ============================================ */
 .header {
   position: sticky;
@@ -58,7 +58,7 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   align-items: center;
   gap: 10px;
   min-width: 0;
-  flex-shrink: 0;
+  flex-shrink: 1;
 }
 .header-home-link {
   display: flex;
@@ -67,6 +67,7 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   color: inherit;
   text-decoration: none;
   transition: transform 0.15s ease;
+  min-width: 0;
 }
 .header-home-link:active { transform: scale(0.97); }
 
@@ -77,16 +78,18 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   flex-shrink: 0;
 }
 
+/* ✅ OUTLINE STYLE TITLE — "আজকের নিউজ" */
 .header-left h1 {
   font-size: 24px;
   line-height: 1.1;
   font-weight: 800;
   letter-spacing: -0.6px;
   white-space: nowrap;
-  background: linear-gradient(135deg,#0a0a0a 0%,#2a2a2a 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #ffffff;
+  -webkit-text-stroke: 1.2px #111111;
+  text-shadow: 0 1px 0 rgba(0,0,0,0.05);
+  padding: 2px 2px;
+  display: inline-block;
 }
 
 .header-right {
@@ -129,7 +132,7 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
    ✅ TABLET
    ============================================ */
 @media (min-width: 481px) and (max-width: 768px) {
-  .header-left h1 { font-size: 22px; letter-spacing: -0.5px; }
+  .header-left h1 { font-size: 22px; letter-spacing: -0.5px; -webkit-text-stroke: 1.1px #111; }
   .header-logo { height: 38px; }
 }
 
@@ -326,11 +329,11 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 }
 
 /* ============================================
-   ✅ MOBILE (Perfect Fit — 20px title)
+   ✅ MOBILE (Outline title, 20px, no cut)
    ============================================ */
 @media (max-width:480px) {
   .header { padding:10px 14px; min-height:64px; gap:10px; }
-  .header-left h1 { font-size:20px; font-weight:800; letter-spacing:-0.5px; line-height:1.1; white-space:nowrap; }
+  .header-left h1 { font-size:20px; font-weight:800; letter-spacing:-0.5px; line-height:1.15; white-space:nowrap; -webkit-text-stroke: 1px #111111; padding: 2px 1px; }
   .header-logo { height:28px; }
   .header-left, .header-home-link { gap:9px; }
   .header-right { gap:0; }

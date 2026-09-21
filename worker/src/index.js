@@ -2,7 +2,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v42 — Fixed canonical URL + image URL bugs
+ * FINAL v43 — Cache fix + no-cache for all HTML responses
  * =========================================================
  */
 
@@ -75,7 +75,6 @@ export default {
       const userAgent = request.headers.get("User-Agent") || "";
       const isBot = BOT_REGEX.test(userAgent);
 
-      // ✅ /news/ রুট — সবাই (বট + ইউজার) একই SSR পেজ পাবে
       if (url.pathname.startsWith("/news/") && request.method === "GET") {
         const articleId = decodeURIComponent(url.pathname.slice(6).split("/")[0] || "").trim();
         if (!articleId) return Response.redirect("https://ajkernews.in/", 302);
@@ -89,7 +88,6 @@ export default {
         });
       }
 
-      // ✅ হোমপেজে বটের হিট হ্যান্ডলিং (SSR)
       if (url.pathname === "/" && request.method === "GET" && isBot) {
         const articleId = url.searchParams.get("id");
         if (articleId) return await serveArticlePage(articleId, env);
@@ -738,7 +736,9 @@ async function serveListingPage(env, category, searchQuery) {
       status: 200,
       headers: {
         "Content-Type": "text/html; charset=UTF-8",
-        "Cache-Control": "public, max-age=300, s-maxage=600",
+        "Cache-Control": "public, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
         "X-Robots-Tag": "index, follow, max-image-preview:large"
       }
     });
@@ -1289,7 +1289,7 @@ async function serveArticlePage(id, env) {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=UTF-8",
-      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+      "Cache-Control": "public, no-cache, must-revalidate, max-age=0",
       "Pragma": "no-cache",
       "Expires": "0",
       "X-Robots-Tag": "index, follow, max-image-preview:large"
@@ -1540,7 +1540,9 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=UTF-8",
-      "Cache-Control": "public, max-age=300, s-maxage=600",
+      "Cache-Control": "public, no-cache, must-revalidate, max-age=0",
+      "Pragma": "no-cache",
+      "Expires": "0",
       "X-Robots-Tag": "index, follow"
     }
   });

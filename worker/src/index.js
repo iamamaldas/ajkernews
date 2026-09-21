@@ -2,7 +2,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v41 — Sync FCM test + Background send for cron
+ * FINAL v42 — Fixed canonical URL + image URL bugs
  * =========================================================
  */
 
@@ -75,6 +75,7 @@ export default {
       const userAgent = request.headers.get("User-Agent") || "";
       const isBot = BOT_REGEX.test(userAgent);
 
+      // ✅ /news/ রুট — সবাই (বট + ইউজার) একই SSR পেজ পাবে
       if (url.pathname.startsWith("/news/") && request.method === "GET") {
         const articleId = decodeURIComponent(url.pathname.slice(6).split("/")[0] || "").trim();
         if (!articleId) return Response.redirect("https://ajkernews.in/", 302);
@@ -88,6 +89,7 @@ export default {
         });
       }
 
+      // ✅ হোমপেজে বটের হিট হ্যান্ডলিং (SSR)
       if (url.pathname === "/" && request.method === "GET" && isBot) {
         const articleId = url.searchParams.get("id");
         if (articleId) return await serveArticlePage(articleId, env);
@@ -218,7 +220,6 @@ export default {
         }
       }
 
-      // ✅ SYNC PUSH TEST - Returns FCM result directly in response
       if (url.pathname === "/api/push-test" && request.method === "POST") {
         try {
           const latest = await env.DB.prepare(
@@ -1667,10 +1668,7 @@ async function handleUnsubscribe(request, env) {
 }
 
 /**
- * =========================================================
  * SYNC PUSH SENDER — used by /api/push-test
- * Returns FCM result directly (no ctx.waitUntil)
- * =========================================================
  */
 async function sendPushSync(env, latestNews, tokens) {
   const result = {
@@ -1811,9 +1809,7 @@ async function sendPushSync(env, latestNews, tokens) {
 }
 
 /**
- * =========================================================
  * BACKGROUND PUSH SENDER — used by cron and /api/update
- * =========================================================
  */
 async function queueAndSendPushNotifications(env, newsIds) {
   if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
@@ -1855,10 +1851,7 @@ async function queueAndSendPushNotifications(env, newsIds) {
   console.log(`[PUSH-BG] Result:`, JSON.stringify(result));
 
   if (result.unregistered > 0 && Array.isArray(result.errors)) {
-    // Token cleanup happens below based on specific unregistered tokens
     const unregisteredTokens = [];
-    // We can't reliably know which tokens were unregistered from errors array,
-    // so cleanup is handled in sendPushSync itself.
   }
 }
 

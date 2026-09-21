@@ -1,16 +1,14 @@
 /**
  * Ajker News Service Worker
- * v2026-09-21 — Network-first for HTML/API, no cache blocking
- *
- * Note: Push handling is done by firebase-messaging-sw.js
+ * v2026-09-21-fixed — Network-first, no infinite reload
  */
 
-const CACHE_VERSION = "ajker-news-v2026-09-21";
+const CACHE_VERSION = "ajker-news-v2026-09-21-fixed";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
 // ✅ Install: skip waiting immediately
 self.addEventListener("install", event => {
-  console.log("[SW] Installing v2026-09-21...");
+  console.log("[SW] Installing", CACHE_VERSION);
   self.skipWaiting();
 });
 
@@ -35,12 +33,10 @@ self.addEventListener("activate", event => {
 self.addEventListener("fetch", event => {
   const request = event.request;
 
-  // Only handle GET
   if (request.method !== "GET") return;
 
   const url = new URL(request.url);
 
-  // Skip non-HTTP
   if (!url.protocol.startsWith("http")) return;
 
   // Skip cross-origin (except gstatic for Firebase)
@@ -48,7 +44,7 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  // ✅ API, go links, and navigation: NETWORK-FIRST, no cache
+  // ✅ Network-first for API, go links, and navigation
   if (
     url.pathname.startsWith("/api/") ||
     url.pathname.startsWith("/go/") ||
@@ -58,7 +54,6 @@ self.addEventListener("fetch", event => {
     event.respondWith(
       fetch(request, { cache: "no-store" })
         .catch(() => {
-          // Offline fallback for navigation only
           if (request.mode === "navigate" || request.destination === "document") {
             return caches.match("/");
           }
@@ -68,7 +63,7 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  // ✅ Static assets (logo, manifest): cache-first
+  // ✅ Cache-first for static assets
   event.respondWith(
     caches.match(request).then(cached => {
       if (cached) return cached;
@@ -87,7 +82,6 @@ self.addEventListener("fetch", event => {
   );
 });
 
-// ✅ Allow client to force skip waiting
 self.addEventListener("message", event => {
   if (event.data === "SKIP_WAITING") {
     self.skipWaiting();

@@ -1222,7 +1222,7 @@ async function serveArticlePage(id, env) {
     });
   }
 
-  /* ===== SHARE ===== */
+  /* ===== SHARE — headline + summary snippet + CTA (no emojis) ===== */
   var shareBtn = document.getElementById('artShareBtn');
   if (shareBtn) {
     shareBtn.addEventListener('click', async function(e) {
@@ -1234,14 +1234,14 @@ async function serveArticlePage(id, env) {
       var fullSummary = bodyEl ? bodyEl.textContent.trim() : '';
       var shortSummary = fullSummary.slice(0, 100).trim();
       var summaryPart = shortSummary
-        ?  + shortSummary + (fullSummary.length > 100 ? '...' : '') + '\\n\\n'
+        ? shortSummary + (fullSummary.length > 100 ? '...' : '') + '\\n\\n'
         : '';
 
       if (navigator.share) {
         try {
           await navigator.share({
             title: headlineText,
-            text: '🔥 ' + headlineText + '\\n\\n' + summaryPart + 'বিস্তারিত পড়ুন',
+            text: headlineText + '\\n\\n' + summaryPart + 'বিস্তারিত পড়ুন',
             url: shareUrl
           });
           return;
@@ -1250,7 +1250,7 @@ async function serveArticlePage(id, env) {
         }
       }
 
-      var text = '🔥 ' + headlineText + '\\n\\n' + summaryPart + 'বিস্তারিত পড়ুন: ' + shareUrl;
+      var text = headlineText + '\\n\\n' + summaryPart + 'বিস্তারিত পড়ুন: ' + shareUrl;
 
       try {
         if (navigator.clipboard && window.isSecureContext) {

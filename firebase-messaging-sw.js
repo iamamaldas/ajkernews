@@ -1,7 +1,7 @@
 /**
  * Firebase Cloud Messaging Service Worker
  * Handles background push notifications from FCM
- * v2 — Fixed onBackgroundMessage registration
+ * v3 — Fixed isSupported + onBackgroundMessage
  */
 
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js');
@@ -16,39 +16,45 @@ firebase.initializeApp({
   appId: "1:430988740362:web:ccb5e3cd2eeefc82345cf3"
 });
 
-// ⭐ IMPORTANT: messaging must be initialized at top-level (not inside try/catch)
-// so that onBackgroundMessage registers synchronously during SW startup.
-const messaging = firebase.messaging();
+// ✅ Check if messaging is supported before initializing
+if (firebase.messaging.isSupported()) {
+  const messaging = firebase.messaging();
 
-messaging.onBackgroundMessage((payload) => {
-  console.log('[FCM-SW] Background message received:', JSON.stringify(payload));
+  // ✅ Background message handler
+  messaging.onBackgroundMessage((payload) => {
+    console.log('[FCM-SW] Background message received:', JSON.stringify(payload));
 
-  const notificationTitle = payload.notification?.title || payload.data?.title || 'আজকের নিউজ';
-  const notificationBody = payload.notification?.body || payload.data?.body || 'নতুন খবর এসেছে';
+    const notificationTitle = payload.notification?.title || payload.data?.title || 'আজকের নিউজ';
+    const notificationBody = payload.notification?.body || payload.data?.body || 'নতুন খবর এসেছে';
 
-  const notificationOptions = {
-    body: notificationBody,
-    icon: payload.notification?.icon || payload.data?.icon || '/logo.png',
-    badge: '/logo.png',
-    image: payload.data?.image || payload.notification?.image || undefined,
-    vibrate: [200, 100, 200],
-    tag: payload.data?.notificationId || 'ajker-news',
-    renotify: true,
-    requireInteraction: false,
-    data: {
-      url: payload.data?.url || payload.fcmOptions?.link || 'https://ajkernews.in/',
-      notificationId: payload.data?.notificationId || ''
-    }
-  };
+    const notificationOptions = {
+      body: notificationBody,
+      icon: payload.notification?.icon || payload.data?.icon || '/logo.png',
+      badge: '/logo.png',
+      image: payload.data?.image || payload.notification?.image || undefined,
+      vibrate: [200, 100, 200],
+      tag: payload.data?.notificationId || 'ajker-news',
+      renotify: true,
+      requireInteraction: false,
+      data: {
+        url: payload.data?.url || payload.fcmOptions?.link || 'https://ajkernews.in/',
+        notificationId: payload.data?.notificationId || ''
+      }
+    };
 
-  return self.registration.showNotification(notificationTitle, notificationOptions);
-});
+    // ✅ Return a Promise (not self.registration.showNotification directly)
+    return self.registration.showNotification(notificationTitle, notificationOptions);
+  });
 
-// Foreground notification (when app is open)
-messaging.onMessage((payload) => {
-  console.log('[FCM-SW] Foreground message:', JSON.stringify(payload));
-});
+  // ✅ Foreground message handler
+  messaging.onMessage((payload) => {
+    console.log('[FCM-SW] Foreground message:', JSON.stringify(payload));
+  });
+} else {
+  console.warn('[FCM-SW] Firebase Messaging is not supported in this browser.');
+}
 
+// ✅ Notification click handler
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
@@ -71,6 +77,7 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
+// ✅ Push subscription change handler (optional, but safe for FCM)
 self.addEventListener('pushsubscriptionchange', (event) => {
   event.waitUntil(
     self.registration.pushManager.getSubscription().then((subscription) => {

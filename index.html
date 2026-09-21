@@ -35,7 +35,7 @@ html { scroll-behavior: smooth; font-size: 16px; -webkit-text-size-adjust: 100%;
 body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; max-width: 100vw; overflow-x: hidden; min-height: 100vh; display: flex; flex-direction: column; padding-bottom: 0; }
 
 /* ============================================
-   ✅ ULTRA MODERN HEADER — Outline Title
+   ✅ ULTRA MODERN HEADER — Deep Black Title
    ============================================ */
 .header {
   position: sticky;
@@ -78,16 +78,14 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   flex-shrink: 0;
 }
 
-/* ✅ OUTLINE STYLE TITLE — "আজকের নিউজ" */
+/* ✅ DEEP BLACK TITLE — "আজকের নিউজ" */
 .header-left h1 {
   font-size: 24px;
   line-height: 1.1;
   font-weight: 800;
   letter-spacing: -0.6px;
   white-space: nowrap;
-  color: #ffffff;
-  -webkit-text-stroke: 1.2px #111111;
-  text-shadow: 0 1px 0 rgba(0,0,0,0.05);
+  color: #0a0a0a;
   padding: 2px 2px;
   display: inline-block;
 }
@@ -132,7 +130,7 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
    ✅ TABLET
    ============================================ */
 @media (min-width: 481px) and (max-width: 768px) {
-  .header-left h1 { font-size: 22px; letter-spacing: -0.5px; -webkit-text-stroke: 1.1px #111; }
+  .header-left h1 { font-size: 22px; letter-spacing: -0.5px; }
   .header-logo { height: 38px; }
 }
 
@@ -151,10 +149,12 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 }
 .trending-banner span { font-size: 16.5px; font-weight: 700; letter-spacing: -0.1px; }
 
+/* ✅ INSTALL APP BUTTON — with phone SVG icon */
 .banner-right-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   padding: 7px 16px;
   border-radius: 20px;
   background: #ffffff;
@@ -171,6 +171,16 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 }
 .banner-right-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.18); }
 .banner-right-btn:active { transform: scale(0.97); }
+.banner-right-btn svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  stroke: #111111;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 
 /* ============================================
    ✅ SEARCH MODAL
@@ -329,11 +339,11 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 }
 
 /* ============================================
-   ✅ MOBILE (Outline title, 20px, no cut)
+   ✅ MOBILE — Deep Black Title, 20px
    ============================================ */
 @media (max-width:480px) {
   .header { padding:10px 14px; min-height:64px; gap:10px; }
-  .header-left h1 { font-size:20px; font-weight:800; letter-spacing:-0.5px; line-height:1.15; white-space:nowrap; -webkit-text-stroke: 1px #111111; padding: 2px 1px; }
+  .header-left h1 { font-size:20px; font-weight:800; letter-spacing:-0.5px; line-height:1.15; white-space:nowrap; color:#0a0a0a; padding: 2px 1px; }
   .header-logo { height:28px; }
   .header-left, .header-home-link { gap:9px; }
   .header-right { gap:0; }
@@ -347,7 +357,8 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 
   .trending-banner { padding:10px 14px; min-height:46px; }
   .trending-banner span { font-size:15px; font-weight:700; letter-spacing:0; }
-  .banner-right-btn { padding:6px 13px; font-size:11.5px; border-radius:20px; }
+  .banner-right-btn { padding:6px 13px; font-size:11.5px; border-radius:20px; gap:5px; }
+  .banner-right-btn svg { width:13px; height:13px; }
 
   .main-content { padding:12px; }
   #newsContainer { gap:12px; }
@@ -425,7 +436,13 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 </div>
 <div class="trending-banner">
   <span id="categoryTitle">সেরা খবর</span>
-  <button class="banner-right-btn" onclick="installApp()">📲 Install App</button>
+  <button class="banner-right-btn" onclick="installApp()">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="7" y="2" width="10" height="20" rx="2" ry="2"/>
+      <line x1="12" y1="18" x2="12" y2="18"/>
+    </svg>
+    Install App
+  </button>
 </div>
 <div class="search-modal" id="searchModal">
   <div class="search-modal-box">

@@ -3,7 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
-<!-- ✅ Cache control meta tags -->
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -35,12 +34,11 @@
 html { scroll-behavior: smooth; font-size: 16px; -webkit-text-size-adjust: 100%; }
 body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; max-width: 100vw; overflow-x: hidden; min-height: 100vh; display: flex; flex-direction: column; padding-bottom: 0; }
 
-/* ============ HEADER ============ */
 .header { position:sticky; top:0; z-index:1000; display:flex; align-items:center; justify-content:space-between; padding:12px 18px; min-height:64px; background:rgba(255,255,255,0.92); backdrop-filter: saturate(180%) blur(14px); -webkit-backdrop-filter: saturate(180%) blur(14px); border-bottom:1px solid rgba(0,0,0,0.06); gap:10px; }
 .header-left { display:flex; align-items:center; gap:12px; min-width:0; flex:1 1 auto; overflow:hidden; }
 .header-home-link { display:flex; align-items:center; gap:12px; color:inherit; text-decoration:none; min-width:0; flex:1 1 auto; overflow:hidden; }
-.header-logo { height:30px; width:auto; object-fit:contain; flex-shrink:0; }
-.header-left h1 { font-size:26px; line-height:1.2; font-weight:800; white-space:nowrap; letter-spacing:-0.3px; overflow:hidden; text-overflow:ellipsis; min-width:0; background:linear-gradient(135deg,#0a0a0a 0%,#2a2a2a 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+.header-logo { height:34px; width:auto; object-fit:contain; flex-shrink:0; }
+.header-left h1 { font-size:30px; line-height:1.2; font-weight:800; white-space:nowrap; letter-spacing:-0.3px; overflow:hidden; text-overflow:ellipsis; min-width:0; background:linear-gradient(135deg,#0a0a0a 0%,#2a2a2a 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
 .header-right { display:flex; align-items:center; gap:2px; flex-shrink:0; }
 
 .refresh-btn, .notif-btn, .search-btn, .hamburger { width:38px; height:38px; padding:6px; display:flex; align-items:center; justify-content:center; background:transparent; border:none; border-radius:50%; cursor:pointer; transition: background 0.2s ease; color:#1a1a1a; }
@@ -59,14 +57,12 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .hamburger { flex-direction:column; gap:4px; }
 .hamburger span { display:block; width:19px; height:2.2px; background:#1a1a1a; border-radius:2px; }
 
-/* ============ TRENDING BANNER ============ */
 .trending-banner { display:flex; align-items:center; justify-content:space-between; min-height:52px; padding:12px 18px; background:linear-gradient(135deg,#e53935 0%,#c62828 100%); color:#ffffff; box-shadow: 0 1px 4px rgba(229,57,53,0.15); }
 .trending-banner span { font-size:17px; line-height:1.2; font-weight:700; letter-spacing:-0.1px; }
 .banner-right-btn { display:inline-flex; align-items:center; justify-content:center; padding:7px 16px; border-radius:24px; background:rgba(255,255,255,0.98); color:#111111; text-decoration:none; font-size:12.5px; font-weight:700; white-space:nowrap; border:none; cursor:pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.12); transition: transform 0.15s ease, box-shadow 0.15s ease; letter-spacing:0.1px; }
 .banner-right-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.18); }
 .banner-right-btn:active { transform: translateY(0); }
 
-/* ============ SEARCH MODAL ============ */
 .search-modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; padding:70px 16px 20px; justify-content:center; align-items:flex-start; background:rgba(10,10,10,0.55); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); z-index:1000; overflow-y:auto; }
 .search-modal.active { display:flex; }
 .search-modal-box { position:relative; width:100%; max-width:440px; padding:22px 22px 26px; background:#ffffff; border-radius:18px; box-shadow:0 20px 60px rgba(0,0,0,0.25); height:fit-content; }
@@ -78,7 +74,6 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .search-modal-box .search-submit-btn { padding:9px 26px; background:#111; color:#ffffff; border:none; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; transition: background 0.15s; }
 .search-modal-box .search-submit-btn:hover { background:#000; }
 
-/* ============ OVERLAY + SIDEBAR ============ */
 .overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(10,10,10,0.45); opacity:0; visibility:hidden; transition:0.3s; z-index:900; }
 .overlay.active { opacity:1; visibility:visible; }
 .sidebar { position:fixed; top:0; right:-290px; width:290px; height:100%; overflow-y:auto; background:#ffffff; box-shadow: -8px 0 40px rgba(0,0,0,0.12); transition:right 0.32s cubic-bezier(0.4,0,0.2,1); z-index:1000; }
@@ -90,22 +85,18 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .sidebar-menu a { display:block; padding:16px 20px; border-bottom:1px solid #f5f5f5; color:#222; text-decoration:none; font-size:15.5px; font-weight:600; transition: background 0.15s; letter-spacing:-0.1px; }
 .sidebar-menu a:hover { background:#fafafa; }
 
-/* ============ COPY TOAST ============ */
 .copy-toast { position:fixed; left:50%; bottom:32px; transform:translateX(-50%) translateY(20px); z-index:3000; background:#111; color:#fff; padding:11px 20px; border-radius:10px; font-size:14.5px; font-weight:600; display:none; box-shadow: 0 8px 24px rgba(0,0,0,0.2); opacity:0; transition: opacity 0.25s ease, transform 0.25s ease; }
 .copy-toast.show { display:block; opacity:1; transform:translateX(-50%) translateY(0); }
 
-/* ============ GENERIC MODAL ============ */
 .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(10,10,10,0.5); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); z-index:1100; overflow:hidden; }
 .modal-content { position:relative; width:90%; max-width:800px; margin:3% auto; padding:26px; background:#ffffff; border-radius:16px; max-height:90vh; display:flex; flex-direction:column; overflow:hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.25); }
 .close-modal { float:right; color:#999; font-size:28px; font-weight:400; cursor:pointer; align-self:flex-end; margin-bottom:10px; line-height:1; transition: color 0.15s; }
 .close-modal:hover { color:#333; }
 #modal-body { flex:1; overflow-y:auto; padding-right:4px; }
 
-/* ============ MAIN ============ */
 .main-content { padding:18px; max-width: min(820px, 95vw); margin: 0 auto; flex: 1 0 auto; width: 100%; }
 #newsContainer { min-height:200px; display:flex; flex-direction:column; gap:16px; }
 
-/* ============ SKELETON ============ */
 .news-skeleton { display:block; width:100%; background:#fff; border-radius:16px; overflow:hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.03), 0 4px 16px rgba(0,0,0,0.04); }
 .skeleton-image { width:100%; aspect-ratio:16/9; background:linear-gradient(90deg,#f2f3f5 25%,#e8e9ec 50%,#f2f3f5 75%); background-size:200% 100%; animation:shimmer 1.5s infinite; }
 .skeleton-body { padding:18px 20px 20px; }
@@ -114,7 +105,6 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .skeleton-line.title-2 { height:24px; width:60%; }
 @keyframes shimmer { 0%{background-position:-200% 0;} 100%{background-position:200% 0;} }
 
-/* ============ NEWS CARD ============ */
 .news-card { display:block; width:100%; background:#ffffff; border-radius:16px; overflow:hidden; text-decoration:none; color:#0a0a0a; box-shadow: 0 1px 2px rgba(0,0,0,0.03), 0 4px 18px rgba(0,0,0,0.045); opacity:0; transform:translateY(16px); transition: opacity 0.4s ease, transform 0.4s ease, box-shadow 0.3s ease; will-change: transform, box-shadow; }
 .news-card.visible { opacity:1; transform:translateY(0); }
 .news-card:hover { box-shadow: 0 2px 4px rgba(0,0,0,0.04), 0 12px 32px rgba(0,0,0,0.09); transform:translateY(-2px); }
@@ -139,26 +129,22 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .love-btn.loved { color:#e74c3c; }
 .love-btn.loved svg { fill:#e74c3c !important; stroke:#e74c3c !important; }
 
-/* ============ LOAD MORE ============ */
 #loadMoreBtn { display:none; width:100%; padding:15px; background:#111111; color:#ffffff; border:none; border-radius:12px; font-size:15.5px; font-weight:700; cursor:pointer; margin-top:24px; transition: background 0.15s, transform 0.15s; letter-spacing:-0.1px; }
 #loadMoreBtn:hover { background:#000; transform: translateY(-1px); }
 #loadMoreBtn:active { transform: translateY(0); }
 #loadMoreBtn:disabled { opacity:0.6; cursor:not-allowed; }
 
-/* ============ FLOATING APP BUTTON ============ */
 .floating-app-btn { position:fixed; right:18px; bottom:22px; width:58px; height:58px; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#ffffff; border:1px solid rgba(0,0,0,0.06); border-radius:50%; box-shadow: 0 4px 16px rgba(0,0,0,0.12); cursor:pointer; z-index:700; text-decoration:none; transition: transform 0.2s ease, box-shadow 0.2s ease; }
 .floating-app-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.18); }
 .floating-app-btn svg { width:22px; height:22px; margin-bottom:1px; }
 .floating-app-btn span { font-size:9px; font-weight:700; color:#333; letter-spacing:0.2px; }
 
-/* ============ FOOTER ============ */
 .footer { padding:28px 14px 18px; text-align:center; background:#ffffff; border-top:1px solid rgba(0,0,0,0.06); margin-top: auto; flex-shrink: 0; }
 .footer-links { display:flex; justify-content:center; gap:24px; flex-wrap:wrap; margin-bottom:16px; padding:0 10px; }
 .footer-links a { color:#555; text-decoration:none; font-size:13px; font-weight:600; padding:4px 2px; transition:color 0.15s; letter-spacing:-0.1px; }
 .footer-links a:hover { color:#111; }
 .footer-copy { color:#999; font-size:11.5px; font-weight:500; letter-spacing:0.1px; }
 
-/* ============ NOTIF PROMPT ============ */
 .notif-prompt-modal { display: none; position: fixed; inset: 0; background: rgba(10,10,10,0.55); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); z-index: 2500; align-items: center; justify-content: center; padding: 20px; }
 .notif-prompt-modal.active { display: flex; }
 .notif-prompt-box { background: #fff; border-radius: 20px; padding: 28px 22px 22px; max-width: 370px; width: 100%; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.25); }
@@ -172,17 +158,15 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .notif-prompt-btn.enable { background: #111; color: #fff; }
 .notif-prompt-btn.enable:hover { background: #000; }
 
-/* ============ DESKTOP LARGE ============ */
 @media (min-width: 1400px) {
   .main-content { max-width: 900px; }
   .news-card { max-width: 100%; }
 }
 
-/* ============ MOBILE ============ */
 @media (max-width:480px) {
   .header { padding:10px 14px; min-height:56px; gap:8px; }
-  .header-left h1 { font-size:19px; font-weight:800; letter-spacing:-0.2px; line-height:1.2; overflow:hidden; text-overflow:ellipsis; min-width:0; }
-  .header-logo { height:24px; }
+  .header-left h1 { font-size:30px; font-weight:800; letter-spacing:-0.3px; line-height:1.2; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  .header-logo { height:28px; }
   .header-left, .header-home-link { gap:9px; }
   .header-right { gap:0; }
 
@@ -243,7 +227,7 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 <div class="header">
   <div class="header-left">
     <a href="/" class="header-home-link">
-      <img src="/logo.png" class="header-logo" alt="Ajker News Logo" width="30" height="30">
+      <img src="/logo.png" class="header-logo" alt="Ajker News Logo" width="34" height="34">
       <h1>আজকের নিউজ</h1>
     </a>
   </div>
@@ -360,12 +344,10 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 </script>
 
 <script>
-// ===== CONFIG =====
 const WORKER_BASE = window.location.origin;
 const API_URL = `${WORKER_BASE}/api/news`;
 const SITE_URL = window.location.origin;
 
-// ===== STATE =====
 let currentCategory = 'top';
 let currentSearchQuery = '';
 let currentNews = [];
@@ -376,11 +358,6 @@ const PAGE_SIZE = 10;
 let hasMoreNews = false;
 let deferredPrompt = null;
 
-// ✅ REMOVED newsCache — always fetch fresh
-// const newsCache = new Map();
-// const CACHE_TTL = 90 * 1000;
-
-// ===== HELPERS =====
 function sortByLatest(newsArray) {
   if (!Array.isArray(newsArray)) return [];
   return [...newsArray].sort((a, b) => {
@@ -450,7 +427,6 @@ function getCategoryLabel(category) {
   return labels[category] || category || 'সাধারণ';
 }
 
-// ===== PWA INSTALL =====
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
@@ -473,7 +449,6 @@ async function installApp() {
   }
 }
 
-// ===== REFRESH =====
 async function refreshNews() {
   const btn = document.getElementById('refreshBtn');
   if (btn && btn.classList.contains('spinning')) return;
@@ -489,16 +464,14 @@ async function refreshNews() {
   document.getElementById('categoryTitle').innerText = 'সেরা খবর';
 
   try {
-    // ✅ Clear localStorage cache too
     try { localStorage.removeItem('newsCache:v1'); } catch (e) {}
-    await loadNews('top', '', { showLoading: true, keepExisting: false, forceNetwork: true });
+    await loadNews('top', '', { showLoading: true, keepExisting: false });
   } catch (error) { console.error('Refresh error:', error); }
   finally {
     setTimeout(() => { if (btn) { btn.classList.remove('spinning'); btn.disabled = false; } }, 500);
   }
 }
 
-// ===== SKELETON =====
 function showSkeleton(container, count = 3) {
   let html = '';
   for (let i = 0; i < count; i++) {
@@ -507,7 +480,6 @@ function showSkeleton(container, count = 3) {
   container.innerHTML = html;
 }
 
-// ===== LOAD NEWS =====
 async function loadNews(category = 'top', search = '', options = {}) {
   currentOffset = 0;
   currentCategory = category || 'top';
@@ -516,7 +488,6 @@ async function loadNews(category = 'top', search = '', options = {}) {
 
   if (isLoadingNews) return;
 
-  // ✅ REMOVED: newsCache check. Always fetch fresh from network.
   isLoadingNews = true;
   currentSearchQuery = search || '';
   if (showLoading && !keepExisting) showSkeleton(container, 3);
@@ -536,7 +507,6 @@ async function loadNewsNetwork(category, search) {
     params.set('category', category || 'all');
     params.set('limit', '10');
     if (search) params.set('q', search);
-    // ✅ Cache buster to bypass any cache layer
     params.set('_t', String(Date.now()));
 
     const url = API_URL + '?' + params.toString();
@@ -594,7 +564,6 @@ async function updateLoveCounts(normalized) {
   } catch (e) { /* silent */ }
 }
 
-// ===== BUILD NEWS HTML =====
 function buildNewsHtml(news) {
   const image = news.image_url || '/logo.png';
   const headline = news.headline || 'সংবাদ';
@@ -638,7 +607,6 @@ function buildNewsHtml(news) {
   </article>`;
 }
 
-// ===== RENDER =====
 function renderNews(newsList, hasMore = false) {
   const container = document.getElementById('newsContainer');
   if (!Array.isArray(newsList) || !newsList.length) {
@@ -656,7 +624,6 @@ function renderNews(newsList, hasMore = false) {
   if (loadMoreBtn) loadMoreBtn.style.display = hasMore ? 'block' : 'none';
 }
 
-// ===== LOAD MORE =====
 async function loadMoreNews() {
   if (isLoadingNews || !hasMoreNews) return;
   const loadMoreBtn = document.getElementById('loadMoreBtn');
@@ -668,7 +635,6 @@ async function loadMoreNews() {
     params.set('limit', '10');
     params.set('offset', String(currentOffset));
     if (currentSearchQuery) params.set('q', currentSearchQuery);
-    // ✅ Cache buster
     params.set('_t', String(Date.now()));
 
     const url = API_URL + '?' + params.toString();
@@ -695,7 +661,6 @@ async function loadMoreNews() {
   loadMoreBtn.disabled = false;
 }
 
-// ===== LOVE =====
 async function toggleLove(id) {
   const deviceId = getDeviceId();
   const currentlyLoved = isNewsLoved(id);
@@ -716,7 +681,6 @@ async function toggleLove(id) {
   } catch (error) { console.error('Love error:', error); }
 }
 
-// ===== SHARE =====
 async function shareNews(id, headline, summary) {
   const shareUrl = `${SITE_URL}/news/${encodeURIComponent(id)}`;
   const safeSummary = String(summary || '').trim();
@@ -770,7 +734,6 @@ function showCopyToast(message) {
   setTimeout(() => toast.classList.remove('show'), 2000);
 }
 
-/* ===== NOTIFICATION — FCM ===== */
 let notificationSetupInProgress = false;
 
 async function toggleNotification() {
@@ -876,7 +839,6 @@ async function checkNotificationStatus() {
   }
 }
 
-// ===== COMMENTS =====
 async function openCommentModal(id) {
   const modal = document.getElementById('modal');
   const body = document.getElementById('modal-body');
@@ -918,7 +880,6 @@ async function submitComment(newsId) {
   } catch (error) { alert('মন্তব্য পাঠানো যায়নি'); }
 }
 
-// ===== SIDEBAR / SEARCH =====
 function setCategory(cat) {
   currentCategory = cat || 'top';
   currentSearchQuery = '';
@@ -966,7 +927,6 @@ function closeModal() {
 }
 document.getElementById('currentYear').textContent = new Date().getFullYear();
 
-// ===== NOTIFICATION PROMPT =====
 const NOTIFICATION_PROMPT_DELAY = 15000;
 const NOTIFICATION_LATER_DELAY = 10 * 60 * 60 * 1000;
 const NOTIFICATION_LATER_KEY = 'notifPromptLaterAt';
@@ -998,7 +958,6 @@ function handleNotificationPromptLater() {
 
 // ===== INIT =====
 (async function initApp() {
-  // ✅ Clear old localStorage cache once
   try { localStorage.removeItem('newsCache:v1'); } catch (e) {}
 
   await loadNews('top', '', {
@@ -1024,20 +983,14 @@ function handleNotificationPromptLater() {
     }
 
     try {
-      const mainReg = await navigator.serviceWorker.register('/sw.js?v=' + Date.now(), {
+      const mainReg = await navigator.serviceWorker.register('/sw.js', {
         updateViaCache: 'none',
         scope: '/'
       });
       console.log('[SW] Main SW registered:', mainReg.scope);
 
-      mainReg.update().catch(() => {});
-
-      let refreshing = false;
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (refreshing) return;
-        refreshing = true;
-        console.log('[SW] New SW activated, reloading...');
-        window.location.reload();
+      mainReg.update().catch((e) => {
+        console.warn('[SW] Update check skipped:', e?.message);
       });
     } catch (err) {
       console.error('[SW] Main SW registration failed:', err);
@@ -1047,7 +1000,6 @@ function handleNotificationPromptLater() {
   await checkNotificationStatus();
 })();
 
-// ===== NOTIFICATION PROMPT TIMER =====
 window.addEventListener('load', () => {
   setTimeout(async () => {
     try {

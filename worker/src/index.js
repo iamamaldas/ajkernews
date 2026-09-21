@@ -2,7 +2,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v38 — Fixed FCM sendMulticast + Cache Fix + Night Time Fix
+ * FINAL v39 — Fixed FCM sendMulticast fallback + cache + night time
  * =========================================================
  */
 
@@ -294,10 +294,10 @@ export default {
           return;
         }
 
-        // ✅ Night time fix: Only 1 AM to 5 AM is night time
+        // ✅ Night time only 1 AM to 5 AM
         const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
         const istHour = istNow.getUTCHours();
-        const isNightTime = istHour >= 1 && istHour < 5; // রাত ১টা থেকে ভোর ৫টা
+        const isNightTime = istHour >= 1 && istHour < 5;
         const isEvenHour = istHour % 2 === 0;
         const shouldSendNotification = isEvenHour && !isNightTime;
 
@@ -1220,7 +1220,7 @@ async function serveArticlePage(id, env) {
     });
   }
 
-  /* ===== SHARE — headline + summary snippet + CTA ===== */
+  /* ===== SHARE ===== */
   var shareBtn = document.getElementById('artShareBtn');
   if (shareBtn) {
     shareBtn.addEventListener('click', async function(e) {
@@ -1304,7 +1304,7 @@ async function ensureTables(env) {
     `CREATE TABLE IF NOT EXISTS news_loves (id INTEGER PRIMARY KEY AUTOINCREMENT, news_id TEXT, device_id TEXT, UNIQUE(news_id, device_id))`,
     `CREATE TABLE IF NOT EXISTS news_comments (id TEXT PRIMARY KEY, news_id TEXT, author_name TEXT, comment_text TEXT, created_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS push_subscriptions (id TEXT PRIMARY KEY, endpoint TEXT UNIQUE, keys_json TEXT, token TEXT, created_at TEXT)`,
-    `CREATE TABLE IF NOT EXISTS affiliate_clicks (id TEXT PRIMARY KEY, affiliate_name, click_url TEXT, device_id TEXT, created_at TEXT)`,
+    `CREATE TABLE IF NOT EXISTS affiliate_clicks (id TEXT PRIMARY KEY, affiliate_name TEXT, click_url TEXT, device_id TEXT, created_at TEXT)`,
     `CREATE INDEX IF NOT EXISTS idx_news_status_published ON news(status, published_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_status_created ON news(status, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_category_published ON news(category, published_at DESC)`,
@@ -1358,7 +1358,7 @@ async function ensureTablesOnce(env) {
 }
 
 /* =========================================================
- * SHARE PAGE — With Comments Section
+ * SHARE PAGE
  * ========================================================= */
 async function serveSharePage(id, env, requestUserAgentFromContext = "", requestUrl = null) {
   const safeId = String(id || "").trim();
@@ -1573,7 +1573,7 @@ async function handleAffiliate(url, env) {
 async function handleGetNews(url, env, request) {
   return cacheNewsApi(request, async () => {
     return await handleGetNewsInternal(url, env);
-  }, 0); // ✅ 0 seconds cache to fix refresh issue
+  }, 0);
 }
 
 async function handleGetNewsInternal(url, env) {
@@ -1713,35 +1713,83 @@ async function queueAndSendPushNotifications(env, newsIds) {
   const title = String(latestNews.headline || "নতুন খবর").slice(0, 180);
   const body = String(latestNews.summary || "বিস্তারিত জানতে ক্লিক করুন").slice(0, 180);
 
-  try {
-    // ✅ FIXED: Using sendMulticast instead of sendToTokens
-    const response = await fcm.sendMulticast({
-      tokens: tokens,
-      notification: { title, body },
-      data: {
-        url: targetUrl,
-        image: latestNews.image_url || "",
-        notificationId: `news:${latestNews.id}`,
-        title: title,
-        body: body
+  const payload = {
+    notification: { title, body },
+    data: {
+      url: targetUrl,
+      image: latestNews.image_url || "",
+      notificationId: `news:${latestNews.id}`,
+      title: title,
+      body: body
+    },
+    webpush: {
+      notification: {
+        icon: "https://ajkernews.in/logo.png",
+        badge: "https://ajkernews.in/logo.png",
+        image: latestNews.image_url || undefined,
+        vibrate: [200, 100, 200],
+        tag: `news:${latestNews.id}`,
+        renotify: true
       },
-      webpush: {
-        notification: {
-          icon: "https://ajkernews.in/logo.png",
-          badge: "https://ajkernews.in/logo.png",
-          image: latestNews.image_url || undefined,
-          vibrate: [200, 100, 200],
-          tag: `news:${latestNews.id}`,
-          renotify: true
-        },
-        fcmOptions: { link: targetUrl }
+      fcmOptions: { link: targetUrl }
+    }
+  };
+
+  try {
+    let response;
+    let usedMethod = '';
+
+    // ✅ Attempt 1: sendMulticast(tokens, payload)
+    if (typeof fcm.sendMulticast === 'function') {
+      try {
+        response = await fcm.sendMulticast(tokens, payload);
+        usedMethod = 'sendMulticast(tokens, payload)';
+      } catch (e1) {
+        console.warn('[PUSH-FCM] Attempt 1 failed:', e1.message);
+        // ✅ Attempt 2: sendMulticast({ tokens, ...payload })
+        try {
+          response = await fcm.sendMulticast({ tokens, ...payload });
+          usedMethod = 'sendMulticast({tokens, ...payload})';
+        } catch (e2) {
+          console.warn('[PUSH-FCM] Attempt 2 failed:', e2.message);
+        }
       }
-    });
+    }
 
-    console.log(`[PUSH-FCM] Sent successfully. Response:`, JSON.stringify(response));
+    // ✅ Attempt 3: sendToTokens(tokens, payload)
+    if (!response && typeof fcm.sendToTokens === 'function') {
+      try {
+        response = await fcm.sendToTokens(tokens, payload);
+        usedMethod = 'sendToTokens(tokens, payload)';
+      } catch (e3) {
+        console.warn('[PUSH-FCM] Attempt 3 failed:', e3.message);
+        // ✅ Attempt 4: sendToTokens({ tokens, ...payload })
+        try {
+          response = await fcm.sendToTokens({ tokens, ...payload });
+          usedMethod = 'sendToTokens({tokens, ...payload})';
+        } catch (e4) {
+          console.warn('[PUSH-FCM] Attempt 4 failed:', e4.message);
+        }
+      }
+    }
 
-    // Handle unregistered tokens if any
-    const unregisteredTokens = response?.unregisteredTokens || [];
+    // ✅ Attempt 5: send(payload) with tokens in payload
+    if (!response && typeof fcm.send === 'function') {
+      try {
+        response = await fcm.send({ tokens, ...payload });
+        usedMethod = 'send({tokens, ...payload})';
+      } catch (e5) {
+        console.warn('[PUSH-FCM] Attempt 5 failed:', e5.message);
+      }
+    }
+
+    if (!response) {
+      throw new Error('All FCM send methods failed');
+    }
+
+    console.log(`[PUSH-FCM] Sent successfully via ${usedMethod}. Response:`, JSON.stringify(response));
+
+    const unregisteredTokens = response?.unregisteredTokens || response?.failedTokens || response?.results?.filter(r => !r.success).map(r => r.token) || [];
     if (unregisteredTokens.length > 0) {
       const cleanPlaceholders = unregisteredTokens.map(() => "?").join(",");
       await env.DB.prepare(`DELETE FROM push_subscriptions WHERE token IN (${cleanPlaceholders})`).bind(...unregisteredTokens).run();

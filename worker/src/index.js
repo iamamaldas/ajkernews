@@ -1234,7 +1234,7 @@ async function serveArticlePage(id, env) {
       var fullSummary = bodyEl ? bodyEl.textContent.trim() : '';
       var shortSummary = fullSummary.slice(0, 100).trim();
       var summaryPart = shortSummary
-        ? ' ' + shortSummary + (fullSummary.length > 100 ? '...' : '') + '\\n\\n'
+        ?  + shortSummary + (fullSummary.length > 100 ? '...' : '') + '\\n\\n'
         : '';
 
       if (navigator.share) {

@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+<!-- ✅ Cache control meta tags -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Ajker News | আজকের নিউজ - কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ খবর</title>
 <meta name="description" content="ajkernews.in-এ পড়ুন কলকাতা, পশ্চিমবঙ্গের সমস্ত জেলা ও ব্লকের খবর, ভারতের রাজনীতি, অর্থনীতি, খেলা, বিনোদন, এবং দেশ-বিদেশের গুরুত্বপূর্ণ সংবাদ। প্রতিদিনের আপডেট বাংলায়।">
 <meta name="keywords" content="কলকাতা খবর, পশ্চিমবঙ্গ খবর, জেলা খবর, ব্লক খবর, ভারত খবর, বিশ্ব সংবাদ, রাজনীতি, খেলা, বিনোদন, ব্যবসা, টেক, Ajker News, ajkernews.in, আজকের নিউজ, বাংলা নিউজ, বাংলা সংবাদ">
@@ -372,8 +376,9 @@ const PAGE_SIZE = 10;
 let hasMoreNews = false;
 let deferredPrompt = null;
 
-const newsCache = new Map();
-const CACHE_TTL = 90 * 1000;
+// ✅ REMOVED newsCache — always fetch fresh
+// const newsCache = new Map();
+// const CACHE_TTL = 90 * 1000;
 
 // ===== HELPERS =====
 function sortByLatest(newsArray) {
@@ -481,10 +486,11 @@ async function refreshNews() {
   currentSearchQuery = '';
   currentOffset = 0;
   hasMoreNews = false;
-  newsCache.clear();
   document.getElementById('categoryTitle').innerText = 'সেরা খবর';
 
   try {
+    // ✅ Clear localStorage cache too
+    try { localStorage.removeItem('newsCache:v1'); } catch (e) {}
     await loadNews('top', '', { showLoading: true, keepExisting: false, forceNetwork: true });
   } catch (error) { console.error('Refresh error:', error); }
   finally {
@@ -505,30 +511,18 @@ function showSkeleton(container, count = 3) {
 async function loadNews(category = 'top', search = '', options = {}) {
   currentOffset = 0;
   currentCategory = category || 'top';
-  const { showLoading = true, keepExisting = false, forceNetwork = false } = options;
+  const { showLoading = true, keepExisting = false } = options;
   const container = document.getElementById('newsContainer');
 
   if (isLoadingNews) return;
 
-  const cacheKey = `${category}::${search || ''}`;
-  const cached = newsCache.get(cacheKey);
-  const cacheValid = cached && (Date.now() - cached.ts) < CACHE_TTL;
-
-  if (cacheValid && !forceNetwork) {
-    currentNews = cached.news;
-    visibleCount = cached.visibleCount || 10;
-    hasMoreNews = cached.hasMore;
-    renderNews(currentNews, hasMoreNews);
-    loadNewsNetwork(category, search, true).catch(() => {});
-    return;
-  }
-
+  // ✅ REMOVED: newsCache check. Always fetch fresh from network.
   isLoadingNews = true;
   currentSearchQuery = search || '';
   if (showLoading && !keepExisting) showSkeleton(container, 3);
 
   try {
-    await loadNewsNetwork(category, search, false);
+    await loadNewsNetwork(category, search);
   } catch (err) {
     console.error('loadNews failed:', err);
   } finally {
@@ -536,12 +530,14 @@ async function loadNews(category = 'top', search = '', options = {}) {
   }
 }
 
-async function loadNewsNetwork(category, search, isBackground) {
+async function loadNewsNetwork(category, search) {
   try {
     const params = new URLSearchParams();
     params.set('category', category || 'all');
     params.set('limit', '10');
     if (search) params.set('q', search);
+    // ✅ Cache buster to bypass any cache layer
+    params.set('_t', String(Date.now()));
 
     const url = API_URL + '?' + params.toString();
     const controller = new AbortController();
@@ -550,8 +546,12 @@ async function loadNewsNetwork(category, search, isBackground) {
     try {
       response = await fetch(url, {
         method: 'GET',
-        headers: { 'Accept': 'application/json' },
-        cache: 'default',
+        headers: {
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        },
+        cache: 'no-store',
         signal: controller.signal
       });
     } finally { clearTimeout(timeoutId); }
@@ -566,17 +566,8 @@ async function loadNewsNetwork(category, search, isBackground) {
     visibleCount = 10;
     hasMoreNews = data.has_more || false;
 
-    const cacheKey = `${category}::${search || ''}`;
-    newsCache.set(cacheKey, {
-      news: sorted,
-      hasMore: hasMoreNews,
-      visibleCount,
-      ts: Date.now()
-    });
-
     renderNews(currentNews, hasMoreNews);
     updateLoveCounts(normalized);
-    scheduleSaveCache();
   } catch (error) {
     console.error('News loading error:', error);
     if (!currentNews.length) {
@@ -590,7 +581,7 @@ async function updateLoveCounts(normalized) {
   try {
     const ids = normalized.map(n => n.id).filter(Boolean);
     if (!ids.length) return;
-    const loveRes = await fetch(`${WORKER_BASE}/api/love-counts?ids=${encodeURIComponent(ids.join(','))}`);
+    const loveRes = await fetch(`${WORKER_BASE}/api/love-counts?ids=${encodeURIComponent(ids.join(','))}&_t=${Date.now()}`);
     const loveData = await loveRes.json();
     if (loveData.success && loveData.counts) {
       Object.keys(loveData.counts).forEach(id => {
@@ -677,8 +668,17 @@ async function loadMoreNews() {
     params.set('limit', '10');
     params.set('offset', String(currentOffset));
     if (currentSearchQuery) params.set('q', currentSearchQuery);
+    // ✅ Cache buster
+    params.set('_t', String(Date.now()));
+
     const url = API_URL + '?' + params.toString();
-    const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/json',
+        'Cache-Control': 'no-cache'
+      },
+      cache: 'no-store'
+    });
     const data = await response.json();
     if (!data.news || data.news.length === 0) {
       hasMoreNews = false;
@@ -690,17 +690,7 @@ async function loadMoreNews() {
     visibleCount = currentNews.length;
     hasMoreNews = data.has_more || false;
     renderNews(currentNews, hasMoreNews);
-
-    const cacheKey = `${currentCategory}::${currentSearchQuery || ''}`;
-    newsCache.set(cacheKey, {
-      news: currentNews,
-      hasMore: hasMoreNews,
-      visibleCount,
-      ts: Date.now()
-    });
-
     updateLoveCounts(newNews);
-    scheduleSaveCache();
   } catch (error) { console.error('Load more error:', error); }
   loadMoreBtn.disabled = false;
 }
@@ -892,7 +882,7 @@ async function openCommentModal(id) {
   const body = document.getElementById('modal-body');
   body.dataset.currentNewsId = id;
   try {
-    const response = await fetch(`${WORKER_BASE}/api/comments?id=${id}`);
+    const response = await fetch(`${WORKER_BASE}/api/comments?id=${id}&_t=${Date.now()}`, { cache: 'no-store' });
     const data = await response.json();
     const comments = data.comments || [];
     let html = `<div class="comment-form-container">
@@ -1006,41 +996,14 @@ function handleNotificationPromptLater() {
   hideNotificationPrompt();
 }
 
-// ===== CACHE PERSIST =====
-let saveTimer = null;
-function scheduleSaveCache() {
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    try {
-      if (currentNews.length) {
-        localStorage.setItem('newsCache:v1', JSON.stringify({
-          news: currentNews.slice(0, 30),
-          hasMore: hasMoreNews,
-          ts: Date.now()
-        }));
-      }
-    } catch (e) { /* ignore */ }
-  }, 2000);
-}
-
 // ===== INIT =====
 (async function initApp() {
-  try {
-    const cached = localStorage.getItem('newsCache:v1');
-    if (cached) {
-      const parsed = JSON.parse(cached);
-      if (parsed && Array.isArray(parsed.news) && parsed.news.length) {
-        currentNews = parsed.news;
-        visibleCount = Math.min(10, parsed.news.length);
-        hasMoreNews = !!parsed.hasMore;
-        renderNews(currentNews, hasMoreNews);
-      }
-    }
-  } catch (e) { /* ignore */ }
+  // ✅ Clear old localStorage cache once
+  try { localStorage.removeItem('newsCache:v1'); } catch (e) {}
 
   await loadNews('top', '', {
-    showLoading: !currentNews.length,
-    keepExisting: !!currentNews.length
+    showLoading: true,
+    keepExisting: false
   });
 
   if ('serviceWorker' in navigator) {
@@ -1061,11 +1024,21 @@ function scheduleSaveCache() {
     }
 
     try {
-      const mainReg = await navigator.serviceWorker.register('/sw.js', {
+      const mainReg = await navigator.serviceWorker.register('/sw.js?v=' + Date.now(), {
         updateViaCache: 'none',
         scope: '/'
       });
       console.log('[SW] Main SW registered:', mainReg.scope);
+
+      mainReg.update().catch(() => {});
+
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (refreshing) return;
+        refreshing = true;
+        console.log('[SW] New SW activated, reloading...');
+        window.location.reload();
+      });
     } catch (err) {
       console.error('[SW] Main SW registration failed:', err);
     }

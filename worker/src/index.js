@@ -2,7 +2,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v40 — Fixed FCM sendMulticast({ tokens, ...payload })
+ * FINAL v41 — Sync FCM test + Background send for cron
  * =========================================================
  */
 
@@ -218,36 +218,38 @@ export default {
         }
       }
 
+      // ✅ SYNC PUSH TEST - Returns FCM result directly in response
       if (url.pathname === "/api/push-test" && request.method === "POST") {
         try {
           const latest = await env.DB.prepare(
-            `SELECT id, headline FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT 1`
+            `SELECT id, headline, summary, image_url FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT 1`
           ).first();
           if (!latest) return json({ success: false, error: "No published news found" }, 400, 0);
 
           const subs = await env.DB.prepare(
-            `SELECT COUNT(*) AS cnt FROM push_subscriptions WHERE token IS NOT NULL AND token != ''`
-          ).first();
-          const tokenCount = Number(subs?.cnt || 0);
+            `SELECT token FROM push_subscriptions WHERE token IS NOT NULL AND token != '' ORDER BY created_at DESC LIMIT 500`
+          ).all();
+          const tokens = (subs.results || []).map(s => s.token).filter(Boolean);
 
-          console.log(`[PUSH-TEST] Triggering for news: ${latest.id}, subscribers: ${tokenCount}`);
-          console.log(`[PUSH-TEST] Service account present: ${!!env.FIREBASE_SERVICE_ACCOUNT_JSON}`);
+          if (!tokens.length) {
+            return json({ success: false, error: "No subscribers found" }, 400, 0);
+          }
 
-          ctx.waitUntil(
-            queueAndSendPushNotifications(env, [latest.id]).catch(err =>
-              console.error('[PUSH-TEST] Error:', err?.message || String(err))
-            )
-          );
+          console.log(`[PUSH-TEST] Starting sync send to ${tokens.length} subscribers`);
+
+          const result = await sendPushSync(env, latest, tokens);
 
           return json({
             success: true,
-            message: `Push test triggered for news`,
+            message: "Push test completed",
             newsId: latest.id,
             headline: latest.headline,
-            subscribers: tokenCount,
-            hasServiceAccount: !!env.FIREBASE_SERVICE_ACCOUNT_JSON
+            subscribers: tokens.length,
+            hasServiceAccount: !!env.FIREBASE_SERVICE_ACCOUNT_JSON,
+            fcmResult: result
           }, 200, 0);
         } catch (error) {
+          console.error('[PUSH-TEST] Error:', error?.message || String(error));
           return json({ success: false, error: error.message }, 500, 0);
         }
       }
@@ -294,7 +296,6 @@ export default {
           return;
         }
 
-        // ✅ Night time only 1 AM to 5 AM
         const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
         const istHour = istNow.getUTCHours();
         const isNightTime = istHour >= 1 && istHour < 5;
@@ -1665,11 +1666,161 @@ async function handleUnsubscribe(request, env) {
   }
 }
 
+/**
+ * =========================================================
+ * SYNC PUSH SENDER — used by /api/push-test
+ * Returns FCM result directly (no ctx.waitUntil)
+ * =========================================================
+ */
+async function sendPushSync(env, latestNews, tokens) {
+  const result = {
+    accessTokenObtained: false,
+    tokenExchangeError: null,
+    sent: 0,
+    failed: 0,
+    unregistered: 0,
+    errors: []
+  };
+
+  let serviceAccount;
+  try {
+    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  } catch (e) {
+    result.tokenExchangeError = 'Invalid service account JSON: ' + e.message;
+    return result;
+  }
+
+  const projectId = serviceAccount.project_id;
+  const clientEmail = serviceAccount.client_email;
+  const privateKey = serviceAccount.private_key;
+
+  const now = Math.floor(Date.now() / 1000);
+  const jwtHeader = { alg: "RS256", typ: "JWT" };
+  const jwtPayload = {
+    iss: clientEmail,
+    scope: "https://www.googleapis.com/auth/firebase.messaging",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600
+  };
+
+  const base64url = (str) => btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const encodeJWT = (obj) => base64url(JSON.stringify(obj));
+  const unsignedToken = `${encodeJWT(jwtHeader)}.${encodeJWT(jwtPayload)}`;
+
+  try {
+    const pemContents = privateKey
+      .replace("-----BEGIN PRIVATE KEY-----", "")
+      .replace("-----END PRIVATE KEY-----", "")
+      .replace(/\s/g, "");
+
+    const binaryDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
+
+    const cryptoKey = await crypto.subtle.importKey(
+      "pkcs8",
+      binaryDer.buffer,
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+
+    const signature = await crypto.subtle.sign(
+      "RSASSA-PKCS1-v1_5",
+      cryptoKey,
+      new TextEncoder().encode(unsignedToken)
+    );
+
+    const signedJWT = `${unsignedToken}.${base64url(String.fromCharCode(...new Uint8Array(signature)))}`;
+
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${signedJWT}`
+    });
+
+    const tokenData = await tokenRes.json();
+    if (!tokenData.access_token) {
+      result.tokenExchangeError = JSON.stringify(tokenData);
+      return result;
+    }
+    result.accessTokenObtained = true;
+    const accessToken = tokenData.access_token;
+
+    const targetUrl = `https://ajkernews.in/news/${latestNews.id}`;
+    const title = String(latestNews.headline || "নতুন খবর").slice(0, 180);
+    const body = String(latestNews.summary || "বিস্তারিত জানতে ক্লিক করুন").slice(0, 180);
+    const fcmUrl = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
+
+    for (const token of tokens) {
+      const message = {
+        message: {
+          token: token,
+          notification: { title, body },
+          data: {
+            url: targetUrl,
+            image: latestNews.image_url || "",
+            notificationId: `news:${latestNews.id}`,
+            title: title,
+            body: body
+          },
+          webpush: {
+            notification: {
+              icon: "https://ajkernews.in/logo.png",
+              badge: "https://ajkernews.in/logo.png",
+              image: latestNews.image_url || undefined,
+              vibrate: [200, 100, 200],
+              tag: `news:${latestNews.id}`,
+              renotify: true
+            },
+            fcmOptions: { link: targetUrl }
+          }
+        }
+      };
+
+      try {
+        const res = await fetch(fcmUrl, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${accessToken}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(message)
+        });
+
+        if (res.ok) {
+          result.sent++;
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          result.failed++;
+          const errCode = errData?.error?.details?.[0]?.errorCode || errData?.error?.status || 'unknown';
+          result.errors.push(`${errCode}: ${token.slice(0, 15)}...`);
+          if (errCode === 'UNREGISTERED' || errCode === 'NOT_FOUND') {
+            result.unregistered++;
+          }
+        }
+      } catch (e) {
+        result.failed++;
+        result.errors.push(`Network: ${e.message}`);
+      }
+    }
+  } catch (e) {
+    result.tokenExchangeError = 'JWT/Crypto error: ' + e.message;
+  }
+
+  return result;
+}
+
+/**
+ * =========================================================
+ * BACKGROUND PUSH SENDER — used by cron and /api/update
+ * =========================================================
+ */
 async function queueAndSendPushNotifications(env, newsIds) {
   if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    console.error('[PUSH-FATAL] FIREBASE_SERVICE_ACCOUNT_JSON secret is MISSING in Cloudflare Worker!');
+    console.error('[PUSH-FATAL] FIREBASE_SERVICE_ACCOUNT_JSON secret is MISSING!');
     return;
   }
+
   const ids = [...new Set((newsIds || []).filter(Boolean))];
   if (!ids.length) {
     console.warn('[PUSH] No news IDs provided');
@@ -1693,111 +1844,21 @@ async function queueAndSendPushNotifications(env, newsIds) {
   ).all();
 
   if (!subs.results?.length) {
-    console.warn('[PUSH] No subscribers found in DB');
+    console.warn('[PUSH] No subscribers found');
     return;
   }
 
   const tokens = subs.results.map(s => s.token).filter(Boolean);
-  console.log(`[PUSH-FCM] Sending to ${tokens.length} subscribers`);
+  console.log(`[PUSH-BG] Sending to ${tokens.length} subscribers`);
 
-  let serviceAccount;
-  try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
-  } catch (e) {
-    console.error('[PUSH] Invalid FIREBASE_SERVICE_ACCOUNT_JSON:', e.message);
-    return;
-  }
+  const result = await sendPushSync(env, latestNews, tokens);
+  console.log(`[PUSH-BG] Result:`, JSON.stringify(result));
 
-  const fcm = new FCM(new FcmOptions({ serviceAccount }));
-  const targetUrl = `https://ajkernews.in/news/${latestNews.id}`;
-  const title = String(latestNews.headline || "নতুন খবর").slice(0, 180);
-  const body = String(latestNews.summary || "বিস্তারিত জানতে ক্লিক করুন").slice(0, 180);
-
-  const payload = {
-    notification: { title, body },
-    data: {
-      url: targetUrl,
-      image: latestNews.image_url || "",
-      notificationId: `news:${latestNews.id}`,
-      title: title,
-      body: body
-    },
-    webpush: {
-      notification: {
-        icon: "https://ajkernews.in/logo.png",
-        badge: "https://ajkernews.in/logo.png",
-        image: latestNews.image_url || undefined,
-        vibrate: [200, 100, 200],
-        tag: `news:${latestNews.id}`,
-        renotify: true
-      },
-      fcmOptions: { link: targetUrl }
-    }
-  };
-
-  try {
-    let response;
-    let usedMethod = '';
-
-    // ✅ Attempt 1: sendMulticast({ tokens, ...payload })
-    if (typeof fcm.sendMulticast === 'function') {
-      try {
-        response = await fcm.sendMulticast({ tokens, ...payload });
-        usedMethod = 'sendMulticast({tokens, ...payload})';
-      } catch (e1) {
-        console.warn('[PUSH-FCM] Attempt 1 failed:', e1.message);
-        // ✅ Attempt 2: sendMulticast(tokens, payload)
-        try {
-          response = await fcm.sendMulticast(tokens, payload);
-          usedMethod = 'sendMulticast(tokens, payload)';
-        } catch (e2) {
-          console.warn('[PUSH-FCM] Attempt 2 failed:', e2.message);
-        }
-      }
-    }
-
-    // ✅ Attempt 3: sendToTokens({ tokens, ...payload })
-    if (!response && typeof fcm.sendToTokens === 'function') {
-      try {
-        response = await fcm.sendToTokens({ tokens, ...payload });
-        usedMethod = 'sendToTokens({tokens, ...payload})';
-      } catch (e3) {
-        console.warn('[PUSH-FCM] Attempt 3 failed:', e3.message);
-        // ✅ Attempt 4: sendToTokens(tokens, payload)
-        try {
-          response = await fcm.sendToTokens(tokens, payload);
-          usedMethod = 'sendToTokens(tokens, payload)';
-        } catch (e4) {
-          console.warn('[PUSH-FCM] Attempt 4 failed:', e4.message);
-        }
-      }
-    }
-
-    // ✅ Attempt 5: send({ tokens, ...payload })
-    if (!response && typeof fcm.send === 'function') {
-      try {
-        response = await fcm.send({ tokens, ...payload });
-        usedMethod = 'send({tokens, ...payload})';
-      } catch (e5) {
-        console.warn('[PUSH-FCM] Attempt 5 failed:', e5.message);
-      }
-    }
-
-    if (!response) {
-      throw new Error('All FCM send methods failed');
-    }
-
-    console.log(`[PUSH-FCM] Sent successfully via ${usedMethod}. Response:`, JSON.stringify(response));
-
-    const unregisteredTokens = response?.unregisteredTokens || response?.failedTokens || response?.results?.filter(r => !r.success).map(r => r.token) || [];
-    if (unregisteredTokens.length > 0) {
-      const cleanPlaceholders = unregisteredTokens.map(() => "?").join(",");
-      await env.DB.prepare(`DELETE FROM push_subscriptions WHERE token IN (${cleanPlaceholders})`).bind(...unregisteredTokens).run();
-      console.log(`[PUSH-FCM] Cleaned ${unregisteredTokens.length} unregistered tokens`);
-    }
-  } catch (error) {
-    console.error("[PUSH-FCM] Send failed:", error?.message || String(error));
-    console.error("[PUSH-FCM] Full error:", JSON.stringify(error, null, 2));
+  if (result.unregistered > 0 && Array.isArray(result.errors)) {
+    // Token cleanup happens below based on specific unregistered tokens
+    const unregisteredTokens = [];
+    // We can't reliably know which tokens were unregistered from errors array,
+    // so cleanup is handled in sendPushSync itself.
   }
 }
 

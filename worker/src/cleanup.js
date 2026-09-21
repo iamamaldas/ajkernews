@@ -3,10 +3,11 @@
  * + 48h+ old candidates deleted
  * + 24h+ old rejected news deleted
  * Uses db.batch() for fast deletion
+ * v2 — Increased delete limit for faster cleanup
  */
 
 const MAX_TOTAL_NEWS = 1000;
-const MAX_DELETE_PER_RUN = 50;   // was 100 — safer to avoid sudden drops
+const MAX_DELETE_PER_RUN = 150;   // ✅ Increased from 50 to 150
 const CANDIDATE_MAX_AGE_HOURS = 48;
 const REJECTED_MAX_AGE_HOURS = 24;
 
@@ -17,7 +18,7 @@ export async function getNewsCount(db) {
 }
 
 export async function getOldestNews(db, limit = 10) {
-  const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 200);
+  const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 500);
 
   // Only delete PUBLISHED news with valid created_at
   const result = await db
@@ -60,13 +61,18 @@ export async function enforceNewsLimit(db) {
   }
 
   try {
-    const statements = oldest.map(a => db.prepare(`DELETE FROM news WHERE id = ?`).bind(a.id));
-    const results = await db.batch(statements);
+    // ✅ Batch delete in chunks of 50 to avoid hitting D1 limits
+    const CHUNK_SIZE = 50;
+    for (let i = 0; i < oldest.length; i += CHUNK_SIZE) {
+      const chunk = oldest.slice(i, i + CHUNK_SIZE);
+      const statements = chunk.map(a => db.prepare(`DELETE FROM news WHERE id = ?`).bind(a.id));
+      const results = await db.batch(statements);
 
-    for (let i = 0; i < results.length; i++) {
-      if (Number(results[i]?.meta?.changes || 0) > 0) {
-        deleted++;
-        deletedIds.push(oldest[i].id);
+      for (let j = 0; j < results.length; j++) {
+        if (Number(results[j]?.meta?.changes || 0) > 0) {
+          deleted++;
+          deletedIds.push(chunk[j].id);
+        }
       }
     }
     total -= deleted;

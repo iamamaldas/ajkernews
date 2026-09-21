@@ -2,7 +2,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v39 — Fixed FCM sendMulticast fallback + cache + night time
+ * FINAL v40 — Fixed FCM sendMulticast({ tokens, ...payload })
  * =========================================================
  */
 
@@ -1739,41 +1739,41 @@ async function queueAndSendPushNotifications(env, newsIds) {
     let response;
     let usedMethod = '';
 
-    // ✅ Attempt 1: sendMulticast(tokens, payload)
+    // ✅ Attempt 1: sendMulticast({ tokens, ...payload })
     if (typeof fcm.sendMulticast === 'function') {
       try {
-        response = await fcm.sendMulticast(tokens, payload);
-        usedMethod = 'sendMulticast(tokens, payload)';
+        response = await fcm.sendMulticast({ tokens, ...payload });
+        usedMethod = 'sendMulticast({tokens, ...payload})';
       } catch (e1) {
         console.warn('[PUSH-FCM] Attempt 1 failed:', e1.message);
-        // ✅ Attempt 2: sendMulticast({ tokens, ...payload })
+        // ✅ Attempt 2: sendMulticast(tokens, payload)
         try {
-          response = await fcm.sendMulticast({ tokens, ...payload });
-          usedMethod = 'sendMulticast({tokens, ...payload})';
+          response = await fcm.sendMulticast(tokens, payload);
+          usedMethod = 'sendMulticast(tokens, payload)';
         } catch (e2) {
           console.warn('[PUSH-FCM] Attempt 2 failed:', e2.message);
         }
       }
     }
 
-    // ✅ Attempt 3: sendToTokens(tokens, payload)
+    // ✅ Attempt 3: sendToTokens({ tokens, ...payload })
     if (!response && typeof fcm.sendToTokens === 'function') {
       try {
-        response = await fcm.sendToTokens(tokens, payload);
-        usedMethod = 'sendToTokens(tokens, payload)';
+        response = await fcm.sendToTokens({ tokens, ...payload });
+        usedMethod = 'sendToTokens({tokens, ...payload})';
       } catch (e3) {
         console.warn('[PUSH-FCM] Attempt 3 failed:', e3.message);
-        // ✅ Attempt 4: sendToTokens({ tokens, ...payload })
+        // ✅ Attempt 4: sendToTokens(tokens, payload)
         try {
-          response = await fcm.sendToTokens({ tokens, ...payload });
-          usedMethod = 'sendToTokens({tokens, ...payload})';
+          response = await fcm.sendToTokens(tokens, payload);
+          usedMethod = 'sendToTokens(tokens, payload)';
         } catch (e4) {
           console.warn('[PUSH-FCM] Attempt 4 failed:', e4.message);
         }
       }
     }
 
-    // ✅ Attempt 5: send(payload) with tokens in payload
+    // ✅ Attempt 5: send({ tokens, ...payload })
     if (!response && typeof fcm.send === 'function') {
       try {
         response = await fcm.send({ tokens, ...payload });

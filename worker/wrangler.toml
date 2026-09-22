@@ -1,6 +1,6 @@
 name = "ajkernews"
 main = "src/index.js"
-compatibility_date = "2026-09-23"
+compatibility_date = "2026-09-22"
 compatibility_flags = ["nodejs_compat"]
 
 [assets]
@@ -29,6 +29,12 @@ crons = [
 [observability]
 enabled = true
 head_sampling_rate = 1
-logs_enabled = true
+
+[observability.logs]
+enabled = true
 invocation_logs = true
-traces_enabled = true
+persist = true
+
+[observability.traces]
+enabled = true
+persist = true

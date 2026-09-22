@@ -3,13 +3,6 @@
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
  * FINAL v50 — Complete Push System (logs + stats + cleanup)
- * - TTL: 48 hours (breaking) / 24 hours (regular)
- * - Daily group tag (no spam)
- * - Smart priority (breaking vs regular)
- * - Auto token cleanup
- * - Click tracking
- * - Push log & stats
- * - Quiet hours (11 PM - 7 AM IST)
  * =========================================================
  */
 
@@ -2034,7 +2027,6 @@ async function sendPushSync(env, latestNews, tokens) {
 
         if (res.ok) {
           result.sent++;
-          // ✅ Log success
           try {
             await env.DB.prepare(
               `INSERT INTO push_log (id, news_id, token, status, title, sent_at) VALUES (?, ?, ?, ?, ?, ?)`
@@ -2049,7 +2041,6 @@ async function sendPushSync(env, latestNews, tokens) {
             result.unregistered++;
             result.invalidTokens.push(token);
           }
-          // ✅ Log failure
           try {
             await env.DB.prepare(
               `INSERT INTO push_log (id, news_id, token, status, error, title, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?)`

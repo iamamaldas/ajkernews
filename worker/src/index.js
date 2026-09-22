@@ -438,7 +438,23 @@ export default {
         return;
       }
 
-      if (cron === "30 */2 * * *") {
+      if (cron === "15 */2 * * *") {
+        try {
+          const recent = await env.DB.prepare(
+            `SELECT id FROM news WHERE status = 'published' AND created_at >= datetime('now', '-6 hours') ORDER BY created_at DESC LIMIT 50`
+          ).all();
+          const ids = (recent.results || []).map(r => r.id);
+          if (ids.length) {
+            const result = await fastIndexNews(env, ids);
+            console.log(`[CRON-FAST-INDEX] ${ids.length} URLs:`, JSON.stringify(result));
+          }
+        } catch (error) {
+          console.error("[CRON-FAST-INDEX] Failed:", error?.message || String(error));
+        }
+        return;
+      }
+
+      if (cron === "35 */2 * * *") {
         try {
           const backlog = await env.DB.prepare(
             `SELECT id FROM news WHERE status = 'published' AND created_at >= datetime('now', '-24 hours') ORDER BY created_at DESC LIMIT 50`
@@ -451,46 +467,20 @@ export default {
         } catch (error) {
           console.error("[CRON-RETRY] Backlog failed:", error?.message || String(error));
         }
+        return;
+      }
 
-        try { await cleanOldCandidates(env.DB); } catch (error) {
+      if (cron === "50 */2 * * *") {
+        try {
+          await cleanOldCandidates(env.DB);
+        } catch (error) {
           console.error("[CRON-CLEAN] Candidate cleanup failed:", error?.message || String(error));
         }
 
-        try { await cleanRejectedNews(env.DB); } catch (error) {
+        try {
+          await cleanRejectedNews(env.DB);
+        } catch (error) {
           console.error("[CRON-CLEAN] Rejected cleanup failed:", error?.message || String(error));
-        }
-
-        try {
-          const staleCleanup = await env.DB.prepare(
-            `DELETE FROM push_subscriptions WHERE created_at < datetime('now', '-90 days')`
-          ).run();
-          if (staleCleanup.meta?.changes > 0) {
-            console.log(`[CLEAN] Removed ${staleCleanup.meta.changes} stale subscriptions`);
-          }
-        } catch (error) {
-          console.warn("[CLEAN] Stale subscription cleanup failed:", error?.message || String(error));
-        }
-
-        try {
-          const clickCleanup = await env.DB.prepare(
-            `DELETE FROM push_clicks WHERE created_at < datetime('now', '-30 days')`
-          ).run();
-          if (clickCleanup.meta?.changes > 0) {
-            console.log(`[CLEAN] Removed ${clickCleanup.meta.changes} old click records`);
-          }
-        } catch (error) {
-          console.warn("[CLEAN] Click cleanup failed:", error?.message || String(error));
-        }
-
-        try {
-          const logCleanup = await env.DB.prepare(
-            `DELETE FROM push_log WHERE sent_at < datetime('now', '-7 days')`
-          ).run();
-          if (logCleanup.meta?.changes > 0) {
-            console.log(`[CLEAN] Removed ${logCleanup.meta.changes} old push logs`);
-          }
-        } catch (error) {
-          console.warn("[CLEAN] Push log cleanup failed:", error?.message || String(error));
         }
 
         const currentHour = new Date().getUTCHours();
@@ -518,7 +508,6 @@ export default {
           } catch (e) { /* ignore */ }
         }
 
-        console.log(`[CRON-COMBINED] Completed in ${Date.now() - startTime}ms`);
         return;
       }
 

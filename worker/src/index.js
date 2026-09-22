@@ -2,7 +2,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v45 — IST timezone forced on article page
+ * FINAL v46 — Optimized notification timing (4/day) + TTL
  * =========================================================
  */
 
@@ -285,7 +285,17 @@ export default {
     console.log(`[CRON] ${cron} started at ${new Date(event.scheduledTime).toISOString()}`);
 
     try {
-      if (cron === "0 */2 * * *") {
+      // ✅ News update + notification — 4 specific IST times
+      // 30 2 * * *  → 8:00 AM IST
+      // 30 7 * * *  → 1:00 PM IST
+      // 30 13 * * * → 7:00 PM IST
+      // 0 16 * * *  → 9:30 PM IST
+      if (
+        cron === "30 2 * * *" ||
+        cron === "30 7 * * *" ||
+        cron === "30 13 * * *" ||
+        cron === "0 16 * * *"
+      ) {
         let result;
         try {
           result = await updateNews(env);
@@ -295,34 +305,37 @@ export default {
           return;
         }
 
+        // ✅ Safety check: never send between 11 PM - 7 AM IST
         const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
         const istHour = istNow.getUTCHours();
-        const isNightTime = istHour >= 1 && istHour < 5;
-        const isEvenHour = istHour % 2 === 0;
-        const shouldSendNotification = isEvenHour && !isNightTime;
+        const isNightTime = istHour >= 23 || istHour < 7;
 
-        console.log(`[NOTIF] IST Hour: ${istHour} | Send: ${shouldSendNotification}`);
+        console.log(`[NOTIF] IST Hour: ${istHour} | Night: ${isNightTime}`);
 
         if (
-          shouldSendNotification &&
+          !isNightTime &&
           result.published > 0 &&
           Array.isArray(result.newNewsIds) &&
           result.newNewsIds.length
         ) {
+          console.log(`[NOTIF] Sending push to subscribers...`);
           ctx.waitUntil(
             queueAndSendPushNotifications(env, result.newNewsIds).catch(error => {
               console.error("[CRON-NEWS] Push queue error:", error?.message || String(error));
             })
           );
-        } else if (!shouldSendNotification) {
-          console.log(`[NOTIF] Skipped. ${isNightTime ? 'Night time' : 'Odd hour'}.`);
+        } else if (isNightTime) {
+          console.log(`[NOTIF] Skipped — night time IST.`);
+        } else {
+          console.log(`[NOTIF] Skipped — no new published news.`);
         }
 
         console.log(`[CRON-NEWS] Completed in ${Date.now() - startTime}ms`);
         return;
       }
 
-      if (cron === "15 */2 * * *") {
+      // ✅ Fast index — 45 min after each news update
+      if (cron === "45 2,7,13 * * *") {
         try {
           const recent = await env.DB.prepare(
             `SELECT id FROM news WHERE status = 'published' AND created_at >= datetime('now', '-6 hours') ORDER BY created_at DESC LIMIT 50`
@@ -331,6 +344,8 @@ export default {
           if (ids.length) {
             const result = await fastIndexNews(env, ids);
             console.log(`[CRON-FAST-INDEX] ${ids.length} URLs:`, JSON.stringify(result));
+          } else {
+            console.log(`[CRON-FAST-INDEX] No recent news to index.`);
           }
         } catch (error) {
           console.error("[CRON-FAST-INDEX] Failed:", error?.message || String(error));
@@ -338,7 +353,8 @@ export default {
         return;
       }
 
-      if (cron === "35 */2 * * *") {
+      // ✅ Retry fast index — 2 hours after each news update
+      if (cron === "45 4,9,15 * * *") {
         try {
           const backlog = await env.DB.prepare(
             `SELECT id FROM news WHERE status = 'published' AND created_at >= datetime('now', '-24 hours') ORDER BY created_at DESC LIMIT 50`
@@ -347,6 +363,8 @@ export default {
           if (ids.length) {
             const result = await fastIndexNews(env, ids);
             console.log(`[CRON-RETRY] Backlog: ${ids.length}`, JSON.stringify(result));
+          } else {
+            console.log(`[CRON-RETRY] No backlog news.`);
           }
         } catch (error) {
           console.error("[CRON-RETRY] Backlog failed:", error?.message || String(error));
@@ -354,7 +372,8 @@ export default {
         return;
       }
 
-      if (cron === "50 */2 * * *") {
+      // ✅ Cleanup + sitemap ping — 4x/day
+      if (cron === "0 0,6,12,18 * * *") {
         try {
           await cleanOldCandidates(env.DB);
         } catch (error) {
@@ -367,22 +386,19 @@ export default {
           console.error("[CRON-CLEAN] Rejected cleanup failed:", error?.message || String(error));
         }
 
-        const currentHour = new Date().getUTCHours();
-        if ([0, 6, 12, 18].includes(currentHour)) {
-          try {
-            const cleanupResult = await enforceNewsLimit(env.DB);
-            console.log(`[CRON-CLEAN] News: ${cleanupResult.deleted} deleted, ${cleanupResult.total} total`);
-            if (cleanupResult.deleted > 0) {
-              try {
-                await purgeNewsApiCache("https://ajkernews.in");
-                for (const id of cleanupResult.deletedIds || []) {
-                  await purgeArticleCache("https://ajkernews.in", id);
-                }
-              } catch (e) { /* ignore */ }
-            }
-          } catch (error) {
-            console.error("[CRON-CLEAN] News cleanup failed:", error?.message || String(error));
+        try {
+          const cleanupResult = await enforceNewsLimit(env.DB);
+          console.log(`[CRON-CLEAN] News: ${cleanupResult.deleted} deleted, ${cleanupResult.total} total`);
+          if (cleanupResult.deleted > 0) {
+            try {
+              await purgeNewsApiCache("https://ajkernews.in");
+              for (const id of cleanupResult.deletedIds || []) {
+                await purgeArticleCache("https://ajkernews.in", id);
+              }
+            } catch (e) { /* ignore */ }
           }
+        } catch (error) {
+          console.error("[CRON-CLEAN] News cleanup failed:", error?.message || String(error));
         }
 
         try {
@@ -1771,13 +1787,18 @@ async function sendPushSync(env, latestNews, tokens) {
             body: body
           },
           webpush: {
+            headers: {
+              Urgency: "high",
+              TTL: "2419200"
+            },
             notification: {
               icon: "https://ajkernews.in/logo.png",
               badge: "https://ajkernews.in/logo.png",
               image: latestNews.image_url || undefined,
               vibrate: [200, 100, 200],
               tag: `news:${latestNews.id}`,
-              renotify: true
+              renotify: true,
+              requireInteraction: false
             },
             fcmOptions: { link: targetUrl }
           }

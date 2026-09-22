@@ -584,12 +584,24 @@ function escapeHtml(value) {
   if (value === null || value === undefined) return '';
   return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
+
+/* ✅✅✅ ENGLISH DATE/TIME FORMAT ✅✅✅ */
 function formatDate(dateString) {
   if (!dateString) return '';
   const date = new Date(dateString);
   if (isNaN(date.getTime())) return '';
-  return date.toLocaleDateString('bn-BD', { day: 'numeric', month: 'long', year: 'numeric' }) + ' ' + date.toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' });
+  // ✅ English month names + 12-hour format with AM/PM
+  return date.toLocaleDateString('en-US', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric'
+  }) + ' • ' + date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  });
 }
+
 function normalizeNews(news) {
   if (!news || typeof news !== 'object') return null;
   return {
@@ -738,13 +750,7 @@ async function loadNewsNetwork(category, search) {
     }
   }
 
-  // All attempts failed — silently keep skeleton/empty, no error text
   console.warn('[loadNewsNetwork] All retry attempts failed. Keeping silent.');
-  const container = document.getElementById('newsContainer');
-  if (container && container.querySelectorAll('.news-card').length === 0) {
-    // If nothing was ever rendered, keep a skeleton so user doesn't see blank
-    // (Optional) showSkeleton(container, 1);
-  }
 }
 
 async function updateLoveCounts(normalized) {
@@ -771,7 +777,7 @@ function buildNewsHtml(news) {
   const category = getCategoryLabel(news.category);
   const source = news.source_name || 'Ajker News';
   const displayDate = news.created_at || news.published_at || '';
-  const formattedTime = formatDate(displayDate);
+  const formattedTime = formatDate(displayDate);  // ✅ English date/time
   const loved = isNewsLoved(news.id);
   const fill = loved ? '#e74c3c' : 'none';
   const loveCount = Number(news.love_count || 0);
@@ -944,6 +950,12 @@ async function toggleNotification() {
     return;
   }
 
+  // ✅ Firebase guard — Reason #8 fix
+  if (!window.__firebase || typeof window.__firebase.getToken !== 'function') {
+    alert('Firebase এখনো ready নয়। একটু পরে আবার চেষ্টা করুন।');
+    return;
+  }
+
   const isCurrentlySubscribed = btn.classList.contains('subscribed');
 
   if (isCurrentlySubscribed) {
@@ -951,10 +963,17 @@ async function toggleNotification() {
     notificationSetupInProgress = true;
     btn.disabled = true;
     try {
-      const registration = await navigator.serviceWorker.ready;
+      // ✅ Reason #1 fix — use FCM registration
+      let fcmRegistration = window.__fcmRegistration;
+      if (!fcmRegistration) {
+        fcmRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
+          scope: '/firebase-cloud-messaging-push-scope'
+        });
+        window.__fcmRegistration = fcmRegistration;
+      }
       const existingToken = await window.__firebase.getToken(window.__firebase.messaging, {
         vapidKey: window.__VAPID_KEY,
-        serviceWorkerRegistration: registration
+        serviceWorkerRegistration: fcmRegistration
       }).catch(() => null);
 
       if (existingToken) {
@@ -1001,10 +1020,19 @@ async function toggleNotification() {
       return;
     }
 
-    const registration = await navigator.serviceWorker.ready;
+    // ✅ Reason #1 fix — use FCM registration (NOT navigator.serviceWorker.ready)
+    let fcmRegistration = window.__fcmRegistration;
+    if (!fcmRegistration) {
+      fcmRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
+        scope: '/firebase-cloud-messaging-push-scope'
+      });
+      window.__fcmRegistration = fcmRegistration;
+    }
+    await navigator.serviceWorker.ready;
+
     const fcmToken = await window.__firebase.getToken(window.__firebase.messaging, {
       vapidKey: window.__VAPID_KEY,
-      serviceWorkerRegistration: registration
+      serviceWorkerRegistration: fcmRegistration
     });
     if (!fcmToken) throw new Error('FCM token পাওয়া যায়নি');
 
@@ -1166,22 +1194,19 @@ function handleNotificationPromptLater() {
   });
 
   if ('serviceWorker' in navigator) {
+    // ✅ Reason #1 fix — FCM SW আগে register করুন এবং global-এ save করুন
     try {
       const fcmReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
         updateViaCache: 'none',
         scope: '/firebase-cloud-messaging-push-scope'
       });
       console.log('[SW] Firebase SW registered:', fcmReg.scope);
+      window.__fcmRegistration = fcmReg;  // ✅ SAVE for getToken()
     } catch (err) {
       console.error('[SW] Firebase SW registration failed:', err);
-      try {
-        const fallbackReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-        console.log('[SW] Firebase SW (fallback) registered:', fallbackReg.scope);
-      } catch (e2) {
-        console.error('[SW] Fallback registration failed:', e2);
-      }
     }
 
+    // ✅ Main SW পরে
     try {
       const mainReg = await navigator.serviceWorker.register('/sw.js', {
         updateViaCache: 'none',

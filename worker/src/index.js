@@ -1,8 +1,8 @@
-// auto-deploy test - 2026-09-22
+// auto-deploy test - 2026-09-23
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v49 — Complete Push System (logs + stats + cleanup)
+ * FINAL v50 — Complete Push System (logs + stats + cleanup)
  * - TTL: 48 hours (breaking) / 24 hours (regular)
  * - Daily group tag (no spam)
  * - Smart priority (breaking vs regular)

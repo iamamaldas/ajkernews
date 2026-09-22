@@ -81,7 +81,7 @@ self.addEventListener("message", event => {
 });
 
 /* =========================================================
- * PUSH EVENT HANDLER — FCM fallback (NEW)
+ * PUSH EVENT HANDLER — FCM fallback
  * ========================================================= */
 
 self.addEventListener("push", (event) => {
@@ -132,7 +132,7 @@ self.addEventListener("push", (event) => {
 });
 
 /* =========================================================
- * NOTIFICATION CLICK HANDLER (NEW)
+ * NOTIFICATION CLICK HANDLER
  * ========================================================= */
 
 self.addEventListener("notificationclick", (event) => {

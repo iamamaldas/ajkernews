@@ -135,7 +135,7 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 }
 
 /* ============================================
-   ✅ TRENDING BANNER
+   ✅ TRENDING BANNER — NOW DEEP BLACK
    ============================================ */
 .trending-banner {
   display: flex;
@@ -143,9 +143,9 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   justify-content: space-between;
   min-height: 52px;
   padding: 12px 16px;
-  background: linear-gradient(135deg, #e53935 0%, #c62828 100%);
+  background: linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%);
   color: #ffffff;
-  box-shadow: 0 2px 8px rgba(198,40,40,0.15);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
 }
 .trending-banner span { font-size: 16.5px; font-weight: 700; letter-spacing: -0.1px; }
 
@@ -686,49 +686,64 @@ async function loadNews(category = 'top', search = '', options = {}) {
   }
 }
 
+// ✅ SMART RETRY SYSTEM — automatically tries multiple times
 async function loadNewsNetwork(category, search) {
-  try {
-    const params = new URLSearchParams();
-    params.set('category', category || 'all');
-    params.set('limit', '10');
-    if (search) params.set('q', search);
-    params.set('_t', String(Date.now()));
+  const MAX_ATTEMPTS = 5;
+  const BASE_DELAY = 800;
 
-    const url = API_URL + '?' + params.toString();
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-    let response;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        },
-        cache: 'no-store',
-        signal: controller.signal
-      });
-    } finally { clearTimeout(timeoutId); }
+      const params = new URLSearchParams();
+      params.set('category', category || 'all');
+      params.set('limit', '10');
+      if (search) params.set('q', search);
+      params.set('_t', String(Date.now()));
 
-    if (!response.ok) throw new Error('News API HTTP ' + response.status);
-    const data = await response.json();
-    if (!data || !Array.isArray(data.news)) throw new Error('Invalid response');
+      const url = API_URL + '?' + params.toString();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      let response;
+      try {
+        response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+          },
+          cache: 'no-store',
+          signal: controller.signal
+        });
+      } finally { clearTimeout(timeoutId); }
 
-    const normalized = data.news.map(normalizeNews).filter(Boolean);
-    const sorted = sortByLatest(normalized);
-    currentNews = sorted;
-    visibleCount = 10;
-    hasMoreNews = data.has_more || false;
+      if (!response.ok) throw new Error('News API HTTP ' + response.status);
+      const data = await response.json();
+      if (!data || !Array.isArray(data.news)) throw new Error('Invalid response');
 
-    renderNews(currentNews, hasMoreNews);
-    updateLoveCounts(normalized);
-  } catch (error) {
-    console.error('News loading error:', error);
-    if (!currentNews.length) {
-      const container = document.getElementById('newsContainer');
-      container.innerHTML = '<p style="text-align:center;padding:40px;color:#888;">খবর লোড করা যায়নি। আবার চেষ্টা করুন।</p>';
+      const normalized = data.news.map(normalizeNews).filter(Boolean);
+      const sorted = sortByLatest(normalized);
+      currentNews = sorted;
+      visibleCount = 10;
+      hasMoreNews = data.has_more || false;
+
+      renderNews(currentNews, hasMoreNews);
+      updateLoveCounts(normalized);
+      return; // success
+    } catch (error) {
+      console.warn(`[loadNewsNetwork] attempt ${attempt}/${MAX_ATTEMPTS} failed:`, error?.message || error);
+      if (attempt < MAX_ATTEMPTS) {
+        const delay = BASE_DELAY * attempt;
+        await new Promise(r => setTimeout(r, delay));
+      }
     }
+  }
+
+  // All attempts failed — silently keep skeleton/empty, no error text
+  console.warn('[loadNewsNetwork] All retry attempts failed. Keeping silent.');
+  const container = document.getElementById('newsContainer');
+  if (container && container.querySelectorAll('.news-card').length === 0) {
+    // If nothing was ever rendered, keep a skeleton so user doesn't see blank
+    // (Optional) showSkeleton(container, 1);
   }
 }
 

@@ -2,7 +2,7 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v43 — Cache fix + no-cache for all HTML responses
+ * FINAL v44 — English date/time in article page
  * =========================================================
  */
 
@@ -776,10 +776,19 @@ async function serveArticlePage(id, env) {
   const canonical = `https://ajkernews.in/news/${encodeURIComponent(safeId)}`;
   const category = result.category || "general";
 
+  // ✅ ENGLISH DATE/TIME — Same as homepage format
   let formattedDate = "";
   try {
     const d = new Date(displayDate);
-    formattedDate = d.toLocaleDateString('bn-BD', { day: 'numeric', month: 'long', year: 'numeric' }) + ' ' + d.toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' });
+    formattedDate = d.toLocaleDateString('en-US', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    }) + ' • ' + d.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
   } catch (e) { formattedDate = displayDate; }
 
   let sourceDomain = "";

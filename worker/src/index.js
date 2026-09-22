@@ -2,7 +2,12 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v46 — Optimized notification timing (4/day) + TTL
+ * FINAL v47 — Futuristic Smart Notification System
+ * - TTL: 48 hours
+ * - Daily group tag (no spam)
+ * - Smart priority (breaking vs regular)
+ * - Auto token cleanup
+ * - Click tracking
  * =========================================================
  */
 
@@ -20,6 +25,24 @@ import { cacheNewsApi, purgeNewsApiCache, purgeArticleCache } from "./cache.js";
 
 const MAX_NEWS = 1000;
 const API_PAGE_SIZE = 10;
+
+// ✅ SMART NOTIFICATION CONFIG
+const NOTIFICATION_CONFIG = {
+  // TTL for FCM queue (48 hours)
+  TTL_SECONDS: 172800,
+  
+  // Quiet hours (IST) — no notifications
+  QUIET_START_HOUR: 23,   // 11:00 PM IST
+  QUIET_END_HOUR: 7,      // 7:00 AM IST
+  
+  // Breaking news detection
+  BREAKING_SCORE_THRESHOLD: 90,
+  BREAKING_TTL_SECONDS: 172800,   // Breaking = 48h
+  REGULAR_TTL_SECONDS: 86400,     // Regular = 24h (fresher)
+  
+  // Max subscribers per push batch
+  MAX_BATCH_SIZE: 500,
+};
 
 let tablesReadyPromise = null;
 
@@ -56,6 +79,61 @@ function getVapidEmail(env) {
   if (raw.toLowerCase().startsWith("mailto:")) return raw;
   return `mailto:${raw}`;
 }
+
+/* =========================================================
+ * SMART NOTIFICATION HELPERS
+ * ========================================================= */
+
+/**
+ * Get current IST hour (0-23)
+ */
+function getISTHour() {
+  const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  return istNow.getUTCHours();
+}
+
+/**
+ * Check if currently in quiet hours
+ */
+function isQuietHours() {
+  const hour = getISTHour();
+  const { QUIET_START_HOUR, QUIET_END_HOUR } = NOTIFICATION_CONFIG;
+  if (QUIET_START_HOUR > QUIET_END_HOUR) {
+    // Crosses midnight (e.g., 23 to 7)
+    return hour >= QUIET_START_HOUR || hour < QUIET_END_HOUR;
+  }
+  return hour >= QUIET_START_HOUR && hour < QUIET_END_HOUR;
+}
+
+/**
+ * Get smart tag for notification grouping
+ * Daily group: same day's notifications replace each other
+ */
+function getSmartTag(news, isBreaking = false) {
+  if (isBreaking) {
+    // Breaking news = unique tag (always shows as separate notification)
+    return `breaking-${news.id}`;
+  }
+  
+  // Regular news = daily group tag
+  const date = new Date(news.created_at || Date.now());
+  const dateKey = date.toISOString().split('T')[0];  // "2026-09-22"
+  const category = news.category || 'general';
+  
+  // Group by day + category for better UX
+  return `ajker-${dateKey}-${category}`;
+}
+
+/**
+ * Determine if news is breaking based on score
+ */
+function isBreakingNews(news) {
+  return Number(news.score || 0) >= NOTIFICATION_CONFIG.BREAKING_SCORE_THRESHOLD;
+}
+
+/* =========================================================
+ * MAIN WORKER
+ * ========================================================= */
 
 export default {
   async fetch(request, env, ctx) {
@@ -135,13 +213,27 @@ export default {
         }
         const result = await updateNews(env);
         if (result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
-          ctx.waitUntil(
-            queueAndSendPushNotifications(env, result.newNewsIds).catch(error =>
-              console.error("Push queue error:", error?.message || String(error))
-            )
-          );
+          if (!isQuietHours()) {
+            ctx.waitUntil(
+              queueAndSendPushNotifications(env, result.newNewsIds).catch(error =>
+                console.error("Push queue error:", error?.message || String(error))
+              )
+            );
+          } else {
+            console.log('[PUSH] Skipped — quiet hours');
+          }
         }
         return json(result, 200, 0);
+      }
+
+      // ✅ NEW: Click tracking endpoint
+      if (url.pathname === "/api/push-click" && request.method === "POST") {
+        return await handlePushClick(request, env);
+      }
+
+      // ✅ NEW: Notification stats endpoint
+      if (url.pathname === "/api/push-stats" && request.method === "GET") {
+        return await handlePushStats(env);
       }
 
       if (url.pathname === "/api/love") {
@@ -202,6 +294,20 @@ export default {
           const fcmSubs = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_subscriptions WHERE token IS NOT NULL AND token != ''`).first();
           const hasServiceAccount = !!env.FIREBASE_SERVICE_ACCOUNT_JSON;
           const hasVapidPublic = !!env.VAPID_PUBLIC_KEY;
+          
+          // ✅ Get click stats
+          let clickStats = { total: 0, today: 0 };
+          try {
+            const totalClicks = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_clicks`).first();
+            const todayClicks = await env.DB.prepare(
+              `SELECT COUNT(*) AS total FROM push_clicks WHERE created_at >= datetime('now', '-1 day')`
+            ).first();
+            clickStats = {
+              total: Number(totalClicks?.total || 0),
+              today: Number(todayClicks?.total || 0)
+            };
+          } catch (e) { /* table may not exist yet */ }
+          
           return json({
             success: true,
             stats: stats.results || [],
@@ -210,7 +316,15 @@ export default {
               subscribers: Number(pushSubs?.total || 0),
               fcmTokens: Number(fcmSubs?.total || 0),
               hasServiceAccount: hasServiceAccount,
-              hasVapidPublic: hasVapidPublic
+              hasVapidPublic: hasVapidPublic,
+              clicks: clickStats
+            },
+            notificationConfig: {
+              ttlBreaking: NOTIFICATION_CONFIG.BREAKING_TTL_SECONDS,
+              ttlRegular: NOTIFICATION_CONFIG.REGULAR_TTL_SECONDS,
+              quietHours: `${NOTIFICATION_CONFIG.QUIET_START_HOUR}:00 - ${NOTIFICATION_CONFIG.QUIET_END_HOUR}:00 IST`,
+              currentISTHour: getISTHour(),
+              isQuietHours: isQuietHours()
             }
           }, 200, 0);
         } catch (error) {
@@ -221,12 +335,12 @@ export default {
       if (url.pathname === "/api/push-test" && request.method === "POST") {
         try {
           const latest = await env.DB.prepare(
-            `SELECT id, headline, summary, image_url FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT 1`
+            `SELECT id, headline, summary, image_url, score, category, created_at FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT 1`
           ).first();
           if (!latest) return json({ success: false, error: "No published news found" }, 400, 0);
 
           const subs = await env.DB.prepare(
-            `SELECT token FROM push_subscriptions WHERE token IS NOT NULL AND token != '' ORDER BY created_at DESC LIMIT 500`
+            `SELECT token FROM push_subscriptions WHERE token IS NOT NULL AND token != '' ORDER BY created_at DESC LIMIT ${NOTIFICATION_CONFIG.MAX_BATCH_SIZE}`
           ).all();
           const tokens = (subs.results || []).map(s => s.token).filter(Boolean);
 
@@ -234,7 +348,8 @@ export default {
             return json({ success: false, error: "No subscribers found" }, 400, 0);
           }
 
-          console.log(`[PUSH-TEST] Starting sync send to ${tokens.length} subscribers`);
+          const isBreaking = isBreakingNews(latest);
+          console.log(`[PUSH-TEST] Sending to ${tokens.length} subscribers | Breaking: ${isBreaking} | Tag: ${getSmartTag(latest, isBreaking)}`);
 
           const result = await sendPushSync(env, latest, tokens);
 
@@ -243,6 +358,9 @@ export default {
             message: "Push test completed",
             newsId: latest.id,
             headline: latest.headline,
+            isBreaking: isBreaking,
+            tag: getSmartTag(latest, isBreaking),
+            ttl: isBreaking ? NOTIFICATION_CONFIG.BREAKING_TTL_SECONDS : NOTIFICATION_CONFIG.REGULAR_TTL_SECONDS,
             subscribers: tokens.length,
             hasServiceAccount: !!env.FIREBASE_SERVICE_ACCOUNT_JSON,
             fcmResult: result
@@ -286,10 +404,6 @@ export default {
 
     try {
       // ✅ News update + notification — 4 specific IST times
-      // 30 2 * * *  → 8:00 AM IST
-      // 30 7 * * *  → 1:00 PM IST
-      // 30 13 * * * → 7:00 PM IST
-      // 0 16 * * *  → 9:30 PM IST
       if (
         cron === "30 2 * * *" ||
         cron === "30 7 * * *" ||
@@ -305,15 +419,13 @@ export default {
           return;
         }
 
-        // ✅ Safety check: never send between 11 PM - 7 AM IST
-        const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
-        const istHour = istNow.getUTCHours();
-        const isNightTime = istHour >= 23 || istHour < 7;
+        const istHour = getISTHour();
+        const quiet = isQuietHours();
 
-        console.log(`[NOTIF] IST Hour: ${istHour} | Night: ${isNightTime}`);
+        console.log(`[NOTIF] IST Hour: ${istHour} | Quiet: ${quiet}`);
 
         if (
-          !isNightTime &&
+          !quiet &&
           result.published > 0 &&
           Array.isArray(result.newNewsIds) &&
           result.newNewsIds.length
@@ -324,17 +436,17 @@ export default {
               console.error("[CRON-NEWS] Push queue error:", error?.message || String(error));
             })
           );
-        } else if (isNightTime) {
-          console.log(`[NOTIF] Skipped — night time IST.`);
+        } else if (quiet) {
+          console.log(`[NOTIF] Skipped — quiet hours`);
         } else {
-          console.log(`[NOTIF] Skipped — no new published news.`);
+          console.log(`[NOTIF] Skipped — no new published news`);
         }
 
         console.log(`[CRON-NEWS] Completed in ${Date.now() - startTime}ms`);
         return;
       }
 
-      // ✅ Fast index — 45 min after each news update
+      // ✅ Fast index — after each news update
       if (cron === "45 2,7,13 * * *") {
         try {
           const recent = await env.DB.prepare(
@@ -344,8 +456,6 @@ export default {
           if (ids.length) {
             const result = await fastIndexNews(env, ids);
             console.log(`[CRON-FAST-INDEX] ${ids.length} URLs:`, JSON.stringify(result));
-          } else {
-            console.log(`[CRON-FAST-INDEX] No recent news to index.`);
           }
         } catch (error) {
           console.error("[CRON-FAST-INDEX] Failed:", error?.message || String(error));
@@ -353,7 +463,7 @@ export default {
         return;
       }
 
-      // ✅ Retry fast index — 2 hours after each news update
+      // ✅ Retry fast index
       if (cron === "45 4,9,15 * * *") {
         try {
           const backlog = await env.DB.prepare(
@@ -363,8 +473,6 @@ export default {
           if (ids.length) {
             const result = await fastIndexNews(env, ids);
             console.log(`[CRON-RETRY] Backlog: ${ids.length}`, JSON.stringify(result));
-          } else {
-            console.log(`[CRON-RETRY] No backlog news.`);
           }
         } catch (error) {
           console.error("[CRON-RETRY] Backlog failed:", error?.message || String(error));
@@ -372,7 +480,7 @@ export default {
         return;
       }
 
-      // ✅ Cleanup + sitemap ping — 4x/day
+      // ✅ Cleanup + Smart token cleanup + sitemap ping
       if (cron === "0 0,6,12,18 * * *") {
         try {
           await cleanOldCandidates(env.DB);
@@ -384,6 +492,30 @@ export default {
           await cleanRejectedNews(env.DB);
         } catch (error) {
           console.error("[CRON-CLEAN] Rejected cleanup failed:", error?.message || String(error));
+        }
+
+        // ✅ NEW: Auto-cleanup old push subscriptions (90 days inactive)
+        try {
+          const staleCleanup = await env.DB.prepare(
+            `DELETE FROM push_subscriptions WHERE created_at < datetime('now', '-90 days')`
+          ).run();
+          if (staleCleanup.meta?.changes > 0) {
+            console.log(`[CLEAN] Removed ${staleCleanup.meta.changes} stale subscriptions`);
+          }
+        } catch (error) {
+          console.warn("[CLEAN] Stale subscription cleanup failed:", error?.message || String(error));
+        }
+
+        // ✅ NEW: Cleanup old push clicks (30 days)
+        try {
+          const clickCleanup = await env.DB.prepare(
+            `DELETE FROM push_clicks WHERE created_at < datetime('now', '-30 days')`
+          ).run();
+          if (clickCleanup.meta?.changes > 0) {
+            console.log(`[CLEAN] Removed ${clickCleanup.meta.changes} old click records`);
+          }
+        } catch (error) {
+          console.warn("[CLEAN] Click cleanup failed:", error?.message || String(error));
         }
 
         try {
@@ -1146,6 +1278,18 @@ async function serveArticlePage(id, env) {
     }
   })();
 
+  // ✅ Track push click if user came from notification
+  try {
+    var urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('from') === 'push') {
+      fetch(API_BASE + '/api/push-click', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newsId: NEWS_ID, source: 'notification' })
+      }).catch(function() {});
+    }
+  } catch (e) {}
+
   var loveBtn = document.getElementById('artLoveBtn');
   if (loveBtn) {
     loveBtn.addEventListener('click', async function(e) {
@@ -1324,7 +1468,7 @@ async function serveArticlePage(id, env) {
 }
 
 /* =========================================================
- * TABLES SETUP
+ * TABLES SETUP (WITH push_clicks)
  * ========================================================= */
 async function ensureTables(env) {
   const queries = [
@@ -1333,13 +1477,18 @@ async function ensureTables(env) {
     `CREATE TABLE IF NOT EXISTS news_comments (id TEXT PRIMARY KEY, news_id TEXT, author_name TEXT, comment_text TEXT, created_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS push_subscriptions (id TEXT PRIMARY KEY, endpoint TEXT UNIQUE, keys_json TEXT, token TEXT, created_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS affiliate_clicks (id TEXT PRIMARY KEY, affiliate_name TEXT, click_url TEXT, device_id TEXT, created_at TEXT)`,
+    // ✅ NEW: push_clicks table for analytics
+    `CREATE TABLE IF NOT EXISTS push_clicks (id TEXT PRIMARY KEY, news_id TEXT, device_id TEXT, source TEXT, created_at TEXT)`,
     `CREATE INDEX IF NOT EXISTS idx_news_status_published ON news(status, published_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_status_created ON news(status, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_category_published ON news(category, published_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_score_published ON news(score DESC, published_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_loves_news_id ON news_loves(news_id)`,
     `CREATE INDEX IF NOT EXISTS idx_news_comments_news_created ON news_comments(news_id, created_at ASC)`,
-    `CREATE INDEX IF NOT EXISTS idx_push_subscriptions_token ON push_subscriptions(token)`
+    `CREATE INDEX IF NOT EXISTS idx_push_subscriptions_token ON push_subscriptions(token)`,
+    // ✅ NEW index for push clicks
+    `CREATE INDEX IF NOT EXISTS idx_push_clicks_created ON push_clicks(created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_push_clicks_news ON push_clicks(news_id)`
   ];
 
   for (const sql of queries) {
@@ -1598,6 +1747,57 @@ async function handleAffiliate(url, env) {
 }
 
 /* =========================================================
+ * PUSH CLICK TRACKING (NEW)
+ * ========================================================= */
+async function handlePushClick(request, env) {
+  try {
+    const body = await request.json();
+    const { newsId, deviceId, source } = body;
+    if (!newsId) return json({ success: false, error: "newsId required" }, 400, 0);
+
+    await env.DB.prepare(
+      `INSERT INTO push_clicks (id, news_id, device_id, source, created_at) VALUES (?, ?, ?, ?, ?)`
+    ).bind(
+      crypto.randomUUID(),
+      newsId,
+      deviceId || "anonymous",
+      source || "unknown",
+      new Date().toISOString()
+    ).run();
+
+    return json({ success: true }, 200, 0);
+  } catch (error) {
+    console.error("[PUSH-CLICK] Error:", error?.message || String(error));
+    return json({ success: false, error: "Click tracking failed" }, 500, 0);
+  }
+}
+
+async function handlePushStats(env) {
+  try {
+    const total = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_clicks`).first();
+    const today = await env.DB.prepare(
+      `SELECT COUNT(*) AS total FROM push_clicks WHERE created_at >= datetime('now', '-1 day')`
+    ).first();
+    const last7days = await env.DB.prepare(
+      `SELECT COUNT(*) AS total FROM push_clicks WHERE created_at >= datetime('now', '-7 days')`
+    ).first();
+    const topNews = await env.DB.prepare(
+      `SELECT news_id, COUNT(*) AS clicks FROM push_clicks GROUP BY news_id ORDER BY clicks DESC LIMIT 10`
+    ).all();
+
+    return json({
+      success: true,
+      total: Number(total?.total || 0),
+      today: Number(today?.total || 0),
+      last7days: Number(last7days?.total || 0),
+      topNews: topNews.results || []
+    }, 200, 0);
+  } catch (error) {
+    return json({ success: false, error: error.message }, 500, 0);
+  }
+}
+
+/* =========================================================
  * API: GET NEWS
  * ========================================================= */
 async function handleGetNews(url, env, request) {
@@ -1661,7 +1861,7 @@ async function handleSubscribe(request, env) {
     ).bind(token, endpoint).first();
 
     if (existing) {
-      await env.DB.prepare(`UPDATE push_subscriptions SET token = ?, keys_json = ? WHERE id = ?`).bind(token, keys, existing.id).run();
+      await env.DB.prepare(`UPDATE push_subscriptions SET token = ?, keys_json = ?, created_at = ? WHERE id = ?`).bind(token, keys, now, existing.id).run();
       console.log('[SUBSCRIBE] Updated existing subscriber');
       return json({ success: true, message: "Updated" }, 200, 0);
     }
@@ -1695,6 +1895,9 @@ async function handleUnsubscribe(request, env) {
   }
 }
 
+/* =========================================================
+ * SMART PUSH SENDER
+ * ========================================================= */
 async function sendPushSync(env, latestNews, tokens) {
   const result = {
     accessTokenObtained: false,
@@ -1702,7 +1905,11 @@ async function sendPushSync(env, latestNews, tokens) {
     sent: 0,
     failed: 0,
     unregistered: 0,
-    errors: []
+    invalidTokens: [],
+    errors: [],
+    isBreaking: false,
+    ttl: 0,
+    tag: ""
   };
 
   let serviceAccount;
@@ -1769,10 +1976,22 @@ async function sendPushSync(env, latestNews, tokens) {
     result.accessTokenObtained = true;
     const accessToken = tokenData.access_token;
 
-    const targetUrl = `https://ajkernews.in/news/${latestNews.id}`;
+    // ✅ SMART DECISION: Breaking vs Regular
+    const breaking = isBreakingNews(latestNews);
+    const ttl = breaking ? NOTIFICATION_CONFIG.BREAKING_TTL_SECONDS : NOTIFICATION_CONFIG.REGULAR_TTL_SECONDS;
+    const tag = getSmartTag(latestNews, breaking);
+    
+    result.isBreaking = breaking;
+    result.ttl = ttl;
+    result.tag = tag;
+
+    // ✅ Add push tracking param to URL
+    const targetUrl = `https://ajkernews.in/news/${latestNews.id}?from=push`;
     const title = String(latestNews.headline || "নতুন খবর").slice(0, 180);
     const body = String(latestNews.summary || "বিস্তারিত জানতে ক্লিক করুন").slice(0, 180);
     const fcmUrl = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
+
+    console.log(`[SMART-PUSH] Type: ${breaking ? 'BREAKING' : 'REGULAR'} | TTL: ${ttl}s | Tag: ${tag}`);
 
     for (const token of tokens) {
       const message = {
@@ -1784,21 +2003,22 @@ async function sendPushSync(env, latestNews, tokens) {
             image: latestNews.image_url || "",
             notificationId: `news:${latestNews.id}`,
             title: title,
-            body: body
+            body: body,
+            isBreaking: breaking ? "1" : "0"
           },
           webpush: {
             headers: {
               Urgency: "high",
-              TTL: "2419200"
+              TTL: String(ttl)   // ✅ Smart TTL
             },
             notification: {
               icon: "https://ajkernews.in/logo.png",
               badge: "https://ajkernews.in/logo.png",
               image: latestNews.image_url || undefined,
-              vibrate: [200, 100, 200],
-              tag: `news:${latestNews.id}`,
+              vibrate: breaking ? [200, 100, 200, 100, 200] : [200, 100, 200],
+              tag: tag,   // ✅ Smart tag (grouping)
               renotify: true,
-              requireInteraction: false
+              requireInteraction: breaking,   // Breaking stays until dismissed
             },
             fcmOptions: { link: targetUrl }
           }
@@ -1824,6 +2044,7 @@ async function sendPushSync(env, latestNews, tokens) {
           result.errors.push(`${errCode}: ${token.slice(0, 15)}...`);
           if (errCode === 'UNREGISTERED' || errCode === 'NOT_FOUND') {
             result.unregistered++;
+            result.invalidTokens.push(token);   // ✅ Collect for cleanup
           }
         }
       } catch (e) {
@@ -1852,9 +2073,9 @@ async function queueAndSendPushNotifications(env, newsIds) {
 
   const placeholders = ids.map(() => "?").join(",");
   const latestNews = await env.DB.prepare(`
-    SELECT id, headline, summary, image_url FROM news
+    SELECT id, headline, summary, image_url, score, category, created_at FROM news
     WHERE id IN (${placeholders}) AND status = 'published'
-    ORDER BY created_at DESC, score DESC LIMIT 1
+    ORDER BY score DESC, created_at DESC LIMIT 1
   `).bind(...ids).first();
 
   if (!latestNews) {
@@ -1863,7 +2084,7 @@ async function queueAndSendPushNotifications(env, newsIds) {
   }
 
   const subs = await env.DB.prepare(
-    `SELECT token FROM push_subscriptions WHERE token IS NOT NULL AND token != '' ORDER BY created_at DESC LIMIT 500`
+    `SELECT token FROM push_subscriptions WHERE token IS NOT NULL AND token != '' ORDER BY created_at DESC LIMIT ${NOTIFICATION_CONFIG.MAX_BATCH_SIZE}`
   ).all();
 
   if (!subs.results?.length) {
@@ -1877,8 +2098,17 @@ async function queueAndSendPushNotifications(env, newsIds) {
   const result = await sendPushSync(env, latestNews, tokens);
   console.log(`[PUSH-BG] Result:`, JSON.stringify(result));
 
-  if (result.unregistered > 0 && Array.isArray(result.errors)) {
-    const unregisteredTokens = [];
+  // ✅ Auto-cleanup invalid tokens
+  if (result.invalidTokens?.length > 0) {
+    try {
+      const invalidPlaceholders = result.invalidTokens.map(() => "?").join(",");
+      await env.DB.prepare(
+        `DELETE FROM push_subscriptions WHERE token IN (${invalidPlaceholders})`
+      ).bind(...result.invalidTokens).run();
+      console.log(`[PUSH-BG] ✅ Removed ${result.invalidTokens.length} invalid tokens`);
+    } catch (e) {
+      console.error('[PUSH-BG] Failed to remove invalid tokens:', e?.message);
+    }
   }
 }
 

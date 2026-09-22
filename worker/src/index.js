@@ -1,8 +1,8 @@
-// auto-deploy test - 2026-09-21
+// auto-deploy test - 2026-09-22
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v44 — English date/time in article page
+ * FINAL v45 — IST timezone forced on article page
  * =========================================================
  */
 
@@ -776,18 +776,20 @@ async function serveArticlePage(id, env) {
   const canonical = `https://ajkernews.in/news/${encodeURIComponent(safeId)}`;
   const category = result.category || "general";
 
-  // ✅ ENGLISH DATE/TIME — Same as homepage format
+  // ✅ ENGLISH DATE/TIME — IST (Asia/Kolkata) FORCED — Same as homepage
   let formattedDate = "";
   try {
     const d = new Date(displayDate);
     formattedDate = d.toLocaleDateString('en-US', {
       day: 'numeric',
       month: 'short',
-      year: 'numeric'
+      year: 'numeric',
+      timeZone: 'Asia/Kolkata'
     }) + ' • ' + d.toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
-      hour12: true
+      hour12: true,
+      timeZone: 'Asia/Kolkata'
     });
   } catch (e) { formattedDate = displayDate; }
 
@@ -1231,7 +1233,6 @@ async function serveArticlePage(id, env) {
     });
   }
 
-  /* ===== SHARE — headline + summary snippet + CTA (no emojis) ===== */
   var shareBtn = document.getElementById('artShareBtn');
   if (shareBtn) {
     shareBtn.addEventListener('click', async function(e) {
@@ -1678,9 +1679,6 @@ async function handleUnsubscribe(request, env) {
   }
 }
 
-/**
- * SYNC PUSH SENDER — used by /api/push-test
- */
 async function sendPushSync(env, latestNews, tokens) {
   const result = {
     accessTokenObtained: false,
@@ -1819,9 +1817,6 @@ async function sendPushSync(env, latestNews, tokens) {
   return result;
 }
 
-/**
- * BACKGROUND PUSH SENDER — used by cron and /api/update
- */
 async function queueAndSendPushNotifications(env, newsIds) {
   if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
     console.error('[PUSH-FATAL] FIREBASE_SERVICE_ACCOUNT_JSON secret is MISSING!');

@@ -27,12 +27,6 @@ crons = [
 [observability]
 enabled = true
 head_sampling_rate = 1
-
-[observability.logs]
-enabled = true
+logs_enabled = true
 invocation_logs = true
-persist = true
-
-[observability.traces]
-enabled = true
-persist = true
+traces_enabled = true

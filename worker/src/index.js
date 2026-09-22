@@ -2,14 +2,14 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v48 — Futuristic Smart Notification + Free Plan Cron
+ * FINAL v49 — Complete Push System (logs + stats + cleanup)
  * - TTL: 48 hours (breaking) / 24 hours (regular)
  * - Daily group tag (no spam)
  * - Smart priority (breaking vs regular)
  * - Auto token cleanup
  * - Click tracking
+ * - Push log & stats
  * - Quiet hours (11 PM - 7 AM IST)
- * - 2 cron triggers (Free plan compatible)
  * =========================================================
  */
 
@@ -28,7 +28,6 @@ import { cacheNewsApi, purgeNewsApiCache, purgeArticleCache } from "./cache.js";
 const MAX_NEWS = 1000;
 const API_PAGE_SIZE = 10;
 
-// ✅ SMART NOTIFICATION CONFIG
 const NOTIFICATION_CONFIG = {
   TTL_SECONDS: 172800,
   QUIET_START_HOUR: 23,
@@ -210,6 +209,10 @@ export default {
         return await handlePushStats(env);
       }
 
+      if (url.pathname === "/api/push-logs" && request.method === "GET") {
+        return await handlePushLogs(env, url);
+      }
+
       if (url.pathname === "/api/love") {
         if (request.method !== "POST") return json({ error: "POST required" }, 405, 0);
         return await toggleLove(request, env);
@@ -279,7 +282,21 @@ export default {
               total: Number(totalClicks?.total || 0),
               today: Number(todayClicks?.total || 0)
             };
-          } catch (e) { /* table may not exist yet */ }
+          } catch (e) { /* ignore */ }
+
+          let logStats = { total: 0, today: 0, failed: 0 };
+          try {
+            const totalSent = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_log WHERE status = 'sent'`).first();
+            const todaySent = await env.DB.prepare(
+              `SELECT COUNT(*) AS total FROM push_log WHERE status = 'sent' AND sent_at >= datetime('now', '-1 day')`
+            ).first();
+            const totalFailed = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_log WHERE status = 'failed'`).first();
+            logStats = {
+              total: Number(totalSent?.total || 0),
+              today: Number(todaySent?.total || 0),
+              failed: Number(totalFailed?.total || 0)
+            };
+          } catch (e) { /* ignore */ }
 
           return json({
             success: true,
@@ -290,7 +307,8 @@ export default {
               fcmTokens: Number(fcmSubs?.total || 0),
               hasServiceAccount: hasServiceAccount,
               hasVapidPublic: hasVapidPublic,
-              clicks: clickStats
+              clicks: clickStats,
+              logs: logStats
             },
             notificationConfig: {
               ttlBreaking: NOTIFICATION_CONFIG.BREAKING_TTL_SECONDS,
@@ -376,11 +394,6 @@ export default {
     console.log(`[CRON] ${cron} started at ${new Date(event.scheduledTime).toISOString()}`);
 
     try {
-      // ═══════════════════════════════════════════════════════
-      // ✅ CRON 1: "0 */2 * * *" — Every 2 hours at :00
-      //    - News update + push notification
-      //    - Fast index new URLs
-      // ═══════════════════════════════════════════════════════
       if (cron === "0 */2 * * *") {
         let result;
         try {
@@ -393,15 +406,9 @@ export default {
 
         const istHour = getISTHour();
         const quiet = isQuietHours();
-
         console.log(`[NOTIF] IST Hour: ${istHour} | Quiet: ${quiet}`);
 
-        if (
-          !quiet &&
-          result.published > 0 &&
-          Array.isArray(result.newNewsIds) &&
-          result.newNewsIds.length
-        ) {
+        if (!quiet && result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
           console.log(`[NOTIF] Sending push to subscribers...`);
           ctx.waitUntil(
             queueAndSendPushNotifications(env, result.newNewsIds).catch(error => {
@@ -431,13 +438,6 @@ export default {
         return;
       }
 
-      // ═══════════════════════════════════════════════════════
-      // ✅ CRON 2: "30 */2 * * *" — Every 2 hours at :30
-      //    - Fast index retry (backlog)
-      //    - Cleanup (candidates, rejected, stale tokens, old clicks)
-      //    - News limit enforcement (at 0, 6, 12, 18 UTC)
-      //    - Bing sitemap ping (at 0, 6, 12, 18 UTC)
-      // ═══════════════════════════════════════════════════════
       if (cron === "30 */2 * * *") {
         try {
           const backlog = await env.DB.prepare(
@@ -452,15 +452,11 @@ export default {
           console.error("[CRON-RETRY] Backlog failed:", error?.message || String(error));
         }
 
-        try {
-          await cleanOldCandidates(env.DB);
-        } catch (error) {
+        try { await cleanOldCandidates(env.DB); } catch (error) {
           console.error("[CRON-CLEAN] Candidate cleanup failed:", error?.message || String(error));
         }
 
-        try {
-          await cleanRejectedNews(env.DB);
-        } catch (error) {
+        try { await cleanRejectedNews(env.DB); } catch (error) {
           console.error("[CRON-CLEAN] Rejected cleanup failed:", error?.message || String(error));
         }
 
@@ -484,6 +480,17 @@ export default {
           }
         } catch (error) {
           console.warn("[CLEAN] Click cleanup failed:", error?.message || String(error));
+        }
+
+        try {
+          const logCleanup = await env.DB.prepare(
+            `DELETE FROM push_log WHERE sent_at < datetime('now', '-7 days')`
+          ).run();
+          if (logCleanup.meta?.changes > 0) {
+            console.log(`[CLEAN] Removed ${logCleanup.meta.changes} old push logs`);
+          }
+        } catch (error) {
+          console.warn("[CLEAN] Push log cleanup failed:", error?.message || String(error));
         }
 
         const currentHour = new Date().getUTCHours();
@@ -1255,7 +1262,7 @@ async function serveArticlePage(id, env) {
       fetch(API_BASE + '/api/push-click', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newsId: NEWS_ID, source: 'notification' })
+        body: JSON.stringify({ newsId: NEWS_ID, deviceId: getDeviceId(), source: 'notification' })
       }).catch(function() {});
     }
   } catch (e) {}
@@ -1438,7 +1445,7 @@ async function serveArticlePage(id, env) {
 }
 
 /* =========================================================
- * TABLES SETUP (WITH push_clicks)
+ * TABLES SETUP (WITH push_log)
  * ========================================================= */
 async function ensureTables(env) {
   const queries = [
@@ -1448,6 +1455,7 @@ async function ensureTables(env) {
     `CREATE TABLE IF NOT EXISTS push_subscriptions (id TEXT PRIMARY KEY, endpoint TEXT UNIQUE, keys_json TEXT, token TEXT, created_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS affiliate_clicks (id TEXT PRIMARY KEY, affiliate_name TEXT, click_url TEXT, device_id TEXT, created_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS push_clicks (id TEXT PRIMARY KEY, news_id TEXT, device_id TEXT, source TEXT, created_at TEXT)`,
+    `CREATE TABLE IF NOT EXISTS push_log (id TEXT PRIMARY KEY, news_id TEXT, token TEXT, status TEXT, error TEXT, title TEXT, sent_at TEXT)`,
     `CREATE INDEX IF NOT EXISTS idx_news_status_published ON news(status, published_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_status_created ON news(status, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_category_published ON news(category, published_at DESC)`,
@@ -1456,7 +1464,9 @@ async function ensureTables(env) {
     `CREATE INDEX IF NOT EXISTS idx_news_comments_news_created ON news_comments(news_id, created_at ASC)`,
     `CREATE INDEX IF NOT EXISTS idx_push_subscriptions_token ON push_subscriptions(token)`,
     `CREATE INDEX IF NOT EXISTS idx_push_clicks_created ON push_clicks(created_at DESC)`,
-    `CREATE INDEX IF NOT EXISTS idx_push_clicks_news ON push_clicks(news_id)`
+    `CREATE INDEX IF NOT EXISTS idx_push_clicks_news ON push_clicks(news_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_push_log_sent_at ON push_log(sent_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_push_log_news_id ON push_log(news_id)`
   ];
 
   for (const sql of queries) {
@@ -1765,6 +1775,37 @@ async function handlePushStats(env) {
   }
 }
 
+async function handlePushLogs(env, url) {
+  try {
+    const limit = Math.min(parseInt(url.searchParams.get("limit") || "50", 10), 200);
+    const status = url.searchParams.get("status") || null;
+
+    let query = `SELECT id, news_id, token, status, error, title, sent_at FROM push_log`;
+    const binds = [];
+
+    if (status) {
+      query += ` WHERE status = ?`;
+      binds.push(status);
+    }
+    query += ` ORDER BY sent_at DESC LIMIT ?`;
+    binds.push(limit);
+
+    const result = await env.DB.prepare(query).bind(...binds).all();
+
+    const totalSent = await env.DB.prepare(`SELECT COUNT(*) AS c FROM push_log WHERE status = 'sent'`).first();
+    const totalFailed = await env.DB.prepare(`SELECT COUNT(*) AS c FROM push_log WHERE status = 'failed'`).first();
+
+    return json({
+      success: true,
+      totalSent: Number(totalSent?.c || 0),
+      totalFailed: Number(totalFailed?.c || 0),
+      logs: result.results || []
+    }, 200, 0);
+  } catch (error) {
+    return json({ success: false, error: error.message }, 500, 0);
+  }
+}
+
 /* =========================================================
  * API: GET NEWS
  * ========================================================= */
@@ -1864,7 +1905,7 @@ async function handleUnsubscribe(request, env) {
 }
 
 /* =========================================================
- * SMART PUSH SENDER
+ * SMART PUSH SENDER (WITH LOGGING)
  * ========================================================= */
 async function sendPushSync(env, latestNews, tokens) {
   const result = {
@@ -1956,6 +1997,7 @@ async function sendPushSync(env, latestNews, tokens) {
     const title = String(latestNews.headline || "নতুন খবর").slice(0, 180);
     const body = String(latestNews.summary || "বিস্তারিত জানতে ক্লিক করুন").slice(0, 180);
     const fcmUrl = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
+    const sentAt = new Date().toISOString();
 
     console.log(`[SMART-PUSH] Type: ${breaking ? 'BREAKING' : 'REGULAR'} | TTL: ${ttl}s | Tag: ${tag}`);
 
@@ -2003,6 +2045,12 @@ async function sendPushSync(env, latestNews, tokens) {
 
         if (res.ok) {
           result.sent++;
+          // ✅ Log success
+          try {
+            await env.DB.prepare(
+              `INSERT INTO push_log (id, news_id, token, status, title, sent_at) VALUES (?, ?, ?, ?, ?, ?)`
+            ).bind(crypto.randomUUID(), latestNews.id, token.slice(0, 30), 'sent', title.slice(0, 100), sentAt).run();
+          } catch (logErr) { /* silent */ }
         } else {
           const errData = await res.json().catch(() => ({}));
           result.failed++;
@@ -2012,6 +2060,12 @@ async function sendPushSync(env, latestNews, tokens) {
             result.unregistered++;
             result.invalidTokens.push(token);
           }
+          // ✅ Log failure
+          try {
+            await env.DB.prepare(
+              `INSERT INTO push_log (id, news_id, token, status, error, title, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
+            ).bind(crypto.randomUUID(), latestNews.id, token.slice(0, 30), 'failed', errCode, title.slice(0, 100), sentAt).run();
+          } catch (logErr) { /* silent */ }
         }
       } catch (e) {
         result.failed++;

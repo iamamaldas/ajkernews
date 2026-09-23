@@ -1,20 +1,19 @@
-// ==========================================
-// কনফিগ ফাইল: Analytics + Search Console
-// ==========================================
+// worker/src/config-analytics.js
+// ✅ FIXED: GA4 ID একবার define, তারপর interpolate
+
+const GA_ID = "G-EQGW6G3DH";
 
 export default {
-  // ----- Google Analytics 4 (GA4) Tracking ID (সঠিক আইডি) -----
-  gaTrackingId: "G-EQGW6G3DH",
+  gaTrackingId: GA_ID,
 
-  // ----- অতিরিক্ত হেড স্ক্রিপ্ট (GA4 gtag.js) -----
   extraHeadScripts: `
     <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-EQGW6G3DH"></script>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=${GA_ID}"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
       gtag('js', new Date());
-      gtag('config', 'G-EQGW6G3DH');
+      gtag('config', '${GA_ID}');
     </script>
   `
 };

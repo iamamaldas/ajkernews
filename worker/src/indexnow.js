@@ -1,6 +1,5 @@
-/*
- * IndexNow — Bing, Yandex, Naver, Seznam, IndexNow.org
- */
+// worker/src/indexnow.js
+// ✅ Unchanged — কোনো bug নেই
 
 const INDEXNOW_ENDPOINTS = [
   "https://api.indexnow.org/indexnow",

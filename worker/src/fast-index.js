@@ -1,10 +1,11 @@
-/*
- * AJKER NEWS — FAST INDEX / DISCOVERY / GOOGLE INDEXING API
- * Multi-channel URL discovery for published news.
- */
+// worker/src/fast-index.js
+// ✅ FIXED: Google Indexing API URL ঠিক করা হয়েছে
+// ✅ FIXED: btoa Unicode bug — utils.base64url ব্যবহার
+// ✅ FIXED: JWT code — jwt.js helper ব্যবহার
 
 import { submitToIndexNow } from "./indexnow.js";
 import { notifyWebSub } from "./websub.js";
+import { createSignedJWT, getGoogleAccessToken } from "./jwt.js";
 
 const SITE = "https://ajkernews.in";
 const MAX_URLS_PER_BATCH = 100;
@@ -17,7 +18,6 @@ export async function fastIndexNews(env, ids) {
     return { ok: true, submitted: 0, successfulChannels: 0, channels: [] };
   }
 
-  // র বা প্রপার বাংলা পাথ (Double-Encoding আটকাতে encodeURIComponent বাদ দেওয়া হয়েছে)
   const urls = list.map(id => `${SITE}/news/${id}`);
 
   const jobs = [
@@ -57,7 +57,7 @@ export async function fastIndexNews(env, ids) {
   return { ok, submitted: urls.length, successfulChannels, channels };
 }
 
-// ✅ গুগলের অফিশিয়াল ইনস্ট্যান্ট ইনডেক্সিং এপিআই মেকানিজম
+// ✅ FIXED: Google Indexing API — সঠিক URL ও flow
 async function submitToGoogleIndexingAPI(env, urls) {
   if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
     return { ok: false, reason: "missing_service_account_json" };
@@ -65,70 +65,39 @@ async function submitToGoogleIndexingAPI(env, urls) {
 
   try {
     const serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
-    const clientEmail = serviceAccount.client_email;
-    const privateKey = serviceAccount.private_key;
 
-    const now = Math.floor(Date.now() / 1000);
-    const jwtHeader = { alg: "RS256", typ: "JWT" };
-    const jwtPayload = {
-      iss: clientEmail,
-      scope: "https://googleapis.com",
-      aud: "https://googleapis.com",
-      iat: now,
-      exp: now + 3600
-    };
-
-    const base64url = (str) => btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+\$/, '');
-    const encodeJWT = (obj) => base64url(JSON.stringify(obj));
-    const unsignedToken = `${encodeJWT(jwtHeader)}.${encodeJWT(jwtPayload)}`;
-
-    const pemContents = privateKey
-      .replace("-----BEGIN PRIVATE KEY-----", "")
-      .replace("-----END PRIVATE KEY-----", "")
-      .replace(/\s/g, "");
-
-    const binaryDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
-    const cryptoKey = await crypto.subtle.importKey(
-      "pkcs8",
-      binaryDer.buffer,
-      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-      false,
-      ["sign"]
+    // ✅ সঠিক scope ও audience
+    const signedJWT = await createSignedJWT(
+      serviceAccount.client_email,
+      serviceAccount.private_key,
+      "https://www.googleapis.com/auth/indexing",
+      "https://oauth2.googleapis.com/token"
     );
 
-    const signature = await crypto.subtle.sign(
-      "RSASSA-PKCS1-v1_5",
-      cryptoKey,
-      new TextEncoder().encode(unsignedToken)
-    );
-
-    const signedJWT = `${unsignedToken}.${base64url(String.fromCharCode(...new Uint8Array(signature)))}`;
-
-    const tokenRes = await fetch("https://googleapis.com", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${signedJWT}`
-    });
-
-    const tokenData = await tokenRes.json();
-    if (!tokenData.access_token) return { ok: false, error: "token_exchange_failed", details: tokenData };
+    const tokenData = await getGoogleAccessToken(signedJWT);
+    if (!tokenData.access_token) {
+      return { ok: false, error: "token_exchange_failed", details: tokenData };
+    }
 
     const accessToken = tokenData.access_token;
     let successfulPings = 0;
 
-    // প্রতিটি ইউআরএল গুগলে পাঠানো হচ্ছে
+    // ✅ সঠিক endpoint
     for (const url of urls) {
-      const res = await fetch("https://googleapis.com", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${accessToken}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          url: url,
-          type: "URL_UPDATED"
-        })
-      });
+      const res = await fetch(
+        "https://indexing.googleapis.com/v3/urlNotifications:publish",
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${accessToken}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            url: url,
+            type: "URL_UPDATED"
+          })
+        }
+      );
       if (res.ok) successfulPings++;
     }
 
@@ -164,7 +133,7 @@ async function submitIndexNowInChunks(env, urls) {
 async function submitToBing(env, urls) {
   if (!env.BING_API_KEY) return { ok: false, reason: "no_key" };
   const siteUrl = `${SITE}/`;
-  const endpoint = `https://bing.com{encodeURIComponent(env.BING_API_KEY)}`;
+  const endpoint = `https://ssl.bing.com/webmaster/api.svc/json/SubmitUrlbatch?apikey=${encodeURIComponent(env.BING_API_KEY)}`;
   const urlList = urls.slice(0, BING_MAX_URLS);
   try {
     const response = await fetch(endpoint, {
@@ -183,7 +152,7 @@ async function pingPingOMatic() {
   const title = encodeURIComponent("Ajker News");
   const url = encodeURIComponent(SITE);
   try {
-    const response = await fetch(`https://pingomatic.com{title}&url=${url}`, { method: "GET" });
+    const response = await fetch(`https://pingomatic.com/ping/?title=${title}&url=${url}`, { method: "GET" });
     return { ok: response.ok, status: response.status };
   } catch (error) {
     return { ok: false, error: error?.message || String(error) };

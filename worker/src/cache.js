@@ -1,7 +1,5 @@
-/*
- * Cloudflare Cache API helper — Multi-key purge
- * v2 — Added dynamic TTL support for cacheNewsApi
- */
+// worker/src/cache.js
+// ✅ FIXED: TTL এখন index.js থেকে 60s পাঠানো হয় (bypass নয়)
 
 const NEWS_API_TTL = 60;
 const ARTICLE_TTL = 300;
@@ -50,7 +48,6 @@ export async function cacheFirst(request, producer, options = {}) {
     return producer();
   }
 
-  // ✅ If TTL is 0, skip cache entirely and always fetch fresh
   if (ttl === 0) {
     const fresh = await producer();
     if (fresh && fresh.ok) {
@@ -83,7 +80,6 @@ export async function cacheFirst(request, producer, options = {}) {
   return fresh;
 }
 
-// ✅ FIXED: Added TTL parameter support
 export async function cacheNewsApi(request, producer, ttl = NEWS_API_TTL) {
   return cacheFirst(request, producer, { ttl });
 }
@@ -112,23 +108,14 @@ export async function purgeArticleCache(origin, id) {
 
 export async function purgeNewsApiCache(origin) {
   const cache = getCache();
-  // ✅ EXPANDED: More URL variations to ensure full purge
   const variations = [
     `/api/news`,
     `/api/news?category=top&limit=10`,
     `/api/news?category=top&limit=20`,
-    `/api/news?category=top&limit=10&offset=0`,
     `/api/news?category=all&limit=10`,
     `/api/news?category=all&limit=20`,
-    `/api/news?category=all&limit=10&offset=0`,
     `/api/news?category=trending&limit=10`,
-    `/api/news?category=trending&limit=20`,
-    `/api/news?limit=10`,
-    `/api/news?limit=20`,
-    `/api/news?offset=0&limit=10`,
-    `/api/news?category=top&limit=20&offset=0`,
-    `/api/news?category=all&limit=20&offset=0`,
-    `/api/news?category=trending&limit=10&offset=0`
+    `/api/news?category=trending&limit=20`
   ];
 
   let purged = 0;

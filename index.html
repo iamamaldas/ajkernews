@@ -57,17 +57,15 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .header-left h1 { font-size: 24px; line-height: 1.1; font-weight: 800; letter-spacing: -0.6px; white-space: nowrap; color: #0a0a0a; padding: 2px 2px; display: inline-block; }
 .header-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 
-.refresh-btn, .notif-btn, .search-btn, .hamburger { width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; background: transparent; border: none; border-radius: 50%; cursor: pointer; transition: all 0.2s ease; color: #111111; -webkit-tap-highlight-color: transparent; }
-.refresh-btn:hover, .notif-btn:hover, .search-btn:hover, .hamburger:hover { background: #f0f0f0; }
-.refresh-btn:active, .notif-btn:active, .search-btn:active, .hamburger:active { background: #e5e5e5; transform: scale(0.94); }
-.refresh-btn svg, .search-svg { width: 21px; height: 21px; display: block; }
+.notif-btn, .search-btn, .hamburger { width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; background: transparent; border: none; border-radius: 50%; cursor: pointer; transition: all 0.2s ease; color: #111111; -webkit-tap-highlight-color: transparent; }
+.notif-btn:hover, .search-btn:hover, .hamburger:hover { background: #f0f0f0; }
+.notif-btn:active, .search-btn:active, .hamburger:active { background: #e5e5e5; transform: scale(0.94); }
+.search-svg { width: 21px; height: 21px; display: block; }
 .search-svg circle, .search-svg line { fill: none; stroke: #111111; stroke-width: 2.2; stroke-linecap: round; }
 .notif-btn svg { width: 22px; height: 22px; stroke: #111111; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; display: block; }
 .notif-btn.subscribed svg { fill: #111111; }
 .hamburger { flex-direction: column; gap: 4.5px; }
 .hamburger span { display: block; width: 19px; height: 2.2px; background: #111111; border-radius: 2px; transition: all 0.2s ease; }
-.refresh-btn.spinning svg { animation: refresh-spin 0.9s linear infinite; transform-origin: 50% 50%; }
-@keyframes refresh-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
 @media (min-width: 481px) and (max-width: 768px) {
   .header-left h1 { font-size: 22px; letter-spacing: -0.5px; }
@@ -80,6 +78,49 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .banner-right-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.18); }
 .banner-right-btn:active { transform: scale(0.97); }
 .banner-right-btn svg { width: 15px; height: 15px; flex-shrink: 0; stroke: #111111; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ✅ NEW: New News Banner */
+.new-news-banner {
+  display: none;
+  position: sticky;
+  top: 120px;
+  z-index: 998;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #e53935 0%, #c62828 100%);
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 4px 16px rgba(229, 57, 53, 0.35);
+  animation: slideDown 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.new-news-banner.show { display: flex; }
+.new-news-icon { font-size: 18px; flex-shrink: 0; }
+.new-news-text { flex: 1; letter-spacing: -0.1px; }
+.new-news-close {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: #fff;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+}
+.new-news-close:active { background: rgba(255, 255, 255, 0.35); }
+@keyframes slideDown {
+  from { transform: translateY(-100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
 
 .search-modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; padding:70px 16px 20px; justify-content:center; align-items:flex-start; background:rgba(10,10,10,0.55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index:1000; overflow-y:auto; }
 .search-modal.active { display:flex; animation: fadeIn 0.2s ease; }
@@ -192,8 +233,7 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   .header-left, .header-home-link { gap:9px; }
   .header-right { gap:0; }
 
-  .refresh-btn, .notif-btn, .search-btn, .hamburger { width:36px !important; height:36px !important; }
-  .refresh-btn svg { width:19px !important; height:19px !important; }
+  .notif-btn, .search-btn, .hamburger { width:36px !important; height:36px !important; }
   .search-svg { width:18px !important; height:18px !important; }
   .hamburger { gap:4px !important; }
   .hamburger span { width:18px !important; height:2.2px !important; }
@@ -203,6 +243,8 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   .trending-banner span { font-size:15px; font-weight:700; letter-spacing:0; }
   .banner-right-btn { padding:6px 13px; font-size:11.5px; border-radius:20px; gap:5px; }
   .banner-right-btn svg { width:13px; height:13px; }
+
+  .new-news-banner { top: 110px; padding: 10px 14px; font-size: 13px; }
 
   .main-content { padding:12px; }
   #newsContainer { gap:12px; }
@@ -255,12 +297,6 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
     </a>
   </div>
   <div class="header-right">
-    <button class="refresh-btn" id="refreshBtn" onclick="refreshNews()" aria-label="Refresh">
-      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 12a9 9 0 1 1-3-6.7"/>
-        <polyline points="21 3 21 9 15 9"/>
-      </svg>
-    </button>
     <button class="notif-btn" id="notifyBtn" onclick="toggleNotification()" aria-label="Notifications">
       <svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
@@ -288,6 +324,14 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
     Install App
   </button>
 </div>
+
+<!-- ✅ NEW: New News Banner -->
+<div id="newNewsBanner" class="new-news-banner" onclick="loadNewNewsNow()">
+  <span class="new-news-icon">🆕</span>
+  <span class="new-news-text" id="newNewsText">নতুন খবর এসেছে — দেখতে ট্যাপ করুন</span>
+  <button class="new-news-close" onclick="event.stopPropagation(); dismissNewNewsBanner();" aria-label="Close">×</button>
+</div>
+
 <div class="search-modal" id="searchModal">
   <div class="search-modal-box">
     <span class="close-search" onclick="closeSearchModal()">&times;</span>
@@ -488,29 +532,6 @@ async function installApp() {
     alert('App install করতে: Share বাটনে ক্লিক করুন → "Add to Home Screen" নির্বাচন করুন।');
   } else {
     alert('App install করতে ব্রাউজার মেনু (⋮) → "Install app" বা "Add to Home Screen" নির্বাচন করুন।');
-  }
-}
-
-async function refreshNews() {
-  const btn = document.getElementById('refreshBtn');
-  if (btn && btn.classList.contains('spinning')) return;
-  if (btn) btn.classList.add('spinning');
-
-  const currentPath = window.location.pathname;
-  if (currentPath.startsWith('/news/')) { window.location.href = '/'; return; }
-
-  currentCategory = 'top';
-  currentSearchQuery = '';
-  currentOffset = 0;
-  hasMoreNews = false;
-  document.getElementById('categoryTitle').innerText = 'সেরা খবর';
-
-  try {
-    try { localStorage.removeItem('newsCache:v1'); } catch (e) {}
-    await loadNews('top', '', { showLoading: true, keepExisting: false });
-  } catch (error) { console.error('Refresh error:', error); }
-  finally {
-    setTimeout(() => { if (btn) { btn.classList.remove('spinning'); btn.disabled = false; } }, 500);
   }
 }
 
@@ -996,6 +1017,96 @@ function closeModal() {
 }
 document.getElementById('currentYear').textContent = new Date().getFullYear();
 
+/* =========================================================
+ * SSE + FCM LIVE NEWS UPDATE
+ * ========================================================= */
+let liveStream = null;
+let bannerTimeout = null;
+
+function startLiveStream() {
+  if (!window.EventSource) {
+    console.warn('[SSE] EventSource not supported');
+    return;
+  }
+
+  if (liveStream) {
+    try { liveStream.close(); } catch (e) {}
+  }
+
+  try {
+    liveStream = new EventSource(`${WORKER_BASE}/api/live`);
+
+    liveStream.addEventListener('connected', () => {
+      console.log('[SSE] Connected');
+    });
+
+    liveStream.addEventListener('news_published', (e) => {
+      try {
+        const data = JSON.parse(e.data || '{}');
+        console.log('[SSE] New news published:', data);
+        showNewNewsBanner(data.count || 1);
+      } catch (err) {
+        showNewNewsBanner(1);
+      }
+    });
+
+    liveStream.addEventListener('timeout', () => {
+      console.log('[SSE] Timeout — reconnecting...');
+      try { liveStream.close(); } catch (e) {}
+      setTimeout(startLiveStream, 1000);
+    });
+
+    liveStream.onerror = () => {
+      console.warn('[SSE] Error — reconnecting in 3s');
+      try { liveStream.close(); } catch (e) {}
+      setTimeout(startLiveStream, 3000);
+    };
+  } catch (err) {
+    console.error('[SSE] Setup failed:', err);
+    setTimeout(startLiveStream, 5000);
+  }
+}
+
+/* ✅ FCM Silent Push listener from service worker */
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    const data = event.data || {};
+    if (data.type === 'news_published') {
+      console.log('[FCM-SW] Silent update received:', data);
+      showNewNewsBanner(data.count || 1);
+    }
+  });
+}
+
+function showNewNewsBanner(count) {
+  const banner = document.getElementById('newNewsBanner');
+  const text = document.getElementById('newNewsText');
+  if (!banner || !text) return;
+
+  text.textContent = `🆕 ${count}টি নতুন খবর এসেছে — দেখতে ট্যাপ করুন`;
+  banner.classList.add('show');
+
+  if (bannerTimeout) clearTimeout(bannerTimeout);
+  bannerTimeout = setTimeout(() => {
+    banner.classList.remove('show');
+  }, 2 * 60 * 1000);
+}
+
+function dismissNewNewsBanner() {
+  const banner = document.getElementById('newNewsBanner');
+  if (banner) banner.classList.remove('show');
+  if (bannerTimeout) clearTimeout(bannerTimeout);
+}
+
+async function loadNewNewsNow() {
+  dismissNewNewsBanner();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  await loadNews('top', '', { showLoading: false, keepExisting: false });
+}
+
+/* =========================================================
+ * NOTIFICATION PROMPT
+ * ========================================================= */
 const NOTIFICATION_PROMPT_DELAY = 15000;
 const NOTIFICATION_LATER_DELAY = 10 * 60 * 60 * 1000;
 const NOTIFICATION_LATER_KEY = 'notifPromptLaterAt';
@@ -1025,6 +1136,9 @@ function handleNotificationPromptLater() {
   hideNotificationPrompt();
 }
 
+/* =========================================================
+ * INIT
+ * ========================================================= */
 (async function initApp() {
   try { localStorage.removeItem('newsCache:v1'); } catch (e) {}
 
@@ -1061,6 +1175,9 @@ function handleNotificationPromptLater() {
   }
 
   await checkNotificationStatus();
+
+  // ✅ Start SSE live stream
+  startLiveStream();
 })();
 
 window.addEventListener('load', () => {

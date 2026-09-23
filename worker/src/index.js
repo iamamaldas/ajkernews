@@ -2,13 +2,12 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v52 — Smart Digest Push System
+ * FINAL v53 — SSE Live Stream + Silent FCM + Digest Push
+ * - SSE /api/live for real-time homepage updates
+ * - Silent FCM data-only push for background tabs
  * - 4 prime-time digests: 8AM, 1PM, 6PM, 9PM IST
- * - Max 3 news per notification (batched)
- * - Breaking news alerts (score >= 90) — bypass quiet hours
- * - Duplicate prevention via push_sent table
- * - Quiet hours: 11PM - 7AM IST
- * - No user configuration needed
+ * - Breaking news alerts (score >= 90)
+ * - Duplicate prevention (push_sent)
  * =========================================================
  */
 
@@ -131,6 +130,11 @@ export default {
       if (url.pathname === "/news-sitemap.xml") return await generateNewsSitemap(env);
       if (url.pathname === "/rss.xml") return await generateRSS(env);
       if (url.pathname === "/robots.txt") return generateRobotsTxt();
+
+      // ✅ SSE live stream
+      if (url.pathname === "/api/live" && request.method === "GET") {
+        return handleLiveStream(env, request);
+      }
 
       const userAgent = request.headers.get("User-Agent") || "";
       const isBot = BOT_REGEX.test(userAgent);
@@ -395,7 +399,7 @@ export default {
     console.log(`[CRON] ${cron} started | IST Hour: ${istHour}`);
 
     try {
-      // ===== PRIME TIME DIGESTS (8AM, 1PM, 6PM, 9PM IST) =====
+      // ===== PRIME TIME DIGESTS =====
       if (NOTIFICATION_CONFIG.PRIME_HOURS.includes(istHour) &&
           (cron === "0 8 * * *" || cron === "0 13 * * *" || cron === "0 18 * * *" || cron === "0 21 * * *")) {
         console.log(`[DIGEST] Prime time hit: ${istHour}:00 IST`);
@@ -404,7 +408,7 @@ export default {
         return;
       }
 
-      // ===== NEWS FETCH + BREAKING DETECT (EVERY 2 HOURS) =====
+      // ===== NEWS FETCH + BREAKING DETECT =====
       if (cron === "0 */2 * * *") {
         let result;
         try {
@@ -415,7 +419,6 @@ export default {
           return;
         }
 
-        // Check for breaking news in new articles
         if (result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
           const placeholders = result.newNewsIds.map(() => "?").join(",");
           const breakingArticle = await env.DB.prepare(
@@ -431,12 +434,10 @@ export default {
                 console.error("[BREAKING] Send error:", error?.message || String(error));
               })
             );
-          } else {
-            console.log(`[BREAKING] No breaking news in this batch`);
           }
         }
 
-        // Fast index for recent published news
+        // Fast index
         try {
           const recent = await env.DB.prepare(
             `SELECT id FROM news WHERE status = 'published' AND created_at >= datetime('now', '-6 hours') ORDER BY created_at DESC LIMIT 50`
@@ -450,24 +451,21 @@ export default {
           console.error("[FAST-INDEX] Failed:", error?.message || String(error));
         }
 
-        // Cleanup old data
-        try { await cleanOldCandidates(env.DB); } catch (error) {
-          console.error("[CLEAN] Candidate cleanup failed:", error?.message || String(error));
-        }
-        try { await cleanRejectedNews(env.DB); } catch (error) {
-          console.error("[CLEAN] Rejected cleanup failed:", error?.message || String(error));
-        }
+        // Cleanup
+        try { await cleanOldCandidates(env.DB); } catch (e) {}
+        try { await cleanRejectedNews(env.DB); } catch (e) {}
         try {
           await env.DB.prepare(`DELETE FROM push_subscriptions WHERE created_at < datetime('now', '-90 days')`).run();
           await env.DB.prepare(`DELETE FROM push_clicks WHERE created_at < datetime('now', '-30 days')`).run();
           await env.DB.prepare(`DELETE FROM push_log WHERE sent_at < datetime('now', '-7 days')`).run();
           await env.DB.prepare(`DELETE FROM push_sent WHERE sent_at < datetime('now', '-7 days')`).run();
           await env.DB.prepare(`DELETE FROM push_digest_log WHERE sent_at < datetime('now', '-30 days')`).run();
+          await env.DB.prepare(`DELETE FROM live_events WHERE created_at < datetime('now', '-1 day')`).run();
         } catch (error) {
           console.warn("[CLEAN] Cleanup failed:", error?.message || String(error));
         }
 
-        // News limit enforcement every 6 hours
+        // News limit + sitemap ping
         const currentUtcHour = new Date().getUTCHours();
         if ([0, 6, 12, 18].includes(currentUtcHour)) {
           try {
@@ -479,7 +477,7 @@ export default {
                 for (const id of cleanupResult.deletedIds || []) {
                   await purgeArticleCache("https://ajkernews.in", id);
                 }
-              } catch (e) { /* ignore */ }
+              } catch (e) {}
             }
           } catch (error) {
             console.error("[CRON-CLEAN] News cleanup failed:", error?.message || String(error));
@@ -490,7 +488,7 @@ export default {
               fetch(`https://www.bing.com/ping?sitemap=${encodeURIComponent("https://ajkernews.in/sitemap.xml")}`).catch(() => {}),
               fetch(`https://www.bing.com/ping?sitemap=${encodeURIComponent("https://ajkernews.in/news-sitemap.xml")}`).catch(() => {})
             ]);
-          } catch (e) { /* ignore */ }
+          } catch (e) {}
         }
 
         console.log(`[CRON-NEWS] Completed in ${Date.now() - startTime}ms`);
@@ -505,7 +503,91 @@ export default {
 };
 
 /* =========================================================
- * DIGEST SENDER — batch of 3 news per notification
+ * SSE LIVE STREAM
+ * ========================================================= */
+async function handleLiveStream(env, request) {
+  const encoder = new TextEncoder();
+  let lastCheck = new Date(Date.now() - 60 * 1000).toISOString();
+  let isClosed = false;
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (type, data) => {
+        if (isClosed) return;
+        try {
+          controller.enqueue(encoder.encode(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`));
+        } catch (e) { isClosed = true; }
+      };
+
+      // Initial connect event
+      send('connected', { ts: Date.now() });
+
+      const checkForEvents = async () => {
+        if (isClosed) return;
+        try {
+          const rows = await env.DB.prepare(
+            `SELECT id, event_type, payload, created_at FROM live_events
+             WHERE created_at > ? ORDER BY created_at ASC LIMIT 10`
+          ).bind(lastCheck).all();
+
+          if (rows.results?.length) {
+            for (const row of rows.results) {
+              lastCheck = row.created_at;
+              send(row.event_type, JSON.parse(row.payload || "{}"));
+            }
+          }
+        } catch (e) { /* silent */ }
+      };
+
+      await checkForEvents();
+
+      const interval = setInterval(async () => {
+        if (isClosed) { clearInterval(interval); return; }
+        await checkForEvents();
+      }, 5000);
+
+      const heartbeat = setInterval(() => {
+        if (isClosed) { clearInterval(heartbeat); return; }
+        try {
+          controller.enqueue(encoder.encode(`: heartbeat\n\n`));
+        } catch (e) { isClosed = true; }
+      }, 15000);
+
+      // Auto-close after 5 minutes
+      setTimeout(() => {
+        if (!isClosed) {
+          isClosed = true;
+          clearInterval(interval);
+          clearInterval(heartbeat);
+          try {
+            send('timeout', { message: 'reconnect' });
+            controller.close();
+          } catch (e) {}
+        }
+      }, 5 * 60 * 1000);
+
+      request.signal?.addEventListener('abort', () => {
+        isClosed = true;
+        clearInterval(interval);
+        clearInterval(heartbeat);
+        try { controller.close(); } catch (e) {}
+      });
+    }
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+      "Access-Control-Allow-Origin": "*"
+    }
+  });
+}
+
+/* =========================================================
+ * DIGEST SENDER
  * ========================================================= */
 async function sendDigest(env, istHour) {
   if (isQuietHours()) {
@@ -613,13 +695,10 @@ async function sendDigest(env, istHour) {
 }
 
 /* =========================================================
- * BREAKING ALERT — immediate single news push
+ * BREAKING ALERT
  * ========================================================= */
 async function sendBreakingAlert(env, news) {
-  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    console.error('[BREAKING] FIREBASE_SERVICE_ACCOUNT_JSON missing');
-    return;
-  }
+  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) return;
 
   const subs = await env.DB.prepare(
     `SELECT token FROM push_subscriptions WHERE token IS NOT NULL AND token != '' ORDER BY created_at DESC LIMIT ${NOTIFICATION_CONFIG.MAX_BATCH_SIZE}`
@@ -644,13 +723,8 @@ async function sendBreakingAlert(env, news) {
   console.log(`[BREAKING] Sending to ${tokens.length} subscribers`);
 
   const result = await sendDigestPush(env, {
-    title,
-    body,
-    image: news.image_url,
-    url: targetUrl,
-    tag,
-    newsIds: [news.id],
-    isBreaking: true
+    title, body, image: news.image_url, url: targetUrl, tag,
+    newsIds: [news.id], isBreaking: true
   }, tokens);
 
   const sentAt = new Date().toISOString();
@@ -666,17 +740,12 @@ async function sendBreakingAlert(env, news) {
 }
 
 /* =========================================================
- * GENERIC PUSH SENDER — handles both digest and breaking
+ * GENERIC PUSH SENDER
  * ========================================================= */
 async function sendDigestPush(env, payload, tokens) {
   const result = {
-    accessTokenObtained: false,
-    tokenExchangeError: null,
-    sent: 0,
-    failed: 0,
-    unregistered: 0,
-    invalidTokens: [],
-    errors: []
+    accessTokenObtained: false, tokenExchangeError: null,
+    sent: 0, failed: 0, unregistered: 0, invalidTokens: [], errors: []
   };
 
   let serviceAccount;
@@ -697,8 +766,7 @@ async function sendDigestPush(env, payload, tokens) {
     iss: clientEmail,
     scope: "https://www.googleapis.com/auth/firebase.messaging",
     aud: "https://oauth2.googleapis.com/token",
-    iat: now,
-    exp: now + 3600
+    iat: now, exp: now + 3600
   };
 
   const base64url = (str) => btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -714,16 +782,12 @@ async function sendDigestPush(env, payload, tokens) {
     const binaryDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
 
     const cryptoKey = await crypto.subtle.importKey(
-      "pkcs8",
-      binaryDer.buffer,
-      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-      false,
-      ["sign"]
+      "pkcs8", binaryDer.buffer,
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]
     );
 
     const signature = await crypto.subtle.sign(
-      "RSASSA-PKCS1-v1_5",
-      cryptoKey,
+      "RSASSA-PKCS1-v1_5", cryptoKey,
       new TextEncoder().encode(unsignedToken)
     );
 
@@ -746,7 +810,6 @@ async function sendDigestPush(env, payload, tokens) {
     const isBreaking = !!payload.isBreaking;
     const ttl = isBreaking ? NOTIFICATION_CONFIG.BREAKING_TTL_SECONDS : NOTIFICATION_CONFIG.REGULAR_TTL_SECONDS;
     const fcmUrl = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
-
     const sentAt = new Date().toISOString();
 
     for (const token of tokens) {
@@ -763,10 +826,7 @@ async function sendDigestPush(env, payload, tokens) {
             isBreaking: isBreaking ? "1" : "0"
           },
           webpush: {
-            headers: {
-              Urgency: isBreaking ? "high" : "normal",
-              TTL: String(ttl)
-            },
+            headers: { Urgency: isBreaking ? "high" : "normal", TTL: String(ttl) },
             notification: {
               icon: "https://ajkernews.in/logo.png",
               badge: "https://ajkernews.in/logo.png",
@@ -797,7 +857,7 @@ async function sendDigestPush(env, payload, tokens) {
             await env.DB.prepare(
               `INSERT INTO push_log (id, news_id, token, status, title, sent_at) VALUES (?, ?, ?, ?, ?, ?)`
             ).bind(crypto.randomUUID(), payload.newsIds?.[0] || null, token.slice(0, 30), 'sent', payload.title.slice(0, 100), sentAt).run();
-          } catch (logErr) { /* silent */ }
+          } catch (logErr) {}
         } else {
           const errData = await res.json().catch(() => ({}));
           result.failed++;
@@ -811,7 +871,7 @@ async function sendDigestPush(env, payload, tokens) {
             await env.DB.prepare(
               `INSERT INTO push_log (id, news_id, token, status, error, title, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
             ).bind(crypto.randomUUID(), payload.newsIds?.[0] || null, token.slice(0, 30), 'failed', errCode, payload.title.slice(0, 100), sentAt).run();
-          } catch (logErr) { /* silent */ }
+          } catch (logErr) {}
         }
       } catch (e) {
         result.failed++;
@@ -826,7 +886,103 @@ async function sendDigestPush(env, payload, tokens) {
 }
 
 /* =========================================================
- * LEGACY: single push (used by /api/push-test)
+ * SILENT FCM — notify all open tabs of new news
+ * ========================================================= */
+async function sendSilentFcmUpdate(env, newsIds) {
+  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) return;
+
+  const subs = await env.DB.prepare(
+    `SELECT token FROM push_subscriptions WHERE token IS NOT NULL AND token != '' LIMIT ${NOTIFICATION_CONFIG.MAX_BATCH_SIZE}`
+  ).all();
+
+  const tokens = (subs.results || []).map(s => s.token).filter(Boolean);
+  if (!tokens.length) return;
+
+  let serviceAccount;
+  try {
+    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  } catch (e) { return; }
+
+  const projectId = serviceAccount.project_id;
+  const clientEmail = serviceAccount.client_email;
+  const privateKey = serviceAccount.private_key;
+
+  const now = Math.floor(Date.now() / 1000);
+  const jwtHeader = { alg: "RS256", typ: "JWT" };
+  const jwtPayload = {
+    iss: clientEmail,
+    scope: "https://www.googleapis.com/auth/firebase.messaging",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now, exp: now + 3600
+  };
+
+  const base64url = (str) => btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const encodeJWT = (obj) => base64url(JSON.stringify(obj));
+  const unsignedToken = `${encodeJWT(jwtHeader)}.${encodeJWT(jwtPayload)}`;
+
+  try {
+    const pemContents = privateKey
+      .replace("-----BEGIN PRIVATE KEY-----", "")
+      .replace("-----END PRIVATE KEY-----", "")
+      .replace(/\s/g, "");
+
+    const binaryDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
+    const cryptoKey = await crypto.subtle.importKey(
+      "pkcs8", binaryDer.buffer,
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]
+    );
+
+    const signature = await crypto.subtle.sign(
+      "RSASSA-PKCS1-v1_5", cryptoKey,
+      new TextEncoder().encode(unsignedToken)
+    );
+
+    const signedJWT = `${unsignedToken}.${base64url(String.fromCharCode(...new Uint8Array(signature)))}`;
+
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${signedJWT}`
+    });
+
+    const tokenData = await tokenRes.json();
+    if (!tokenData.access_token) return;
+    const accessToken = tokenData.access_token;
+    const fcmUrl = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
+
+    for (const token of tokens) {
+      const message = {
+        message: {
+          token: token,
+          data: {
+            type: 'news_published',
+            count: String(newsIds.length),
+            ids: newsIds.slice(0, 5).join(','),
+            ts: String(Date.now())
+          },
+          android: { priority: "normal" },
+          webpush: {
+            headers: { Urgency: "low", TTL: "300" }
+          }
+        }
+      };
+
+      try {
+        await fetch(fcmUrl, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${accessToken}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(message)
+        });
+      } catch (e) { /* silent */ }
+    }
+  } catch (e) { /* silent */ }
+}
+
+/* =========================================================
+ * LEGACY single push
  * ========================================================= */
 async function sendSinglePush(env, news, tokens, isBreaking) {
   const title = String(news.headline || "নতুন খবর").slice(0, 180);
@@ -835,13 +991,8 @@ async function sendSinglePush(env, news, tokens, isBreaking) {
   const tag = isBreaking ? `breaking-${news.id}` : `news-${news.id}`;
 
   return await sendDigestPush(env, {
-    title,
-    body,
-    image: news.image_url,
-    url: targetUrl,
-    tag,
-    newsIds: [news.id],
-    isBreaking
+    title, body, image: news.image_url, url: targetUrl, tag,
+    newsIds: [news.id], isBreaking
   }, tokens);
 }
 
@@ -981,7 +1132,7 @@ async function updateNews(env) {
     try {
       const row = await env.DB.prepare(`SELECT id FROM news WHERE id = ? AND status = 'published'`).bind(article.id).first();
       if (row?.id) publishedIds.push(row.id);
-    } catch (e) { /* ignore */ }
+    } catch (e) {}
   }
 
   const searchUpdates = [];
@@ -991,7 +1142,7 @@ async function updateNews(env) {
       if (!row) continue;
       const searchText = toTransliterated([row.headline, row.summary, row.main_topic, row.category, row.source_name].filter(Boolean).join(" "));
       searchUpdates.push(env.DB.prepare(`UPDATE news SET search_text = ? WHERE id = ?`).bind(searchText, id));
-    } catch (e) { /* ignore */ }
+    } catch (e) {}
   }
 
   if (searchUpdates.length) {
@@ -1013,7 +1164,7 @@ async function updateNews(env) {
     try {
       await env.DB.prepare(`DELETE FROM news_loves WHERE news_id = ?`).bind(id).run();
       await env.DB.prepare(`DELETE FROM news_comments WHERE news_id = ?`).bind(id).run();
-    } catch (e) { /* ignore */ }
+    } catch (e) {}
   }
 
   if (publishResult.published > 0 || cleanupResult.deleted > 0) {
@@ -1031,6 +1182,36 @@ async function updateNews(env) {
       await fastIndexNews(env, publishedIds);
     } catch (error) {
       console.warn("[FAST-INDEX] Instant failed:", error?.message || String(error));
+    }
+
+    // ✅ Broadcast SSE event
+    try {
+      const eventPayload = JSON.stringify({
+        ids: publishedIds,
+        count: publishedIds.length,
+        ts: Date.now()
+      });
+      await env.DB.prepare(
+        `INSERT INTO live_events (id, event_type, payload, created_at) VALUES (?, ?, ?, ?)`
+      ).bind(
+        crypto.randomUUID(),
+        'news_published',
+        eventPayload,
+        new Date().toISOString()
+      ).run();
+      console.log(`[LIVE] Broadcast event for ${publishedIds.length} new articles`);
+    } catch (e) {
+      console.warn("[LIVE] Broadcast failed:", e?.message);
+    }
+
+    // ✅ Silent FCM to background tabs
+    if (!isQuietHours()) {
+      try {
+        await sendSilentFcmUpdate(env, publishedIds);
+        console.log(`[FCM-SILENT] Sent to subscribers`);
+      } catch (e) {
+        console.warn("[FCM-SILENT] Failed:", e?.message);
+      }
     }
   }
 
@@ -1178,8 +1359,7 @@ async function serveListingPage(env, category, searchQuery) {
       headers: {
         "Content-Type": "text/html; charset=UTF-8",
         "Cache-Control": "public, no-cache, must-revalidate, max-age=0",
-        "Pragma": "no-cache",
-        "Expires": "0",
+        "Pragma": "no-cache", "Expires": "0",
         "X-Robots-Tag": "index, follow, max-image-preview:large"
       }
     });
@@ -1206,7 +1386,7 @@ async function serveArticlePage(id, env) {
   try {
     const loveRow = await env.DB.prepare(`SELECT COUNT(*) AS count FROM news_loves WHERE news_id = ?`).bind(safeId).first();
     loveCount = Number(loveRow?.count || 0);
-  } catch (e) { /* ignore */ }
+  } catch (e) {}
 
   const title = cleanText(result.headline) || "Ajker News";
   const description = cleanText(result.summary || "").slice(0, 160);
@@ -1221,15 +1401,9 @@ async function serveArticlePage(id, env) {
   try {
     const d = new Date(displayDate);
     formattedDate = d.toLocaleDateString('en-US', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-      timeZone: 'Asia/Kolkata'
+      day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata'
     }) + ' • ' + d.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-      timeZone: 'Asia/Kolkata'
+      hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata'
     });
   } catch (e) { formattedDate = displayDate; }
 
@@ -1249,7 +1423,7 @@ async function serveArticlePage(id, env) {
       `SELECT id, headline FROM news WHERE status = 'published' AND id != ? AND category = ? ORDER BY created_at DESC LIMIT 4`
     ).bind(safeId, category).all();
     relatedNews = related.results || [];
-  } catch (e) { /* ignore */ }
+  } catch (e) {}
 
   const catLabel = {
     top:'সেরা খবর', trending:'ট্রেন্ডিং', west_bengal:'পশ্চিমবঙ্গ',
@@ -1323,96 +1497,33 @@ async function serveArticlePage(id, env) {
   * { margin:0; padding:0; box-sizing:border-box; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
   html { scroll-behavior: smooth; font-size: 16px; -webkit-text-size-adjust: 100%; }
   body { background:#ffffff; color:#111111; -webkit-font-smoothing:antialiased; padding-bottom:20px; max-width: 100vw; overflow-x: hidden; }
-
   .header { position:sticky; top:0; z-index:1000; display:flex; align-items:center; justify-content:space-between; padding:12px 16px; min-height:60px; background:#ffffff; border-bottom:1px solid #e0e0e0; }
   .header-left { display:flex; align-items:center; gap:10px; min-width:0; flex-shrink:1; }
-  .back-btn { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; background:transparent; border:none; cursor:pointer; -webkit-tap-highlight-color:transparent; padding:4px; border-radius:50%; transition:background 0.15s; text-decoration:none; flex-shrink:0; }
-  .back-btn:hover { background:#f0f0f0; }
-  .back-btn:active { background:#e5e5e5; }
+  .back-btn { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; background:transparent; border:none; cursor:pointer; padding:4px; border-radius:50%; transition:background 0.15s; text-decoration:none; flex-shrink:0; }
   .back-btn svg { width:22px; height:22px; stroke:#111; stroke-width:2.2; fill:none; stroke-linecap:round; stroke-linejoin:round; }
   .header-logo { height:28px; width:auto; object-fit:contain; flex-shrink:0; }
   .header-title { font-size:24px; line-height:1; font-weight:700; color:#111111; white-space:nowrap; letter-spacing:-0.3px; overflow:hidden; text-overflow:ellipsis; }
-
-  .header-right { display:flex; align-items:center; gap:8px; flex-shrink:0; }
-
   .article-main { padding:16px; max-width: min(820px, 95vw); margin:0 auto; }
   .article-cat { display:inline-block; font-size:12px; color:#f44336; font-weight:700; margin-bottom:8px; text-decoration:none; }
   .article-h1 { font-size:24px; line-height:1.35; margin:0 0 14px; color:#111; font-weight:700; }
   .article-img { width:100%; height:auto; border-radius:8px; display:block; margin:0 0 18px; background:#f3f3f3; }
   .article-body { font-size:17px; color:#222; line-height:1.85; }
   .article-body p { margin-bottom:14px; }
-
-  .article-source-row {
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    flex-wrap:wrap;
-    gap:8px;
-    margin-top:22px;
-    padding-top:16px;
-    padding-bottom:16px;
-    border-top:1px solid #e8e8e8;
-    border-bottom:1px solid #e8e8e8;
-  }
-  .article-source-link {
-    color:#007bff;
-    text-decoration:none;
-    font-weight:600;
-    font-size:16px;
-  }
-  .article-source-link:hover { text-decoration:underline; }
-  .article-date {
-    color:#999999;
-    font-size:14px;
-    font-weight:500;
-  }
-
-  .article-actions-row {
-    display:flex;
-    gap:20px;
-    margin-top:12px;
-    padding-top:10px;
-    border-top:1px solid #f0f0f0;
-  }
-  .action-btn-art {
-    display:flex;
-    align-items:center;
-    gap:5px;
-    background:none;
-    border:none;
-    color:#666;
-    font-size:14px;
-    cursor:pointer;
-    padding:0;
-  }
-  .action-btn-art svg {
-    width:20px;
-    height:20px;
-    fill:none;
-    stroke:currentColor;
-    stroke-width:2;
-  }
-  .action-btn-art.loved svg {
-    fill:#e74c3c !important;
-    stroke:#e74c3c !important;
-  }
-  .action-num {
-    font-size:12px;
-    color:#555;
-    font-weight:600;
-  }
-
+  .article-source-row { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-top:22px; padding-top:16px; padding-bottom:16px; border-top:1px solid #e8e8e8; border-bottom:1px solid #e8e8e8; }
+  .article-source-link { color:#007bff; text-decoration:none; font-weight:600; font-size:16px; }
+  .article-date { color:#999999; font-size:14px; font-weight:500; }
+  .article-actions-row { display:flex; gap:20px; margin-top:12px; padding-top:10px; border-top:1px solid #f0f0f0; }
+  .action-btn-art { display:flex; align-items:center; gap:5px; background:none; border:none; color:#666; font-size:14px; cursor:pointer; padding:0; }
+  .action-btn-art svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:2; }
+  .action-btn-art.loved svg { fill:#e74c3c !important; stroke:#e74c3c !important; }
+  .action-num { font-size:12px; color:#555; font-weight:600; }
   .related-box { margin:32px 0 0; padding-top:22px; border-top:1px solid #eee; }
   .related-box h3 { font-size:18px; margin:0 0 14px; color:#111; font-weight:700; }
   .related-box ul { list-style:none; padding:0; margin:0; }
   .related-box li { margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #f5f5f5; }
   .related-box a { color:#111; text-decoration:none; font-size:15px; line-height:1.55; font-weight:600; }
-  .related-box a:hover { color:#007bff; }
-
   .article-footer { margin:36px 16px 0; padding-top:22px; border-top:1px solid #eee; text-align:center; color:#888; font-size:13px; }
   .article-footer a { color:#555; text-decoration:none; font-weight:600; letter-spacing:0.5px; }
-  .article-footer a:hover { color:#007bff; }
-
   #artCommentModal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:2000; align-items:center; justify-content:center; padding:16px; }
   #artCommentModal.active { display:flex; }
   #artCommentModal .modal-box { background:#fff; border-radius:12px; width:100%; max-width:520px; max-height:85vh; display:flex; flex-direction:column; overflow:hidden; }
@@ -1420,36 +1531,25 @@ async function serveArticlePage(id, env) {
   #artCommentModal .modal-header h3 { font-size:17px; font-weight:700; margin:0; }
   #artCommentModal .modal-close { background:none; border:none; font-size:26px; cursor:pointer; color:#888; line-height:1; padding:0 6px; }
   #artCommentModal .modal-form { padding:12px 16px; border-top:1px solid #eee; background:#fafafa; flex-shrink:0; }
-  #artCommentModal .modal-form input,
-  #artCommentModal .modal-form textarea { width:100%; padding:9px 12px; border:1px solid #ddd; border-radius:6px; margin-bottom:8px; font-size:14px; outline:none; font-family:inherit; }
+  #artCommentModal .modal-form input, #artCommentModal .modal-form textarea { width:100%; padding:9px 12px; border:1px solid #ddd; border-radius:6px; margin-bottom:8px; font-size:14px; outline:none; font-family:inherit; }
   #artCommentModal .modal-form textarea { height:70px; resize:vertical; }
   #artCommentModal .modal-form button { background:#000; color:#fff; border:none; padding:10px 20px; border-radius:6px; font-weight:600; cursor:pointer; font-size:14px; }
   #artCommentModal .modal-list { padding:14px 16px; overflow-y:auto; flex:1; -webkit-overflow-scrolling:touch; }
-
-  @media (min-width: 1400px) {
-    .article-main { max-width: 900px; }
-  }
-
   @media (max-width:480px) {
     .header { padding:8px 12px; min-height:54px; }
     .header-title { font-size:20px; }
     .header-logo { height:24px; }
     .back-btn { width:32px; height:32px; }
     .back-btn svg { width:20px; height:20px; }
-    .header-right { gap:6px; }
     .article-main { padding:12px; }
     .article-h1 { font-size:21px; }
     .article-body { font-size:16px; }
     .article-source-link { font-size:15px; }
     .article-date { font-size:13px; }
-    .article-actions-row { gap:18px; margin-top:9px; padding-top:8px; }
-    .action-btn-art svg { width:18px; height:18px; }
-    .action-num { font-size:11px; }
   }
 </style>
 </head>
 <body>
-
 <div class="header">
   <div class="header-left">
     <a href="https://ajkernews.in/" class="back-btn" aria-label="Back to home">
@@ -1460,53 +1560,42 @@ async function serveArticlePage(id, env) {
   </div>
   <div class="header-right"></div>
 </div>
-
 <main class="article-main">
   <article itemscope itemtype="https://schema.org/NewsArticle">
     <meta itemprop="datePublished" content="${escapeHtml(publishedAt)}">
     <meta itemprop="dateModified" content="${escapeHtml(publishedAt)}">
     <meta itemprop="mainEntityOfPage" content="${escapeHtml(canonical)}">
-
     <a class="article-cat" href="https://ajkernews.in/?category=${encodeURIComponent(category)}">${escapeHtml(catLabel[category] || category)}</a>
     <h1 class="article-h1" itemprop="headline">${escapeHtml(title)}</h1>
-
     <div itemprop="image" itemscope itemtype="https://schema.org/ImageObject">
       <img itemprop="url" class="article-img" src="${escapeHtml(image)}" alt="${escapeHtml(title)}" width="1200" height="675" loading="eager" decoding="async">
     </div>
-
     <div class="article-body" id="articleBody" itemprop="articleBody">
       <p>${escapeHtml(fullSummary)}</p>
     </div>
-
     <div class="article-source-row">
       <a class="article-source-link" href="${escapeHtml(result.source_url || '#')}" rel="noopener noreferrer nofollow" target="_blank">${escapeHtml(sourceDomain)}</a>
       <span class="article-date">${escapeHtml(formattedDate)}</span>
     </div>
-
     <div class="article-actions-row">
       <button type="button" class="action-btn-art" id="artCommentBtn" aria-label="Comment">
         <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
       </button>
-
       <button type="button" class="action-btn-art" id="artLoveBtn" aria-label="Love">
         <svg viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
         <span class="action-num" id="artLoveCount">${loveCount}</span>
       </button>
-
       <button type="button" class="action-btn-art" id="artShareBtn" aria-label="Share">
         <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
       </button>
     </div>
   </article>
-
   ${relatedHtml}
 </main>
-
 <footer class="article-footer">
   <p><a href="https://ajkernews.in/">HOME</a></p>
   <p style="margin-top:10px;">&copy; ${new Date().getFullYear()} Ajker News. All rights reserved.</p>
 </footer>
-
 <div id="artCommentModal">
   <div class="modal-box">
     <div class="modal-header">
@@ -1521,12 +1610,10 @@ async function serveArticlePage(id, env) {
     <div class="modal-list" id="artCommentsList"></div>
   </div>
 </div>
-
 <script>
 (function() {
   var API_BASE = "https://ajkernews.in";
   var NEWS_ID = ${JSON.stringify(safeId)};
-
   var LOVED_KEY = 'loved:' + NEWS_ID;
   var DEVICE_KEY = 'deviceId';
 
@@ -1555,7 +1642,6 @@ async function serveArticlePage(id, env) {
     if (btn) btn.classList.toggle('loved', !!loved);
     if (countEl && count !== undefined && count !== null) countEl.textContent = String(count);
   }
-
   updateLoveUI(isLoved());
 
   (async function() {
@@ -1565,9 +1651,7 @@ async function serveArticlePage(id, env) {
       if (data && data.success && data.counts && typeof data.counts[NEWS_ID] === 'number') {
         updateLoveUI(isLoved(), data.counts[NEWS_ID]);
       }
-    } catch (e) {
-      console.error('Failed to fetch love counts:', e);
-    }
+    } catch (e) {}
   })();
 
   try {
@@ -1590,10 +1674,8 @@ async function serveArticlePage(id, env) {
       var countEl = document.getElementById('artLoveCount');
       var currentCount = countEl ? parseInt(countEl.textContent, 10) || 0 : 0;
       var newCount = newLoved ? currentCount + 1 : Math.max(0, currentCount - 1);
-
       setLoved(newLoved);
       updateLoveUI(newLoved, newCount);
-
       try {
         var res = await fetch(API_BASE + '/api/love', {
           method: 'POST',
@@ -1604,9 +1686,7 @@ async function serveArticlePage(id, env) {
         if (data && typeof data.love_count === 'number') {
           updateLoveUI(newLoved, data.love_count);
         }
-      } catch (e) {
-        console.error('Love toggle error:', e);
-      }
+      } catch (e) {}
     });
   }
 
@@ -1647,7 +1727,6 @@ async function serveArticlePage(id, env) {
         return '<div style="border-bottom:1px solid #f0f0f0;padding:10px 0;"><strong style="font-size:14px;">' + escapeHtml(c.author_name) + '</strong><p style="margin:5px 0 0;font-size:14px;color:#444;">' + escapeHtml(c.comment_text) + '</p></div>';
       }).join('');
     } catch (e) {
-      console.error('Comment load error:', e);
       list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">মন্তব্য লোড করা যায়নি।</p>';
     }
   }
@@ -1675,7 +1754,6 @@ async function serveArticlePage(id, env) {
           alert('মন্তব্য পাঠানো যায়নি');
         }
       } catch (e) {
-        console.error('Comment submit error:', e);
         alert('মন্তব্য পাঠানো যায়নি');
       } finally {
         commentSubmit.disabled = false;
@@ -1694,9 +1772,7 @@ async function serveArticlePage(id, env) {
       var bodyEl = document.getElementById('articleBody');
       var fullSummary = bodyEl ? bodyEl.textContent.trim() : '';
       var shortSummary = fullSummary.slice(0, 100).trim();
-      var summaryPart = shortSummary
-        ? shortSummary + (fullSummary.length > 100 ? '...' : '') + '\\n\\n'
-        : '';
+      var summaryPart = shortSummary ? shortSummary + (fullSummary.length > 100 ? '...' : '') + '\\n\\n' : '';
 
       if (navigator.share) {
         try {
@@ -1706,9 +1782,7 @@ async function serveArticlePage(id, env) {
             url: shareUrl
           });
           return;
-        } catch (err) {
-          if (err && err.name === 'AbortError') return;
-        }
+        } catch (err) { if (err && err.name === 'AbortError') return; }
       }
 
       var text = headlineText + '\\n\\n' + summaryPart + 'বিস্তারিত পড়ুন: ' + shareUrl;
@@ -1751,15 +1825,14 @@ async function serveArticlePage(id, env) {
     headers: {
       "Content-Type": "text/html; charset=UTF-8",
       "Cache-Control": "public, no-cache, must-revalidate, max-age=0",
-      "Pragma": "no-cache",
-      "Expires": "0",
+      "Pragma": "no-cache", "Expires": "0",
       "X-Robots-Tag": "index, follow, max-image-preview:large"
     }
   });
 }
 
 /* =========================================================
- * TABLES SETUP (with push_sent + push_digest_log)
+ * TABLES SETUP
  * ========================================================= */
 async function ensureTables(env) {
   const queries = [
@@ -1772,6 +1845,7 @@ async function ensureTables(env) {
     `CREATE TABLE IF NOT EXISTS push_log (id TEXT PRIMARY KEY, news_id TEXT, token TEXT, status TEXT, error TEXT, title TEXT, sent_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS push_sent (id TEXT PRIMARY KEY, news_id TEXT, token TEXT, sent_at TEXT, UNIQUE(news_id, token))`,
     `CREATE TABLE IF NOT EXISTS push_digest_log (id TEXT PRIMARY KEY, digest_type TEXT, news_count INTEGER, sent_count INTEGER, sent_at TEXT)`,
+    `CREATE TABLE IF NOT EXISTS live_events (id TEXT PRIMARY KEY, event_type TEXT, payload TEXT, created_at TEXT)`,
     `CREATE INDEX IF NOT EXISTS idx_news_status_published ON news(status, published_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_status_created ON news(status, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_category_published ON news(category, published_at DESC)`,
@@ -1785,13 +1859,12 @@ async function ensureTables(env) {
     `CREATE INDEX IF NOT EXISTS idx_push_log_news_id ON push_log(news_id)`,
     `CREATE INDEX IF NOT EXISTS idx_push_sent_news ON push_sent(news_id)`,
     `CREATE INDEX IF NOT EXISTS idx_push_sent_sent_at ON push_sent(sent_at DESC)`,
-    `CREATE INDEX IF NOT EXISTS idx_push_digest_log_sent_at ON push_digest_log(sent_at DESC)`
+    `CREATE INDEX IF NOT EXISTS idx_push_digest_log_sent_at ON push_digest_log(sent_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_live_events_created_at ON live_events(created_at DESC)`
   ];
 
   for (const sql of queries) {
-    try {
-      await env.DB.prepare(sql).run();
-    } catch (error) {
+    try { await env.DB.prepare(sql).run(); } catch (error) {
       console.error("Table setup error:", error?.message || String(error));
     }
   }
@@ -1802,9 +1875,7 @@ async function ensureTables(env) {
     if (!colNames.includes("language")) {
       await env.DB.prepare(`ALTER TABLE news ADD COLUMN language TEXT DEFAULT 'bn'`).run();
     }
-  } catch (error) {
-    console.error("Column migration failed:", error?.message || String(error));
-  }
+  } catch (error) { console.error("Column migration failed:", error?.message || String(error)); }
 
   try {
     const pushColumns = await env.DB.prepare(`PRAGMA table_info(push_subscriptions)`).all();
@@ -1812,9 +1883,7 @@ async function ensureTables(env) {
     if (!pushColNames.includes("token")) {
       await env.DB.prepare(`ALTER TABLE push_subscriptions ADD COLUMN token TEXT`).run();
     }
-  } catch (error) {
-    console.error("Push subscriptions migration failed:", error?.message || String(error));
-  }
+  } catch (error) { console.error("Push subscriptions migration failed:", error?.message || String(error)); }
 }
 
 async function ensureTablesOnce(env) {
@@ -1870,9 +1939,6 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="Ajker News">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="${escapeHtml(title)}">
-<meta name="twitter:description" content="${escapeHtml(description)}">
-<meta name="twitter:image" content="${escapeHtml(image)}">
 <style>
   * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, sans-serif; }
   body { background: #f5f5f5; color: #111; padding: 0 0 40px; }
@@ -1893,11 +1959,9 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
   .share-comments-title { font-size: 18px; font-weight: 700; margin-bottom: 14px; color: #111; }
   .share-comment-form { margin-bottom: 18px; padding-bottom: 18px; border-bottom: 1px solid #eee; }
   .share-input, .share-textarea { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 10px; font-size: 15px; font-family: inherit; outline: none; }
-  .share-input:focus, .share-textarea:focus { border-color: #000; }
   .share-textarea { height: 80px; resize: vertical; }
   .share-btn { background: #000; color: #fff; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 15px; }
-  .share-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-  .share-comments-list { max-height: 400px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .share-comments-list { max-height: 400px; overflow-y: auto; }
   .footer { text-align: center; color: #888; font-size: 13px; padding: 24px 16px 0; }
 </style>
 </head>
@@ -1919,7 +1983,6 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
       <a class="cta" href="${escapeHtml(canonical)}">পূর্ণ খবর পড়ুন →</a>
     </div>
   </article>
-
   <div class="share-comments-section">
     <h3 class="share-comments-title">মন্তব্য</h3>
     <div class="share-comment-form">
@@ -1931,12 +1994,10 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
       <p style="color:#888;text-align:center;padding:12px;">লোড হচ্ছে...</p>
     </div>
   </div>
-
   <div class="footer">
     &copy; ${new Date().getFullYear()} Ajker News. All rights reserved.
   </div>
 </div>
-
 <script>
 (function() {
   var API_BASE = "https://ajkernews.in";
@@ -1956,14 +2017,13 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
       var data = await res.json();
       var comments = (data && data.comments) || [];
       if (!comments.length) {
-        list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">এখনো কোনো মন্তব্য নেই। প্রথম মন্তব্য করুন!</p>';
+        list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">এখনো কোনো মন্তব্য নেই।</p>';
         return;
       }
       list.innerHTML = comments.map(function(c) {
         return '<div style="border-bottom:1px solid #f0f0f0;padding:10px 0;"><strong style="font-size:14px;">' + escapeHtml(c.author_name) + '</strong><p style="margin:5px 0 0;font-size:14px;color:#444;">' + escapeHtml(c.comment_text) + '</p></div>';
       }).join('');
     } catch (e) {
-      console.error('Comment load error:', e);
       list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">মন্তব্য লোড করা যায়নি।</p>';
     }
   }
@@ -1991,7 +2051,6 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
           alert('মন্তব্য পাঠানো যায়নি');
         }
       } catch (e) {
-        console.error('Comment submit error:', e);
         alert('মন্তব্য পাঠানো যায়নি');
       } finally {
         submitBtn.disabled = false;
@@ -2011,8 +2070,7 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
     headers: {
       "Content-Type": "text/html; charset=UTF-8",
       "Cache-Control": "public, no-cache, must-revalidate, max-age=0",
-      "Pragma": "no-cache",
-      "Expires": "0",
+      "Pragma": "no-cache", "Expires": "0",
       "X-Robots-Tag": "index, follow"
     }
   });
@@ -2034,9 +2092,7 @@ async function handleAffiliate(url, env) {
     try {
       await env.DB.prepare(`INSERT INTO affiliate_clicks (id, affiliate_name, click_url, device_id, created_at) VALUES (?, ?, ?, ?, ?)`)
         .bind(crypto.randomUUID(), ref, targetUrl, "unknown", new Date().toISOString()).run();
-    } catch (error) {
-      console.error("Affiliate log error:", error?.message || String(error));
-    }
+    } catch (error) { console.error("Affiliate log error:", error?.message || String(error)); }
   }
   return Response.redirect(targetUrl, 302);
 }
@@ -2052,17 +2108,10 @@ async function handlePushClick(request, env) {
 
     await env.DB.prepare(
       `INSERT INTO push_clicks (id, news_id, device_id, source, created_at) VALUES (?, ?, ?, ?, ?)`
-    ).bind(
-      crypto.randomUUID(),
-      newsId,
-      deviceId || "anonymous",
-      source || "unknown",
-      new Date().toISOString()
-    ).run();
+    ).bind(crypto.randomUUID(), newsId, deviceId || "anonymous", source || "unknown", new Date().toISOString()).run();
 
     return json({ success: true }, 200, 0);
   } catch (error) {
-    console.error("[PUSH-CLICK] Error:", error?.message || String(error));
     return json({ success: false, error: "Click tracking failed" }, 500, 0);
   }
 }
@@ -2070,15 +2119,9 @@ async function handlePushClick(request, env) {
 async function handlePushStats(env) {
   try {
     const total = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_clicks`).first();
-    const today = await env.DB.prepare(
-      `SELECT COUNT(*) AS total FROM push_clicks WHERE created_at >= datetime('now', '-1 day')`
-    ).first();
-    const last7days = await env.DB.prepare(
-      `SELECT COUNT(*) AS total FROM push_clicks WHERE created_at >= datetime('now', '-7 days')`
-    ).first();
-    const topNews = await env.DB.prepare(
-      `SELECT news_id, COUNT(*) AS clicks FROM push_clicks GROUP BY news_id ORDER BY clicks DESC LIMIT 10`
-    ).all();
+    const today = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_clicks WHERE created_at >= datetime('now', '-1 day')`).first();
+    const last7days = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_clicks WHERE created_at >= datetime('now', '-7 days')`).first();
+    const topNews = await env.DB.prepare(`SELECT news_id, COUNT(*) AS clicks FROM push_clicks GROUP BY news_id ORDER BY clicks DESC LIMIT 10`).all();
 
     return json({
       success: true,
@@ -2099,11 +2142,7 @@ async function handlePushLogs(env, url) {
 
     let query = `SELECT id, news_id, token, status, error, title, sent_at FROM push_log`;
     const binds = [];
-
-    if (status) {
-      query += ` WHERE status = ?`;
-      binds.push(status);
-    }
+    if (status) { query += ` WHERE status = ?`; binds.push(status); }
     query += ` ORDER BY sent_at DESC LIMIT ?`;
     binds.push(limit);
 
@@ -2146,8 +2185,7 @@ async function handleGetNewsInternal(url, env) {
 
   if (specificId) {
     const result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.id = ? AND news.status = 'published' GROUP BY news.id LIMIT 1`).bind(specificId).all();
-    const news = result.results || [];
-    return json({ success: true, count: news.length, news }, 200, 0);
+    return json({ success: true, count: (result.results || []).length, news: result.results || [] }, 200, 0);
   }
 
   let result;
@@ -2170,7 +2208,7 @@ async function handleGetNewsInternal(url, env) {
 }
 
 /* =========================================================
- * PUSH NOTIFICATIONS — SUBSCRIBE/UNSUBSCRIBE
+ * SUBSCRIBE / UNSUBSCRIBE
  * ========================================================= */
 async function handleSubscribe(request, env) {
   try {
@@ -2196,7 +2234,6 @@ async function handleSubscribe(request, env) {
 
     return json({ success: true }, 200, 0);
   } catch (error) {
-    console.error("Subscribe error:", error?.message || String(error));
     return json({ success: false, error: "Subscribe error" }, 500, 0);
   }
 }
@@ -2214,7 +2251,6 @@ async function handleUnsubscribe(request, env) {
       return json({ success: false, message: "Not found" }, 404, 0);
     }
   } catch (error) {
-    console.error("Unsubscribe error:", error?.message || String(error));
     return json({ success: false, error: "Unsubscribe error" }, 500, 0);
   }
 }
@@ -2404,7 +2440,6 @@ function corsHeaders() {
 }
 
 function json(data, status = 200, cacheSeconds = 60) {
-  const seconds = Math.max(0, Number(cacheSeconds) || 0);
   return new Response(JSON.stringify(data), {
     status,
     headers: {

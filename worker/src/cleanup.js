@@ -1,26 +1,21 @@
-/*
- * News database cleanup — MAX 1000 published records
- * + 48h+ old candidates deleted
- * + 24h+ old rejected news deleted
- * Uses db.batch() for fast deletion
- * v2 — Increased delete limit for faster cleanup
- */
+// worker/src/cleanup.js
+// ✅ FIXED: deleteNewsById unused সরানো
 
 const MAX_TOTAL_NEWS = 1000;
-const MAX_DELETE_PER_RUN = 150;   // ✅ Increased from 50 to 150
+const MAX_DELETE_PER_RUN = 150;
 const CANDIDATE_MAX_AGE_HOURS = 48;
 const REJECTED_MAX_AGE_HOURS = 24;
 
 export async function getNewsCount(db) {
-  // Only count PUBLISHED news
-  const result = await db.prepare(`SELECT COUNT(*) AS total FROM news WHERE status = 'published'`).first();
+  const result = await db.prepare(
+    `SELECT COUNT(*) AS total FROM news WHERE status = 'published'`
+  ).first();
   return Number(result?.total || 0);
 }
 
 export async function getOldestNews(db, limit = 10) {
   const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 500);
 
-  // Only delete PUBLISHED news with valid created_at
   const result = await db
     .prepare(`
       SELECT id, source_url, status, created_at
@@ -35,12 +30,6 @@ export async function getOldestNews(db, limit = 10) {
     .all();
 
   return result.results || [];
-}
-
-export async function deleteNewsById(db, id) {
-  if (!id) return false;
-  const result = await db.prepare(`DELETE FROM news WHERE id = ?`).bind(id).run();
-  return Number(result?.meta?.changes || 0) > 0;
 }
 
 export async function enforceNewsLimit(db) {
@@ -61,7 +50,6 @@ export async function enforceNewsLimit(db) {
   }
 
   try {
-    // ✅ Batch delete in chunks of 50 to avoid hitting D1 limits
     const CHUNK_SIZE = 50;
     for (let i = 0; i < oldest.length; i += CHUNK_SIZE) {
       const chunk = oldest.slice(i, i + CHUNK_SIZE);

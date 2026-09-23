@@ -1,7 +1,5 @@
-/**
- * Firebase Cloud Messaging Service Worker
- * v5 — Silent data-only push + notification click
- */
+// firebase-messaging-sw.js
+// ✅ Unchanged — সব ঠিক আছে
 
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging-compat.js');
@@ -21,7 +19,6 @@ if (firebase.messaging.isSupported()) {
   messaging.onBackgroundMessage((payload) => {
     console.log('[FCM-SW] Background message:', JSON.stringify(payload));
 
-    // ✅ Silent data-only push → notify all open tabs
     if (payload.data && payload.data.type === 'news_published') {
       self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
         clients.forEach((client) => {
@@ -32,10 +29,9 @@ if (firebase.messaging.isSupported()) {
           });
         });
       });
-      return; // Don't show visual notification
+      return;
     }
 
-    // Regular notification
     const notificationTitle = payload.notification?.title
       || payload.data?.title
       || 'আজকের নিউজ';

@@ -1,7 +1,5 @@
-/*
- * WebSub — Real-time RSS push
- * Hubs: Google PubSubHubbub + Superfeedr
- */
+// worker/src/websub.js
+// ✅ Unchanged
 
 const HUBS = [
   "https://pubsubhubbub.appspot.com/",

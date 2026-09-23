@@ -1,17 +1,8 @@
-// auto-deploy test - 2026-09-23
-/**
- * =========================================================
- * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v53 — SSE Live Stream + Silent FCM + Digest Push
- * - SSE /api/live for real-time homepage updates
- * - Silent FCM data-only push for background tabs
- * - 4 prime-time digests: 8AM, 1PM, 6PM, 9PM IST
- * - Breaking news alerts (score >= 90)
- * - Duplicate prevention (push_sent)
- * =========================================================
- */
+// worker/src/index.js
+// ✅ FIXED: Copyright সরানো, Notification fix, threshold 55, JWT helper, cleanText import
+// ✅ FIXED: sendDigest N+1 → batch, N×M insert → batch
+// ✅ FIXED: ensureTables migration যোগ
 
-import webPush from "web-push";
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
 import ADS_CONFIG from "./config-ads.js";
@@ -22,6 +13,8 @@ import { selectBestCandidates, publishSelectedNews } from "./news-selector.js";
 import { enforceNewsLimit, cleanOldCandidates, cleanRejectedNews } from "./cleanup.js";
 import { fastIndexNews } from "./fast-index.js";
 import { cacheNewsApi, purgeNewsApiCache, purgeArticleCache } from "./cache.js";
+import { getFcmCredentials } from "./jwt.js";
+import { cleanText, escapeHtml } from "./utils.js";
 
 const MAX_NEWS = 1000;
 const API_PAGE_SIZE = 10;
@@ -30,7 +23,7 @@ const NOTIFICATION_CONFIG = {
   TTL_SECONDS: 172800,
   QUIET_START_HOUR: 23,
   QUIET_END_HOUR: 7,
-  BREAKING_SCORE_THRESHOLD: 90,
+  BREAKING_SCORE_THRESHOLD: 55,   // ✅ FIX: 90 → 55
   BREAKING_TTL_SECONDS: 172800,
   REGULAR_TTL_SECONDS: 86400,
   MAX_BATCH_SIZE: 500,
@@ -74,10 +67,6 @@ function getVapidEmail(env) {
   return `mailto:${raw}`;
 }
 
-/* =========================================================
- * SMART NOTIFICATION HELPERS
- * ========================================================= */
-
 function getISTHour() {
   const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
   return istNow.getUTCHours();
@@ -112,10 +101,6 @@ function getDigestType(hour) {
   return "general";
 }
 
-/* =========================================================
- * MAIN WORKER
- * ========================================================= */
-
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -131,7 +116,6 @@ export default {
       if (url.pathname === "/rss.xml") return await generateRSS(env);
       if (url.pathname === "/robots.txt") return generateRobotsTxt();
 
-      // ✅ SSE live stream
       if (url.pathname === "/api/live" && request.method === "GET") {
         return handleLiveStream(env, request);
       }
@@ -276,11 +260,8 @@ export default {
             const todaySent = await env.DB.prepare(
               `SELECT COUNT(*) AS total FROM push_sent WHERE sent_at >= datetime('now', '-1 day')`
             ).first();
-            sentStats = {
-              total: Number(totalSent?.total || 0),
-              today: Number(todaySent?.total || 0)
-            };
-          } catch (e) { /* ignore */ }
+            sentStats = { total: Number(totalSent?.total || 0), today: Number(todaySent?.total || 0) };
+          } catch (e) {}
 
           let digestStats = { total: 0, today: 0 };
           try {
@@ -288,11 +269,8 @@ export default {
             const todayDigest = await env.DB.prepare(
               `SELECT COUNT(*) AS total FROM push_digest_log WHERE sent_at >= datetime('now', '-1 day')`
             ).first();
-            digestStats = {
-              total: Number(totalDigest?.total || 0),
-              today: Number(todayDigest?.total || 0)
-            };
-          } catch (e) { /* ignore */ }
+            digestStats = { total: Number(totalDigest?.total || 0), today: Number(todayDigest?.total || 0) };
+          } catch (e) {}
 
           let logStats = { total: 0, today: 0, failed: 0 };
           try {
@@ -306,7 +284,7 @@ export default {
               today: Number(todaySent?.total || 0),
               failed: Number(totalFailed?.total || 0)
             };
-          } catch (e) { /* ignore */ }
+          } catch (e) {}
 
           return json({
             success: true,
@@ -324,6 +302,7 @@ export default {
               currentISTHour: getISTHour(),
               isQuietHours: isQuietHours(),
               primeHours: NOTIFICATION_CONFIG.PRIME_HOURS,
+              breakingThreshold: NOTIFICATION_CONFIG.BREAKING_SCORE_THRESHOLD,
               digestCount: NOTIFICATION_CONFIG.DIGEST_NEWS_COUNT
             }
           }, 200, 0);
@@ -408,7 +387,7 @@ export default {
         return;
       }
 
-      // ===== NEWS FETCH + BREAKING DETECT =====
+      // ===== NEWS FETCH + PUSH =====
       if (cron === "0 */2 * * *") {
         let result;
         try {
@@ -419,21 +398,25 @@ export default {
           return;
         }
 
+        // ✅ FIX: সব published news-এর জন্য real notification push
         if (result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
           const placeholders = result.newNewsIds.map(() => "?").join(",");
-          const breakingArticle = await env.DB.prepare(
-            `SELECT id, headline, summary, image_url, score, category, created_at FROM news
-             WHERE id IN (${placeholders}) AND status = 'published' AND score >= ?
+          const topArticle = await env.DB.prepare(
+            `SELECT id, headline, summary, image_url, score, category, created_at 
+             FROM news
+             WHERE id IN (${placeholders}) AND status = 'published'
              ORDER BY score DESC, created_at DESC LIMIT 1`
-          ).bind(...result.newNewsIds, NOTIFICATION_CONFIG.BREAKING_SCORE_THRESHOLD).first();
+          ).bind(...result.newNewsIds).first();
 
-          if (breakingArticle) {
-            console.log(`[BREAKING] Sending immediate alert: ${breakingArticle.headline}`);
+          if (topArticle && !isQuietHours()) {
+            console.log(`[PUSH] Sending notification: ${topArticle.headline}`);
             ctx.waitUntil(
-              sendBreakingAlert(env, breakingArticle).catch(error => {
-                console.error("[BREAKING] Send error:", error?.message || String(error));
+              sendBreakingAlert(env, topArticle).catch(error => {
+                console.error("[PUSH] Send error:", error?.message || String(error));
               })
             );
+          } else if (isQuietHours()) {
+            console.log(`[PUSH] Skipped — quiet hours (IST ${istHour})`);
           }
         }
 
@@ -502,9 +485,9 @@ export default {
   }
 };
 
-/* =========================================================
- * SSE LIVE STREAM
- * ========================================================= */
+// =========================================================
+// SSE LIVE STREAM
+// =========================================================
 async function handleLiveStream(env, request) {
   const encoder = new TextEncoder();
   let lastCheck = new Date(Date.now() - 60 * 1000).toISOString();
@@ -519,7 +502,6 @@ async function handleLiveStream(env, request) {
         } catch (e) { isClosed = true; }
       };
 
-      // Initial connect event
       send('connected', { ts: Date.now() });
 
       const checkForEvents = async () => {
@@ -536,7 +518,7 @@ async function handleLiveStream(env, request) {
               send(row.event_type, JSON.parse(row.payload || "{}"));
             }
           }
-        } catch (e) { /* silent */ }
+        } catch (e) {}
       };
 
       await checkForEvents();
@@ -553,7 +535,6 @@ async function handleLiveStream(env, request) {
         } catch (e) { isClosed = true; }
       }, 15000);
 
-      // Auto-close after 5 minutes
       setTimeout(() => {
         if (!isClosed) {
           isClosed = true;
@@ -586,9 +567,9 @@ async function handleLiveStream(env, request) {
   });
 }
 
-/* =========================================================
- * DIGEST SENDER
- * ========================================================= */
+// =========================================================
+// DIGEST SENDER — ✅ FIXED: N+1 query + N×M insert
+// =========================================================
 async function sendDigest(env, istHour) {
   if (isQuietHours()) {
     console.log(`[DIGEST] Skipped — quiet hours`);
@@ -596,7 +577,7 @@ async function sendDigest(env, istHour) {
   }
 
   if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    console.error('[DIGEST] FIREBASE_SERVICE_ACCOUNT_JSON missing');
+    console.error('[DIGEST] ❌ FIREBASE_SERVICE_ACCOUNT_JSON missing');
     return;
   }
 
@@ -622,23 +603,23 @@ async function sendDigest(env, istHour) {
     return;
   }
 
-  const digestType = getDigestType(istHour);
-  const unsentNews = [];
-  for (const news of candidates) {
-    const alreadySent = await env.DB.prepare(
-      `SELECT id FROM push_sent WHERE news_id = ? LIMIT 1`
-    ).bind(news.id).first();
-    if (!alreadySent) {
-      unsentNews.push(news);
-      if (unsentNews.length >= NOTIFICATION_CONFIG.DIGEST_NEWS_COUNT) break;
-    }
-  }
+  // ✅ FIX: N+1 query → single batch query
+  const candidateIds = candidates.map(c => c.id);
+  const sentRows = await env.DB.prepare(
+    `SELECT news_id FROM push_sent WHERE news_id IN (${candidateIds.map(() => "?").join(",")})`
+  ).bind(...candidateIds).all();
+  const sentIds = new Set((sentRows.results || []).map(r => r.news_id));
+
+  const unsentNews = candidates
+    .filter(n => !sentIds.has(n.id))
+    .slice(0, NOTIFICATION_CONFIG.DIGEST_NEWS_COUNT);
 
   if (!unsentNews.length) {
     console.log('[DIGEST] All recent news already sent');
     return;
   }
 
+  const digestType = getDigestType(istHour);
   const label = getDigestLabel(istHour);
   const topNews = unsentNews[0];
   const title = label;
@@ -668,16 +649,25 @@ async function sendDigest(env, istHour) {
       result.sent,
       new Date().toISOString()
     ).run();
-  } catch (e) { /* ignore */ }
+  } catch (e) {}
 
+  // ✅ FIX: N×M insert → single batch
   const sentAt = new Date().toISOString();
+  const insertStmts = [];
   for (const news of unsentNews) {
     for (const token of tokens) {
-      try {
-        await env.DB.prepare(
+      insertStmts.push(
+        env.DB.prepare(
           `INSERT OR IGNORE INTO push_sent (id, news_id, token, sent_at) VALUES (?, ?, ?, ?)`
-        ).bind(crypto.randomUUID(), news.id, token.slice(0, 30), sentAt).run();
-      } catch (e) { /* ignore */ }
+        ).bind(crypto.randomUUID(), news.id, token.slice(0, 30), sentAt)
+      );
+    }
+  }
+  if (insertStmts.length) {
+    try {
+      await env.DB.batch(insertStmts);
+    } catch (e) {
+      console.warn('[DIGEST] Batch insert failed:', e?.message);
     }
   }
 
@@ -688,30 +678,36 @@ async function sendDigest(env, istHour) {
         `DELETE FROM push_subscriptions WHERE token IN (${invalidPlaceholders})`
       ).bind(...result.invalidTokens).run();
       console.log(`[DIGEST] Removed ${result.invalidTokens.length} invalid tokens`);
-    } catch (e) { /* ignore */ }
+    } catch (e) {}
   }
 
   console.log(`[DIGEST] Result:`, JSON.stringify(result));
 }
 
-/* =========================================================
- * BREAKING ALERT
- * ========================================================= */
+// =========================================================
+// BREAKING ALERT — ✅ FIXED: error log
+// =========================================================
 async function sendBreakingAlert(env, news) {
-  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) return;
+  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    console.error('[PUSH] ❌ FIREBASE_SERVICE_ACCOUNT_JSON missing!');
+    return;
+  }
 
   const subs = await env.DB.prepare(
     `SELECT token FROM push_subscriptions WHERE token IS NOT NULL AND token != '' ORDER BY created_at DESC LIMIT ${NOTIFICATION_CONFIG.MAX_BATCH_SIZE}`
   ).all();
 
   const tokens = (subs.results || []).map(s => s.token).filter(Boolean);
-  if (!tokens.length) return;
+  if (!tokens.length) {
+    console.warn('[PUSH] No subscribers');
+    return;
+  }
 
   const alreadySent = await env.DB.prepare(
     `SELECT id FROM push_sent WHERE news_id = ? LIMIT 1`
   ).bind(news.id).first();
   if (alreadySent) {
-    console.log(`[BREAKING] Already sent: ${news.id}`);
+    console.log(`[PUSH] Already sent: ${news.id}`);
     return;
   }
 
@@ -720,7 +716,7 @@ async function sendBreakingAlert(env, news) {
   const targetUrl = `https://ajkernews.in/news/${news.id}?from=push&breaking=1`;
   const tag = `breaking-${news.id}`;
 
-  console.log(`[BREAKING] Sending to ${tokens.length} subscribers`);
+  console.log(`[PUSH] Sending to ${tokens.length} subscribers`);
 
   const result = await sendDigestPush(env, {
     title, body, image: news.image_url, url: targetUrl, tag,
@@ -728,166 +724,123 @@ async function sendBreakingAlert(env, news) {
   }, tokens);
 
   const sentAt = new Date().toISOString();
+  const insertStmts = [];
   for (const token of tokens) {
-    try {
-      await env.DB.prepare(
+    insertStmts.push(
+      env.DB.prepare(
         `INSERT OR IGNORE INTO push_sent (id, news_id, token, sent_at) VALUES (?, ?, ?, ?)`
-      ).bind(crypto.randomUUID(), news.id, token.slice(0, 30), sentAt).run();
-    } catch (e) { /* ignore */ }
+      ).bind(crypto.randomUUID(), news.id, token.slice(0, 30), sentAt)
+    );
+  }
+  if (insertStmts.length) {
+    try { await env.DB.batch(insertStmts); } catch (e) {}
   }
 
-  console.log(`[BREAKING] Result:`, JSON.stringify(result));
+  console.log(`[PUSH] Result:`, JSON.stringify(result));
 }
 
-/* =========================================================
- * GENERIC PUSH SENDER
- * ========================================================= */
+// =========================================================
+// GENERIC PUSH SENDER — ✅ FIXED: JWT helper ব্যবহার
+// =========================================================
 async function sendDigestPush(env, payload, tokens) {
   const result = {
     accessTokenObtained: false, tokenExchangeError: null,
     sent: 0, failed: 0, unregistered: 0, invalidTokens: [], errors: []
   };
 
-  let serviceAccount;
+  let credentials;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+    credentials = await getFcmCredentials(env);
+    result.accessTokenObtained = true;
   } catch (e) {
-    result.tokenExchangeError = 'Invalid service account JSON: ' + e.message;
+    result.tokenExchangeError = e.message;
     return result;
   }
 
-  const projectId = serviceAccount.project_id;
-  const clientEmail = serviceAccount.client_email;
-  const privateKey = serviceAccount.private_key;
+  const { accessToken, projectId } = credentials;
+  const isBreaking = !!payload.isBreaking;
+  const ttl = isBreaking ? NOTIFICATION_CONFIG.BREAKING_TTL_SECONDS : NOTIFICATION_CONFIG.REGULAR_TTL_SECONDS;
+  const fcmUrl = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
+  const sentAt = new Date().toISOString();
+  const logStmts = [];
 
-  const now = Math.floor(Date.now() / 1000);
-  const jwtHeader = { alg: "RS256", typ: "JWT" };
-  const jwtPayload = {
-    iss: clientEmail,
-    scope: "https://www.googleapis.com/auth/firebase.messaging",
-    aud: "https://oauth2.googleapis.com/token",
-    iat: now, exp: now + 3600
-  };
-
-  const base64url = (str) => btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  const encodeJWT = (obj) => base64url(JSON.stringify(obj));
-  const unsignedToken = `${encodeJWT(jwtHeader)}.${encodeJWT(jwtPayload)}`;
-
-  try {
-    const pemContents = privateKey
-      .replace("-----BEGIN PRIVATE KEY-----", "")
-      .replace("-----END PRIVATE KEY-----", "")
-      .replace(/\s/g, "");
-
-    const binaryDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
-
-    const cryptoKey = await crypto.subtle.importKey(
-      "pkcs8", binaryDer.buffer,
-      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]
-    );
-
-    const signature = await crypto.subtle.sign(
-      "RSASSA-PKCS1-v1_5", cryptoKey,
-      new TextEncoder().encode(unsignedToken)
-    );
-
-    const signedJWT = `${unsignedToken}.${base64url(String.fromCharCode(...new Uint8Array(signature)))}`;
-
-    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${signedJWT}`
-    });
-
-    const tokenData = await tokenRes.json();
-    if (!tokenData.access_token) {
-      result.tokenExchangeError = JSON.stringify(tokenData);
-      return result;
-    }
-    result.accessTokenObtained = true;
-    const accessToken = tokenData.access_token;
-
-    const isBreaking = !!payload.isBreaking;
-    const ttl = isBreaking ? NOTIFICATION_CONFIG.BREAKING_TTL_SECONDS : NOTIFICATION_CONFIG.REGULAR_TTL_SECONDS;
-    const fcmUrl = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
-    const sentAt = new Date().toISOString();
-
-    for (const token of tokens) {
-      const message = {
-        message: {
-          token: token,
-          notification: { title: payload.title, body: payload.body },
-          data: {
-            url: payload.url,
-            image: payload.image || "",
-            notificationId: payload.tag,
-            title: payload.title,
-            body: payload.body,
-            isBreaking: isBreaking ? "1" : "0"
+  for (const token of tokens) {
+    const message = {
+      message: {
+        token: token,
+        notification: { title: payload.title, body: payload.body },
+        data: {
+          url: payload.url,
+          image: payload.image || "",
+          notificationId: payload.tag,
+          title: payload.title,
+          body: payload.body,
+          isBreaking: isBreaking ? "1" : "0"
+        },
+        webpush: {
+          headers: { Urgency: isBreaking ? "high" : "normal", TTL: String(ttl) },
+          notification: {
+            icon: "https://ajkernews.in/logo.png",
+            badge: "https://ajkernews.in/logo.png",
+            image: payload.image || undefined,
+            vibrate: isBreaking ? [200, 100, 200, 100, 200] : [200, 100],
+            tag: payload.tag,
+            renotify: true,
+            requireInteraction: isBreaking
           },
-          webpush: {
-            headers: { Urgency: isBreaking ? "high" : "normal", TTL: String(ttl) },
-            notification: {
-              icon: "https://ajkernews.in/logo.png",
-              badge: "https://ajkernews.in/logo.png",
-              image: payload.image || undefined,
-              vibrate: isBreaking ? [200, 100, 200, 100, 200] : [200, 100],
-              tag: payload.tag,
-              renotify: true,
-              requireInteraction: isBreaking
-            },
-            fcmOptions: { link: payload.url }
-          }
+          fcmOptions: { link: payload.url }
         }
-      };
-
-      try {
-        const res = await fetch(fcmUrl, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${accessToken}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify(message)
-        });
-
-        if (res.ok) {
-          result.sent++;
-          try {
-            await env.DB.prepare(
-              `INSERT INTO push_log (id, news_id, token, status, title, sent_at) VALUES (?, ?, ?, ?, ?, ?)`
-            ).bind(crypto.randomUUID(), payload.newsIds?.[0] || null, token.slice(0, 30), 'sent', payload.title.slice(0, 100), sentAt).run();
-          } catch (logErr) {}
-        } else {
-          const errData = await res.json().catch(() => ({}));
-          result.failed++;
-          const errCode = errData?.error?.details?.[0]?.errorCode || errData?.error?.status || 'unknown';
-          result.errors.push(`${errCode}: ${token.slice(0, 15)}...`);
-          if (errCode === 'UNREGISTERED' || errCode === 'NOT_FOUND') {
-            result.unregistered++;
-            result.invalidTokens.push(token);
-          }
-          try {
-            await env.DB.prepare(
-              `INSERT INTO push_log (id, news_id, token, status, error, title, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
-            ).bind(crypto.randomUUID(), payload.newsIds?.[0] || null, token.slice(0, 30), 'failed', errCode, payload.title.slice(0, 100), sentAt).run();
-          } catch (logErr) {}
-        }
-      } catch (e) {
-        result.failed++;
-        result.errors.push(`Network: ${e.message}`);
       }
+    };
+
+    try {
+      const res = await fetch(fcmUrl, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(message)
+      });
+
+      if (res.ok) {
+        result.sent++;
+        logStmts.push(
+          env.DB.prepare(
+            `INSERT INTO push_log (id, news_id, token, status, title, sent_at) VALUES (?, ?, ?, ?, ?, ?)`
+          ).bind(crypto.randomUUID(), payload.newsIds?.[0] || null, token.slice(0, 30), 'sent', payload.title.slice(0, 100), sentAt)
+        );
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        result.failed++;
+        const errCode = errData?.error?.details?.[0]?.errorCode || errData?.error?.status || 'unknown';
+        result.errors.push(`${errCode}: ${token.slice(0, 15)}...`);
+        if (errCode === 'UNREGISTERED' || errCode === 'NOT_FOUND') {
+          result.unregistered++;
+          result.invalidTokens.push(token);
+        }
+        logStmts.push(
+          env.DB.prepare(
+            `INSERT INTO push_log (id, news_id, token, status, error, title, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
+          ).bind(crypto.randomUUID(), payload.newsIds?.[0] || null, token.slice(0, 30), 'failed', errCode, payload.title.slice(0, 100), sentAt)
+        );
+      }
+    } catch (e) {
+      result.failed++;
+      result.errors.push(`Network: ${e.message}`);
     }
-  } catch (e) {
-    result.tokenExchangeError = 'JWT/Crypto error: ' + e.message;
+  }
+
+  if (logStmts.length) {
+    try { await env.DB.batch(logStmts); } catch (e) {}
   }
 
   return result;
 }
 
-/* =========================================================
- * SILENT FCM — notify all open tabs of new news
- * ========================================================= */
+// =========================================================
+// SILENT FCM — background tabs (data-only)
+// =========================================================
 async function sendSilentFcmUpdate(env, newsIds) {
   if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) return;
 
@@ -898,92 +851,47 @@ async function sendSilentFcmUpdate(env, newsIds) {
   const tokens = (subs.results || []).map(s => s.token).filter(Boolean);
   if (!tokens.length) return;
 
-  let serviceAccount;
+  let credentials;
   try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+    credentials = await getFcmCredentials(env);
   } catch (e) { return; }
 
-  const projectId = serviceAccount.project_id;
-  const clientEmail = serviceAccount.client_email;
-  const privateKey = serviceAccount.private_key;
+  const { accessToken, projectId } = credentials;
+  const fcmUrl = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
 
-  const now = Math.floor(Date.now() / 1000);
-  const jwtHeader = { alg: "RS256", typ: "JWT" };
-  const jwtPayload = {
-    iss: clientEmail,
-    scope: "https://www.googleapis.com/auth/firebase.messaging",
-    aud: "https://oauth2.googleapis.com/token",
-    iat: now, exp: now + 3600
-  };
-
-  const base64url = (str) => btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  const encodeJWT = (obj) => base64url(JSON.stringify(obj));
-  const unsignedToken = `${encodeJWT(jwtHeader)}.${encodeJWT(jwtPayload)}`;
-
-  try {
-    const pemContents = privateKey
-      .replace("-----BEGIN PRIVATE KEY-----", "")
-      .replace("-----END PRIVATE KEY-----", "")
-      .replace(/\s/g, "");
-
-    const binaryDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
-    const cryptoKey = await crypto.subtle.importKey(
-      "pkcs8", binaryDer.buffer,
-      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]
-    );
-
-    const signature = await crypto.subtle.sign(
-      "RSASSA-PKCS1-v1_5", cryptoKey,
-      new TextEncoder().encode(unsignedToken)
-    );
-
-    const signedJWT = `${unsignedToken}.${base64url(String.fromCharCode(...new Uint8Array(signature)))}`;
-
-    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${signedJWT}`
-    });
-
-    const tokenData = await tokenRes.json();
-    if (!tokenData.access_token) return;
-    const accessToken = tokenData.access_token;
-    const fcmUrl = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
-
-    for (const token of tokens) {
-      const message = {
-        message: {
-          token: token,
-          data: {
-            type: 'news_published',
-            count: String(newsIds.length),
-            ids: newsIds.slice(0, 5).join(','),
-            ts: String(Date.now())
-          },
-          android: { priority: "normal" },
-          webpush: {
-            headers: { Urgency: "low", TTL: "300" }
-          }
+  for (const token of tokens) {
+    const message = {
+      message: {
+        token: token,
+        data: {
+          type: 'news_published',
+          count: String(newsIds.length),
+          ids: newsIds.slice(0, 5).join(','),
+          ts: String(Date.now())
+        },
+        android: { priority: "normal" },
+        webpush: {
+          headers: { Urgency: "low", TTL: "300" }
         }
-      };
+      }
+    };
 
-      try {
-        await fetch(fcmUrl, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${accessToken}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify(message)
-        });
-      } catch (e) { /* silent */ }
-    }
-  } catch (e) { /* silent */ }
+    try {
+      await fetch(fcmUrl, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(message)
+      });
+    } catch (e) {}
+  }
 }
 
-/* =========================================================
- * LEGACY single push
- * ========================================================= */
+// =========================================================
+// LEGACY single push
+// =========================================================
 async function sendSinglePush(env, news, tokens, isBreaking) {
   const title = String(news.headline || "নতুন খবর").slice(0, 180);
   const body = String(news.summary || "বিস্তারিত জানতে ক্লিক করুন").slice(0, 180);
@@ -996,9 +904,9 @@ async function sendSinglePush(env, news, tokens, isBreaking) {
   }, tokens);
 }
 
-/* =========================================================
- * NEWS UPDATE PIPELINE
- * ========================================================= */
+// =========================================================
+// NEWS UPDATE PIPELINE
+// =========================================================
 async function updateNews(env) {
   if (!env.DB) throw new Error("D1 binding DB is missing");
   if (!env.GNEWS_API_KEY) throw new Error("GNEWS_API_KEY secret is missing");
@@ -1184,7 +1092,6 @@ async function updateNews(env) {
       console.warn("[FAST-INDEX] Instant failed:", error?.message || String(error));
     }
 
-    // ✅ Broadcast SSE event
     try {
       const eventPayload = JSON.stringify({
         ids: publishedIds,
@@ -1204,11 +1111,10 @@ async function updateNews(env) {
       console.warn("[LIVE] Broadcast failed:", e?.message);
     }
 
-    // ✅ Silent FCM to background tabs
     if (!isQuietHours()) {
       try {
         await sendSilentFcmUpdate(env, publishedIds);
-        console.log(`[FCM-SILENT] Sent to subscribers`);
+        console.log(`[FCM-SILENT] Background tabs notified`);
       } catch (e) {
         console.warn("[FCM-SILENT] Failed:", e?.message);
       }
@@ -1231,9 +1137,9 @@ async function updateNews(env) {
   };
 }
 
-/* =========================================================
- * BOT HOMEPAGE
- * ========================================================= */
+// =========================================================
+// BOT PAGES
+// =========================================================
 async function serveBotHomepage(env) {
   return await serveListingPage(env, "top", null);
 }
@@ -1344,7 +1250,6 @@ async function serveListingPage(env, category, searchQuery) {
 </header>
 <main>${newsHtml}</main>
 <footer style="margin-top:40px;padding-top:20px;border-top:1px solid #eee;text-align:center;color:#888;font-size:13px;">
-  <p>&copy; ${new Date().getFullYear()} Ajker News</p>
   <p>
     <a href="https://ajkernews.in/sitemap.xml" style="color:#007bff;">Sitemap</a> ·
     <a href="https://ajkernews.in/news-sitemap.xml" style="color:#007bff;">News Sitemap</a> ·
@@ -1369,9 +1274,9 @@ async function serveListingPage(env, category, searchQuery) {
   }
 }
 
-/* =========================================================
- * ARTICLE PAGE
- * ========================================================= */
+// =========================================================
+// ARTICLE PAGE — ✅ FIXED: Copyright সরানো
+// =========================================================
 async function serveArticlePage(id, env) {
   const safeId = String(id || "").trim();
   if (!safeId) return Response.redirect("https://ajkernews.in/", 302);
@@ -1594,7 +1499,6 @@ async function serveArticlePage(id, env) {
 </main>
 <footer class="article-footer">
   <p><a href="https://ajkernews.in/">HOME</a></p>
-  <p style="margin-top:10px;">&copy; ${new Date().getFullYear()} Ajker News. All rights reserved.</p>
 </footer>
 <div id="artCommentModal">
   <div class="modal-box">
@@ -1831,9 +1735,9 @@ async function serveArticlePage(id, env) {
   });
 }
 
-/* =========================================================
- * TABLES SETUP
- * ========================================================= */
+// =========================================================
+// TABLES SETUP — ✅ FIXED: search_text, indexed_at migration যোগ
+// =========================================================
 async function ensureTables(env) {
   const queries = [
     `CREATE TABLE IF NOT EXISTS news (id TEXT PRIMARY KEY, source_url TEXT UNIQUE, source_name TEXT, source_title TEXT, source_description TEXT, headline TEXT, summary TEXT, main_topic TEXT, category TEXT, language TEXT DEFAULT 'bn', image_url TEXT, published_at TEXT, created_at TEXT, day_key TEXT, status TEXT DEFAULT 'published', score INTEGER DEFAULT 0, search_text TEXT, indexed_at TEXT)`,
@@ -1875,6 +1779,12 @@ async function ensureTables(env) {
     if (!colNames.includes("language")) {
       await env.DB.prepare(`ALTER TABLE news ADD COLUMN language TEXT DEFAULT 'bn'`).run();
     }
+    if (!colNames.includes("search_text")) {
+      await env.DB.prepare(`ALTER TABLE news ADD COLUMN search_text TEXT`).run();
+    }
+    if (!colNames.includes("indexed_at")) {
+      await env.DB.prepare(`ALTER TABLE news ADD COLUMN indexed_at TEXT`).run();
+    }
   } catch (error) { console.error("Column migration failed:", error?.message || String(error)); }
 
   try {
@@ -1898,9 +1808,9 @@ async function ensureTablesOnce(env) {
   }
 }
 
-/* =========================================================
- * SHARE PAGE
- * ========================================================= */
+// =========================================================
+// SHARE PAGE — ✅ FIXED: Copyright সরানো
+// =========================================================
 async function serveSharePage(id, env, requestUserAgentFromContext = "", requestUrl = null) {
   const safeId = String(id || "").trim();
   if (!safeId) return Response.redirect("https://ajkernews.in/", 302);
@@ -1962,7 +1872,6 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
   .share-textarea { height: 80px; resize: vertical; }
   .share-btn { background: #000; color: #fff; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 15px; }
   .share-comments-list { max-height: 400px; overflow-y: auto; }
-  .footer { text-align: center; color: #888; font-size: 13px; padding: 24px 16px 0; }
 </style>
 </head>
 <body>
@@ -1993,9 +1902,6 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
     <div class="share-comments-list" id="shareCommentsList">
       <p style="color:#888;text-align:center;padding:12px;">লোড হচ্ছে...</p>
     </div>
-  </div>
-  <div class="footer">
-    &copy; ${new Date().getFullYear()} Ajker News. All rights reserved.
   </div>
 </div>
 <script>
@@ -2076,9 +1982,9 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
   });
 }
 
-/* =========================================================
- * AFFILIATE
- * ========================================================= */
+// =========================================================
+// AFFILIATE
+// =========================================================
 async function handleAffiliate(url, env) {
   const ref = url.searchParams.get("ref") || "direct";
   let targetUrl = url.searchParams.get("url");
@@ -2097,9 +2003,9 @@ async function handleAffiliate(url, env) {
   return Response.redirect(targetUrl, 302);
 }
 
-/* =========================================================
- * PUSH CLICK TRACKING
- * ========================================================= */
+// =========================================================
+// PUSH CLICK TRACKING
+// =========================================================
 async function handlePushClick(request, env) {
   try {
     const body = await request.json();
@@ -2162,13 +2068,13 @@ async function handlePushLogs(env, url) {
   }
 }
 
-/* =========================================================
- * API: GET NEWS
- * ========================================================= */
+// =========================================================
+// API: GET NEWS — ✅ FIXED: cache TTL 60s
+// =========================================================
 async function handleGetNews(url, env, request) {
   return cacheNewsApi(request, async () => {
     return await handleGetNewsInternal(url, env);
-  }, 0);
+  }, 60);  // ✅ FIX: 0 → 60s
 }
 
 async function handleGetNewsInternal(url, env) {
@@ -2207,9 +2113,9 @@ async function handleGetNewsInternal(url, env) {
   return json({ success: true, count: news.length, offset, limit, has_more: hasMore, news }, 200, 0);
 }
 
-/* =========================================================
- * SUBSCRIBE / UNSUBSCRIBE
- * ========================================================= */
+// =========================================================
+// SUBSCRIBE / UNSUBSCRIBE
+// =========================================================
 async function handleSubscribe(request, env) {
   try {
     const body = await request.json();
@@ -2259,9 +2165,9 @@ async function handlePushSync(request, env) {
   return json({ success: true, synced: true }, 200, 0);
 }
 
-/* =========================================================
- * LOVE + COMMENTS
- * ========================================================= */
+// =========================================================
+// LOVE + COMMENTS
+// =========================================================
 async function toggleLove(request, env) {
   try {
     const { id, deviceId } = await request.json();
@@ -2302,9 +2208,9 @@ async function addComment(request, env) {
   }
 }
 
-/* =========================================================
- * SITEMAP / RSS / ROBOTS
- * ========================================================= */
+// =========================================================
+// SITEMAP / RSS / ROBOTS
+// =========================================================
 async function generateSitemap(env) {
   try {
     const result = await env.DB.prepare(`SELECT id, published_at, created_at FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT 1000`).all();
@@ -2423,13 +2329,9 @@ ${items}
   });
 }
 
-/* =========================================================
- * HELPERS
- * ========================================================= */
-function cleanText(value) {
-  return String(value || "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
-}
-
+// =========================================================
+// HELPERS
+// =========================================================
 function corsHeaders() {
   return {
     "access-control-allow-origin": "*",
@@ -2450,14 +2352,4 @@ function json(data, status = 200, cacheSeconds = 60) {
       "expires": "0"
     }
   });
-}
-
-function escapeHtml(text) {
-  if (!text) return "";
-  return String(text)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
 }

@@ -1,11 +1,8 @@
-/*
- * News selector — Strict Gemini-only
- * 3 bn + 3 en = 6 news per slot (target 4-6)
- * Last 80 news dedup
- */
+// worker/src/news-selector.js
+// ✅ FIXED: cleanText utils থেকে import
 
 import { publishNews } from "./database.js";
-import { normalizeText } from "./utils.js";
+import { normalizeText, cleanText } from "./utils.js";
 
 const MAX_NEWS_PER_SLOT = 6;
 const MAX_PER_LANGUAGE = 3;
@@ -242,9 +239,6 @@ function selectWithCategoryBalance(articles, limit) {
   return selected.slice(0, limit);
 }
 
-/* =========================================================
- * Publish — STRICT Gemini-only (no fallback)
- * ========================================================= */
 export async function publishSelectedNews(db, selectedArticles, geminiResults) {
   if (!Array.isArray(selectedArticles)) return { published: 0, skipped: 0 };
 
@@ -270,22 +264,10 @@ export async function publishSelectedNews(db, selectedArticles, geminiResults) {
     const summary = cleanText(generated.summary);
     const mainTopic = generated.main_topic || article.main_topic || article.category || "general";
 
-    if (!headline || headline.length < 20) {
-      console.warn(`[SKIP] Gemini headline too short for ${article.id}`);
-      skipped++;
-      continue;
-    }
-    if (!summary || summary.length < 80) {
-      console.warn(`[SKIP] Gemini summary too short for ${article.id}`);
-      skipped++;
-      continue;
-    }
+    if (!headline || headline.length < 20) { skipped++; continue; }
+    if (!summary || summary.length < 80) { skipped++; continue; }
     const isBangla = /[\u0980-\u09FF]/.test(headline + " " + summary);
-    if (!isBangla) {
-      console.warn(`[SKIP] Gemini not Bangla for ${article.id}`);
-      skipped++;
-      continue;
-    }
+    if (!isBangla) { skipped++; continue; }
 
     try {
       await publishNews(db, article.id, {
@@ -304,10 +286,6 @@ export async function publishSelectedNews(db, selectedArticles, geminiResults) {
 
   console.log(`[PUBLISH] ${published} published, ${skipped} skipped`);
   return { published, skipped };
-}
-
-function cleanText(value) {
-  return String(value || "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
 }
 
 export { MAX_NEWS_PER_SLOT, MAX_PER_LANGUAGE };

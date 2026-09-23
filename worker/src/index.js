@@ -2,7 +2,13 @@
 /**
  * =========================================================
  * AJKER NEWS - CLOUDFLARE WORKER
- * FINAL v50 — Complete Push System (logs + stats + cleanup)
+ * FINAL v52 — Smart Digest Push System
+ * - 4 prime-time digests: 8AM, 1PM, 6PM, 9PM IST
+ * - Max 3 news per notification (batched)
+ * - Breaking news alerts (score >= 90) — bypass quiet hours
+ * - Duplicate prevention via push_sent table
+ * - Quiet hours: 11PM - 7AM IST
+ * - No user configuration needed
  * =========================================================
  */
 
@@ -29,6 +35,8 @@ const NOTIFICATION_CONFIG = {
   BREAKING_TTL_SECONDS: 172800,
   REGULAR_TTL_SECONDS: 86400,
   MAX_BATCH_SIZE: 500,
+  DIGEST_NEWS_COUNT: 3,
+  PRIME_HOURS: [8, 13, 18, 21],
 };
 
 let tablesReadyPromise = null;
@@ -85,18 +93,24 @@ function isQuietHours() {
   return hour >= QUIET_START_HOUR && hour < QUIET_END_HOUR;
 }
 
-function getSmartTag(news, isBreaking = false) {
-  if (isBreaking) {
-    return `breaking-${news.id}`;
-  }
-  const date = new Date(news.created_at || Date.now());
-  const dateKey = date.toISOString().split('T')[0];
-  const category = news.category || 'general';
-  return `ajker-${dateKey}-${category}`;
-}
-
 function isBreakingNews(news) {
   return Number(news.score || 0) >= NOTIFICATION_CONFIG.BREAKING_SCORE_THRESHOLD;
+}
+
+function getDigestLabel(hour) {
+  if (hour === 8) return "🌅 সকালের সেরা খবর";
+  if (hour === 13) return "☀️ দুপুরের আপডেট";
+  if (hour === 18) return "🌇 বিকেলের সেরা খবর";
+  if (hour === 21) return "🌙 রাতের আপডেট";
+  return "📰 আজকের খবর";
+}
+
+function getDigestType(hour) {
+  if (hour === 8) return "morning";
+  if (hour === 13) return "noon";
+  if (hour === 18) return "evening";
+  if (hour === 21) return "night";
+  return "general";
 }
 
 /* =========================================================
@@ -180,17 +194,6 @@ export default {
           return json({ success: false, error: "POST method required" }, 405, 0);
         }
         const result = await updateNews(env);
-        if (result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
-          if (!isQuietHours()) {
-            ctx.waitUntil(
-              queueAndSendPushNotifications(env, result.newNewsIds).catch(error =>
-                console.error("Push queue error:", error?.message || String(error))
-              )
-            );
-          } else {
-            console.log('[PUSH] Skipped — quiet hours');
-          }
-        }
         return json(result, 200, 0);
       }
 
@@ -261,19 +264,29 @@ export default {
           const stats = await env.DB.prepare(`SELECT status, COUNT(*) AS count FROM news GROUP BY status`).all();
           const recent = await env.DB.prepare(`SELECT id, headline, status, created_at, published_at FROM news ORDER BY created_at DESC LIMIT 10`).all();
           const pushSubs = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_subscriptions`).first();
-          const fcmSubs = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_subscriptions WHERE token IS NOT NULL AND token != ''`).first();
           const hasServiceAccount = !!env.FIREBASE_SERVICE_ACCOUNT_JSON;
-          const hasVapidPublic = !!env.VAPID_PUBLIC_KEY;
 
-          let clickStats = { total: 0, today: 0 };
+          let sentStats = { total: 0, today: 0 };
           try {
-            const totalClicks = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_clicks`).first();
-            const todayClicks = await env.DB.prepare(
-              `SELECT COUNT(*) AS total FROM push_clicks WHERE created_at >= datetime('now', '-1 day')`
+            const totalSent = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_sent`).first();
+            const todaySent = await env.DB.prepare(
+              `SELECT COUNT(*) AS total FROM push_sent WHERE sent_at >= datetime('now', '-1 day')`
             ).first();
-            clickStats = {
-              total: Number(totalClicks?.total || 0),
-              today: Number(todayClicks?.total || 0)
+            sentStats = {
+              total: Number(totalSent?.total || 0),
+              today: Number(todaySent?.total || 0)
+            };
+          } catch (e) { /* ignore */ }
+
+          let digestStats = { total: 0, today: 0 };
+          try {
+            const totalDigest = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_digest_log`).first();
+            const todayDigest = await env.DB.prepare(
+              `SELECT COUNT(*) AS total FROM push_digest_log WHERE sent_at >= datetime('now', '-1 day')`
+            ).first();
+            digestStats = {
+              total: Number(totalDigest?.total || 0),
+              today: Number(todayDigest?.total || 0)
             };
           } catch (e) { /* ignore */ }
 
@@ -297,18 +310,17 @@ export default {
             recent: recent.results || [],
             push: {
               subscribers: Number(pushSubs?.total || 0),
-              fcmTokens: Number(fcmSubs?.total || 0),
               hasServiceAccount: hasServiceAccount,
-              hasVapidPublic: hasVapidPublic,
-              clicks: clickStats,
+              sent: sentStats,
+              digests: digestStats,
               logs: logStats
             },
             notificationConfig: {
-              ttlBreaking: NOTIFICATION_CONFIG.BREAKING_TTL_SECONDS,
-              ttlRegular: NOTIFICATION_CONFIG.REGULAR_TTL_SECONDS,
               quietHours: `${NOTIFICATION_CONFIG.QUIET_START_HOUR}:00 - ${NOTIFICATION_CONFIG.QUIET_END_HOUR}:00 IST`,
               currentISTHour: getISTHour(),
-              isQuietHours: isQuietHours()
+              isQuietHours: isQuietHours(),
+              primeHours: NOTIFICATION_CONFIG.PRIME_HOURS,
+              digestCount: NOTIFICATION_CONFIG.DIGEST_NEWS_COUNT
             }
           }, 200, 0);
         } catch (error) {
@@ -333,9 +345,7 @@ export default {
           }
 
           const isBreaking = isBreakingNews(latest);
-          console.log(`[PUSH-TEST] Sending to ${tokens.length} subscribers | Breaking: ${isBreaking} | Tag: ${getSmartTag(latest, isBreaking)}`);
-
-          const result = await sendPushSync(env, latest, tokens);
+          const result = await sendSinglePush(env, latest, tokens, isBreaking);
 
           return json({
             success: true,
@@ -343,10 +353,7 @@ export default {
             newsId: latest.id,
             headline: latest.headline,
             isBreaking: isBreaking,
-            tag: getSmartTag(latest, isBreaking),
-            ttl: isBreaking ? NOTIFICATION_CONFIG.BREAKING_TTL_SECONDS : NOTIFICATION_CONFIG.REGULAR_TTL_SECONDS,
             subscribers: tokens.length,
-            hasServiceAccount: !!env.FIREBASE_SERVICE_ACCOUNT_JSON,
             fcmResult: result
           }, 200, 0);
         } catch (error) {
@@ -384,9 +391,20 @@ export default {
   async scheduled(event, env, ctx) {
     const cron = event.cron;
     const startTime = Date.now();
-    console.log(`[CRON] ${cron} started at ${new Date(event.scheduledTime).toISOString()}`);
+    const istHour = getISTHour();
+    console.log(`[CRON] ${cron} started | IST Hour: ${istHour}`);
 
     try {
+      // ===== PRIME TIME DIGESTS (8AM, 1PM, 6PM, 9PM IST) =====
+      if (NOTIFICATION_CONFIG.PRIME_HOURS.includes(istHour) &&
+          (cron === "0 8 * * *" || cron === "0 13 * * *" || cron === "0 18 * * *" || cron === "0 21 * * *")) {
+        console.log(`[DIGEST] Prime time hit: ${istHour}:00 IST`);
+        await sendDigest(env, istHour);
+        console.log(`[DIGEST] Completed in ${Date.now() - startTime}ms`);
+        return;
+      }
+
+      // ===== NEWS FETCH + BREAKING DETECT (EVERY 2 HOURS) =====
       if (cron === "0 */2 * * *") {
         let result;
         try {
@@ -397,23 +415,28 @@ export default {
           return;
         }
 
-        const istHour = getISTHour();
-        const quiet = isQuietHours();
-        console.log(`[NOTIF] IST Hour: ${istHour} | Quiet: ${quiet}`);
+        // Check for breaking news in new articles
+        if (result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
+          const placeholders = result.newNewsIds.map(() => "?").join(",");
+          const breakingArticle = await env.DB.prepare(
+            `SELECT id, headline, summary, image_url, score, category, created_at FROM news
+             WHERE id IN (${placeholders}) AND status = 'published' AND score >= ?
+             ORDER BY score DESC, created_at DESC LIMIT 1`
+          ).bind(...result.newNewsIds, NOTIFICATION_CONFIG.BREAKING_SCORE_THRESHOLD).first();
 
-        if (!quiet && result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
-          console.log(`[NOTIF] Sending push to subscribers...`);
-          ctx.waitUntil(
-            queueAndSendPushNotifications(env, result.newNewsIds).catch(error => {
-              console.error("[CRON-NEWS] Push queue error:", error?.message || String(error));
-            })
-          );
-        } else if (quiet) {
-          console.log(`[NOTIF] Skipped — quiet hours`);
-        } else {
-          console.log(`[NOTIF] Skipped — no new published news`);
+          if (breakingArticle) {
+            console.log(`[BREAKING] Sending immediate alert: ${breakingArticle.headline}`);
+            ctx.waitUntil(
+              sendBreakingAlert(env, breakingArticle).catch(error => {
+                console.error("[BREAKING] Send error:", error?.message || String(error));
+              })
+            );
+          } else {
+            console.log(`[BREAKING] No breaking news in this batch`);
+          }
         }
 
+        // Fast index for recent published news
         try {
           const recent = await env.DB.prepare(
             `SELECT id FROM news WHERE status = 'published' AND created_at >= datetime('now', '-6 hours') ORDER BY created_at DESC LIMIT 50`
@@ -421,63 +444,32 @@ export default {
           const ids = (recent.results || []).map(r => r.id);
           if (ids.length) {
             const indexResult = await fastIndexNews(env, ids);
-            console.log(`[CRON-FAST-INDEX] ${ids.length} URLs:`, JSON.stringify(indexResult));
+            console.log(`[FAST-INDEX] ${ids.length} URLs:`, JSON.stringify(indexResult));
           }
         } catch (error) {
-          console.error("[CRON-FAST-INDEX] Failed:", error?.message || String(error));
+          console.error("[FAST-INDEX] Failed:", error?.message || String(error));
         }
 
-        console.log(`[CRON-NEWS] Completed in ${Date.now() - startTime}ms`);
-        return;
-      }
-
-      if (cron === "15 */2 * * *") {
+        // Cleanup old data
+        try { await cleanOldCandidates(env.DB); } catch (error) {
+          console.error("[CLEAN] Candidate cleanup failed:", error?.message || String(error));
+        }
+        try { await cleanRejectedNews(env.DB); } catch (error) {
+          console.error("[CLEAN] Rejected cleanup failed:", error?.message || String(error));
+        }
         try {
-          const recent = await env.DB.prepare(
-            `SELECT id FROM news WHERE status = 'published' AND created_at >= datetime('now', '-6 hours') ORDER BY created_at DESC LIMIT 50`
-          ).all();
-          const ids = (recent.results || []).map(r => r.id);
-          if (ids.length) {
-            const result = await fastIndexNews(env, ids);
-            console.log(`[CRON-FAST-INDEX] ${ids.length} URLs:`, JSON.stringify(result));
-          }
+          await env.DB.prepare(`DELETE FROM push_subscriptions WHERE created_at < datetime('now', '-90 days')`).run();
+          await env.DB.prepare(`DELETE FROM push_clicks WHERE created_at < datetime('now', '-30 days')`).run();
+          await env.DB.prepare(`DELETE FROM push_log WHERE sent_at < datetime('now', '-7 days')`).run();
+          await env.DB.prepare(`DELETE FROM push_sent WHERE sent_at < datetime('now', '-7 days')`).run();
+          await env.DB.prepare(`DELETE FROM push_digest_log WHERE sent_at < datetime('now', '-30 days')`).run();
         } catch (error) {
-          console.error("[CRON-FAST-INDEX] Failed:", error?.message || String(error));
-        }
-        return;
-      }
-
-      if (cron === "35 */2 * * *") {
-        try {
-          const backlog = await env.DB.prepare(
-            `SELECT id FROM news WHERE status = 'published' AND created_at >= datetime('now', '-24 hours') ORDER BY created_at DESC LIMIT 50`
-          ).all();
-          const ids = (backlog.results || []).map(r => r.id);
-          if (ids.length) {
-            const result = await fastIndexNews(env, ids);
-            console.log(`[CRON-RETRY] Backlog: ${ids.length}`, JSON.stringify(result));
-          }
-        } catch (error) {
-          console.error("[CRON-RETRY] Backlog failed:", error?.message || String(error));
-        }
-        return;
-      }
-
-      if (cron === "50 */2 * * *") {
-        try {
-          await cleanOldCandidates(env.DB);
-        } catch (error) {
-          console.error("[CRON-CLEAN] Candidate cleanup failed:", error?.message || String(error));
+          console.warn("[CLEAN] Cleanup failed:", error?.message || String(error));
         }
 
-        try {
-          await cleanRejectedNews(env.DB);
-        } catch (error) {
-          console.error("[CRON-CLEAN] Rejected cleanup failed:", error?.message || String(error));
-        }
-
-        const currentHour = new Date().getUTCHours();
-        if ([0, 6, 12, 18].includes(currentHour)) {
+        // News limit enforcement every 6 hours
+        const currentUtcHour = new Date().getUTCHours();
+        if ([0, 6, 12, 18].includes(currentUtcHour)) {
           try {
             const cleanupResult = await enforceNewsLimit(env.DB);
             console.log(`[CRON-CLEAN] News: ${cleanupResult.deleted} deleted, ${cleanupResult.total} total`);
@@ -501,15 +493,357 @@ export default {
           } catch (e) { /* ignore */ }
         }
 
+        console.log(`[CRON-NEWS] Completed in ${Date.now() - startTime}ms`);
         return;
       }
 
-      console.warn(`[CRON] Unknown cron: ${cron}`);
+      console.warn(`[CRON] Unknown cron: ${cron} at IST hour ${istHour}`);
     } catch (error) {
       console.error(`[CRON] Fatal error in ${cron}:`, error?.message || error?.stack || String(error));
     }
   }
 };
+
+/* =========================================================
+ * DIGEST SENDER — batch of 3 news per notification
+ * ========================================================= */
+async function sendDigest(env, istHour) {
+  if (isQuietHours()) {
+    console.log(`[DIGEST] Skipped — quiet hours`);
+    return;
+  }
+
+  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    console.error('[DIGEST] FIREBASE_SERVICE_ACCOUNT_JSON missing');
+    return;
+  }
+
+  const subs = await env.DB.prepare(
+    `SELECT token FROM push_subscriptions WHERE token IS NOT NULL AND token != '' ORDER BY created_at DESC LIMIT ${NOTIFICATION_CONFIG.MAX_BATCH_SIZE}`
+  ).all();
+
+  const tokens = (subs.results || []).map(s => s.token).filter(Boolean);
+  if (!tokens.length) {
+    console.warn('[DIGEST] No subscribers');
+    return;
+  }
+
+  const recentNews = await env.DB.prepare(
+    `SELECT id, headline, summary, image_url, score, category, created_at FROM news
+     WHERE status = 'published' AND created_at >= datetime('now', '-8 hours')
+     ORDER BY score DESC, created_at DESC LIMIT 20`
+  ).all();
+
+  const candidates = recentNews.results || [];
+  if (!candidates.length) {
+    console.log('[DIGEST] No recent news');
+    return;
+  }
+
+  const digestType = getDigestType(istHour);
+  const unsentNews = [];
+  for (const news of candidates) {
+    const alreadySent = await env.DB.prepare(
+      `SELECT id FROM push_sent WHERE news_id = ? LIMIT 1`
+    ).bind(news.id).first();
+    if (!alreadySent) {
+      unsentNews.push(news);
+      if (unsentNews.length >= NOTIFICATION_CONFIG.DIGEST_NEWS_COUNT) break;
+    }
+  }
+
+  if (!unsentNews.length) {
+    console.log('[DIGEST] All recent news already sent');
+    return;
+  }
+
+  const label = getDigestLabel(istHour);
+  const topNews = unsentNews[0];
+  const title = label;
+  const body = unsentNews.map(n => `• ${n.headline}`).join('\n').slice(0, 200);
+  const targetUrl = `https://ajkernews.in/news/${topNews.id}?from=push&digest=${digestType}`;
+  const tag = `digest-${digestType}-${new Date().toISOString().split('T')[0]}`;
+
+  console.log(`[DIGEST] Sending ${digestType} digest with ${unsentNews.length} news to ${tokens.length} subscribers`);
+
+  const result = await sendDigestPush(env, {
+    title,
+    body,
+    image: topNews.image_url,
+    url: targetUrl,
+    tag,
+    newsIds: unsentNews.map(n => n.id)
+  }, tokens);
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO push_digest_log (id, digest_type, news_count, sent_count, sent_at)
+       VALUES (?, ?, ?, ?, ?)`
+    ).bind(
+      crypto.randomUUID(),
+      digestType,
+      unsentNews.length,
+      result.sent,
+      new Date().toISOString()
+    ).run();
+  } catch (e) { /* ignore */ }
+
+  const sentAt = new Date().toISOString();
+  for (const news of unsentNews) {
+    for (const token of tokens) {
+      try {
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO push_sent (id, news_id, token, sent_at) VALUES (?, ?, ?, ?)`
+        ).bind(crypto.randomUUID(), news.id, token.slice(0, 30), sentAt).run();
+      } catch (e) { /* ignore */ }
+    }
+  }
+
+  if (result.invalidTokens?.length > 0) {
+    try {
+      const invalidPlaceholders = result.invalidTokens.map(() => "?").join(",");
+      await env.DB.prepare(
+        `DELETE FROM push_subscriptions WHERE token IN (${invalidPlaceholders})`
+      ).bind(...result.invalidTokens).run();
+      console.log(`[DIGEST] Removed ${result.invalidTokens.length} invalid tokens`);
+    } catch (e) { /* ignore */ }
+  }
+
+  console.log(`[DIGEST] Result:`, JSON.stringify(result));
+}
+
+/* =========================================================
+ * BREAKING ALERT — immediate single news push
+ * ========================================================= */
+async function sendBreakingAlert(env, news) {
+  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    console.error('[BREAKING] FIREBASE_SERVICE_ACCOUNT_JSON missing');
+    return;
+  }
+
+  const subs = await env.DB.prepare(
+    `SELECT token FROM push_subscriptions WHERE token IS NOT NULL AND token != '' ORDER BY created_at DESC LIMIT ${NOTIFICATION_CONFIG.MAX_BATCH_SIZE}`
+  ).all();
+
+  const tokens = (subs.results || []).map(s => s.token).filter(Boolean);
+  if (!tokens.length) return;
+
+  const alreadySent = await env.DB.prepare(
+    `SELECT id FROM push_sent WHERE news_id = ? LIMIT 1`
+  ).bind(news.id).first();
+  if (alreadySent) {
+    console.log(`[BREAKING] Already sent: ${news.id}`);
+    return;
+  }
+
+  const title = `🔴 ব্রেকিং: ${String(news.headline || "").slice(0, 150)}`;
+  const body = String(news.summary || "এখনই পড়ুন →").slice(0, 150);
+  const targetUrl = `https://ajkernews.in/news/${news.id}?from=push&breaking=1`;
+  const tag = `breaking-${news.id}`;
+
+  console.log(`[BREAKING] Sending to ${tokens.length} subscribers`);
+
+  const result = await sendDigestPush(env, {
+    title,
+    body,
+    image: news.image_url,
+    url: targetUrl,
+    tag,
+    newsIds: [news.id],
+    isBreaking: true
+  }, tokens);
+
+  const sentAt = new Date().toISOString();
+  for (const token of tokens) {
+    try {
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO push_sent (id, news_id, token, sent_at) VALUES (?, ?, ?, ?)`
+      ).bind(crypto.randomUUID(), news.id, token.slice(0, 30), sentAt).run();
+    } catch (e) { /* ignore */ }
+  }
+
+  console.log(`[BREAKING] Result:`, JSON.stringify(result));
+}
+
+/* =========================================================
+ * GENERIC PUSH SENDER — handles both digest and breaking
+ * ========================================================= */
+async function sendDigestPush(env, payload, tokens) {
+  const result = {
+    accessTokenObtained: false,
+    tokenExchangeError: null,
+    sent: 0,
+    failed: 0,
+    unregistered: 0,
+    invalidTokens: [],
+    errors: []
+  };
+
+  let serviceAccount;
+  try {
+    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  } catch (e) {
+    result.tokenExchangeError = 'Invalid service account JSON: ' + e.message;
+    return result;
+  }
+
+  const projectId = serviceAccount.project_id;
+  const clientEmail = serviceAccount.client_email;
+  const privateKey = serviceAccount.private_key;
+
+  const now = Math.floor(Date.now() / 1000);
+  const jwtHeader = { alg: "RS256", typ: "JWT" };
+  const jwtPayload = {
+    iss: clientEmail,
+    scope: "https://www.googleapis.com/auth/firebase.messaging",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600
+  };
+
+  const base64url = (str) => btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const encodeJWT = (obj) => base64url(JSON.stringify(obj));
+  const unsignedToken = `${encodeJWT(jwtHeader)}.${encodeJWT(jwtPayload)}`;
+
+  try {
+    const pemContents = privateKey
+      .replace("-----BEGIN PRIVATE KEY-----", "")
+      .replace("-----END PRIVATE KEY-----", "")
+      .replace(/\s/g, "");
+
+    const binaryDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
+
+    const cryptoKey = await crypto.subtle.importKey(
+      "pkcs8",
+      binaryDer.buffer,
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+
+    const signature = await crypto.subtle.sign(
+      "RSASSA-PKCS1-v1_5",
+      cryptoKey,
+      new TextEncoder().encode(unsignedToken)
+    );
+
+    const signedJWT = `${unsignedToken}.${base64url(String.fromCharCode(...new Uint8Array(signature)))}`;
+
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${signedJWT}`
+    });
+
+    const tokenData = await tokenRes.json();
+    if (!tokenData.access_token) {
+      result.tokenExchangeError = JSON.stringify(tokenData);
+      return result;
+    }
+    result.accessTokenObtained = true;
+    const accessToken = tokenData.access_token;
+
+    const isBreaking = !!payload.isBreaking;
+    const ttl = isBreaking ? NOTIFICATION_CONFIG.BREAKING_TTL_SECONDS : NOTIFICATION_CONFIG.REGULAR_TTL_SECONDS;
+    const fcmUrl = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
+
+    const sentAt = new Date().toISOString();
+
+    for (const token of tokens) {
+      const message = {
+        message: {
+          token: token,
+          notification: { title: payload.title, body: payload.body },
+          data: {
+            url: payload.url,
+            image: payload.image || "",
+            notificationId: payload.tag,
+            title: payload.title,
+            body: payload.body,
+            isBreaking: isBreaking ? "1" : "0"
+          },
+          webpush: {
+            headers: {
+              Urgency: isBreaking ? "high" : "normal",
+              TTL: String(ttl)
+            },
+            notification: {
+              icon: "https://ajkernews.in/logo.png",
+              badge: "https://ajkernews.in/logo.png",
+              image: payload.image || undefined,
+              vibrate: isBreaking ? [200, 100, 200, 100, 200] : [200, 100],
+              tag: payload.tag,
+              renotify: true,
+              requireInteraction: isBreaking
+            },
+            fcmOptions: { link: payload.url }
+          }
+        }
+      };
+
+      try {
+        const res = await fetch(fcmUrl, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${accessToken}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(message)
+        });
+
+        if (res.ok) {
+          result.sent++;
+          try {
+            await env.DB.prepare(
+              `INSERT INTO push_log (id, news_id, token, status, title, sent_at) VALUES (?, ?, ?, ?, ?, ?)`
+            ).bind(crypto.randomUUID(), payload.newsIds?.[0] || null, token.slice(0, 30), 'sent', payload.title.slice(0, 100), sentAt).run();
+          } catch (logErr) { /* silent */ }
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          result.failed++;
+          const errCode = errData?.error?.details?.[0]?.errorCode || errData?.error?.status || 'unknown';
+          result.errors.push(`${errCode}: ${token.slice(0, 15)}...`);
+          if (errCode === 'UNREGISTERED' || errCode === 'NOT_FOUND') {
+            result.unregistered++;
+            result.invalidTokens.push(token);
+          }
+          try {
+            await env.DB.prepare(
+              `INSERT INTO push_log (id, news_id, token, status, error, title, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
+            ).bind(crypto.randomUUID(), payload.newsIds?.[0] || null, token.slice(0, 30), 'failed', errCode, payload.title.slice(0, 100), sentAt).run();
+          } catch (logErr) { /* silent */ }
+        }
+      } catch (e) {
+        result.failed++;
+        result.errors.push(`Network: ${e.message}`);
+      }
+    }
+  } catch (e) {
+    result.tokenExchangeError = 'JWT/Crypto error: ' + e.message;
+  }
+
+  return result;
+}
+
+/* =========================================================
+ * LEGACY: single push (used by /api/push-test)
+ * ========================================================= */
+async function sendSinglePush(env, news, tokens, isBreaking) {
+  const title = String(news.headline || "নতুন খবর").slice(0, 180);
+  const body = String(news.summary || "বিস্তারিত জানতে ক্লিক করুন").slice(0, 180);
+  const targetUrl = `https://ajkernews.in/news/${news.id}?from=push`;
+  const tag = isBreaking ? `breaking-${news.id}` : `news-${news.id}`;
+
+  return await sendDigestPush(env, {
+    title,
+    body,
+    image: news.image_url,
+    url: targetUrl,
+    tag,
+    newsIds: [news.id],
+    isBreaking
+  }, tokens);
+}
 
 /* =========================================================
  * NEWS UPDATE PIPELINE
@@ -568,7 +902,6 @@ async function updateNews(env) {
       `SELECT source_title, headline FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT 80`
     ).all();
     existingPublished = publishedResult.results || [];
-    console.log(`[NEWS] Dedup pool: ${existingPublished.length} recent published news`);
   } catch (error) {
     console.warn("[NEWS] Existing published fetch failed:", error?.message || String(error));
   }
@@ -696,7 +1029,6 @@ async function updateNews(env) {
   if (publishedIds.length) {
     try {
       await fastIndexNews(env, publishedIds);
-      console.log(`[FAST-INDEX] Published ${publishedIds.length} URLs to all channels`);
     } catch (error) {
       console.warn("[FAST-INDEX] Instant failed:", error?.message || String(error));
     }
@@ -1427,7 +1759,7 @@ async function serveArticlePage(id, env) {
 }
 
 /* =========================================================
- * TABLES SETUP (WITH push_log)
+ * TABLES SETUP (with push_sent + push_digest_log)
  * ========================================================= */
 async function ensureTables(env) {
   const queries = [
@@ -1438,6 +1770,8 @@ async function ensureTables(env) {
     `CREATE TABLE IF NOT EXISTS affiliate_clicks (id TEXT PRIMARY KEY, affiliate_name TEXT, click_url TEXT, device_id TEXT, created_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS push_clicks (id TEXT PRIMARY KEY, news_id TEXT, device_id TEXT, source TEXT, created_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS push_log (id TEXT PRIMARY KEY, news_id TEXT, token TEXT, status TEXT, error TEXT, title TEXT, sent_at TEXT)`,
+    `CREATE TABLE IF NOT EXISTS push_sent (id TEXT PRIMARY KEY, news_id TEXT, token TEXT, sent_at TEXT, UNIQUE(news_id, token))`,
+    `CREATE TABLE IF NOT EXISTS push_digest_log (id TEXT PRIMARY KEY, digest_type TEXT, news_count INTEGER, sent_count INTEGER, sent_at TEXT)`,
     `CREATE INDEX IF NOT EXISTS idx_news_status_published ON news(status, published_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_status_created ON news(status, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_category_published ON news(category, published_at DESC)`,
@@ -1448,7 +1782,10 @@ async function ensureTables(env) {
     `CREATE INDEX IF NOT EXISTS idx_push_clicks_created ON push_clicks(created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_push_clicks_news ON push_clicks(news_id)`,
     `CREATE INDEX IF NOT EXISTS idx_push_log_sent_at ON push_log(sent_at DESC)`,
-    `CREATE INDEX IF NOT EXISTS idx_push_log_news_id ON push_log(news_id)`
+    `CREATE INDEX IF NOT EXISTS idx_push_log_news_id ON push_log(news_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_push_sent_news ON push_sent(news_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_push_sent_sent_at ON push_sent(sent_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_push_digest_log_sent_at ON push_digest_log(sent_at DESC)`
   ];
 
   for (const sql of queries) {
@@ -1463,7 +1800,6 @@ async function ensureTables(env) {
     const columns = await env.DB.prepare(`PRAGMA table_info(news)`).all();
     const colNames = (columns.results || []).map(c => c.name);
     if (!colNames.includes("language")) {
-      console.log("[MIGRATION] Adding language column");
       await env.DB.prepare(`ALTER TABLE news ADD COLUMN language TEXT DEFAULT 'bn'`).run();
     }
   } catch (error) {
@@ -1474,7 +1810,6 @@ async function ensureTables(env) {
     const pushColumns = await env.DB.prepare(`PRAGMA table_info(push_subscriptions)`).all();
     const pushColNames = (pushColumns.results || []).map(c => c.name);
     if (!pushColNames.includes("token")) {
-      console.log("[MIGRATION] Adding token column to push_subscriptions");
       await env.DB.prepare(`ALTER TABLE push_subscriptions ADD COLUMN token TEXT`).run();
     }
   } catch (error) {
@@ -1835,7 +2170,7 @@ async function handleGetNewsInternal(url, env) {
 }
 
 /* =========================================================
- * PUSH NOTIFICATIONS
+ * PUSH NOTIFICATIONS — SUBSCRIBE/UNSUBSCRIBE
  * ========================================================= */
 async function handleSubscribe(request, env) {
   try {
@@ -1853,14 +2188,12 @@ async function handleSubscribe(request, env) {
 
     if (existing) {
       await env.DB.prepare(`UPDATE push_subscriptions SET token = ?, keys_json = ?, created_at = ? WHERE id = ?`).bind(token, keys, now, existing.id).run();
-      console.log('[SUBSCRIBE] Updated existing subscriber');
       return json({ success: true, message: "Updated" }, 200, 0);
     }
 
     await env.DB.prepare(`INSERT INTO push_subscriptions (id, endpoint, keys_json, token, created_at) VALUES (?, ?, ?, ?, ?)`)
       .bind(crypto.randomUUID(), endpoint, keys, token, now).run();
 
-    console.log('[SUBSCRIBE] New subscriber added');
     return json({ success: true }, 200, 0);
   } catch (error) {
     console.error("Subscribe error:", error?.message || String(error));
@@ -1883,231 +2216,6 @@ async function handleUnsubscribe(request, env) {
   } catch (error) {
     console.error("Unsubscribe error:", error?.message || String(error));
     return json({ success: false, error: "Unsubscribe error" }, 500, 0);
-  }
-}
-
-/* =========================================================
- * SMART PUSH SENDER (WITH LOGGING)
- * ========================================================= */
-async function sendPushSync(env, latestNews, tokens) {
-  const result = {
-    accessTokenObtained: false,
-    tokenExchangeError: null,
-    sent: 0,
-    failed: 0,
-    unregistered: 0,
-    invalidTokens: [],
-    errors: [],
-    isBreaking: false,
-    ttl: 0,
-    tag: ""
-  };
-
-  let serviceAccount;
-  try {
-    serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
-  } catch (e) {
-    result.tokenExchangeError = 'Invalid service account JSON: ' + e.message;
-    return result;
-  }
-
-  const projectId = serviceAccount.project_id;
-  const clientEmail = serviceAccount.client_email;
-  const privateKey = serviceAccount.private_key;
-
-  const now = Math.floor(Date.now() / 1000);
-  const jwtHeader = { alg: "RS256", typ: "JWT" };
-  const jwtPayload = {
-    iss: clientEmail,
-    scope: "https://www.googleapis.com/auth/firebase.messaging",
-    aud: "https://oauth2.googleapis.com/token",
-    iat: now,
-    exp: now + 3600
-  };
-
-  const base64url = (str) => btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  const encodeJWT = (obj) => base64url(JSON.stringify(obj));
-  const unsignedToken = `${encodeJWT(jwtHeader)}.${encodeJWT(jwtPayload)}`;
-
-  try {
-    const pemContents = privateKey
-      .replace("-----BEGIN PRIVATE KEY-----", "")
-      .replace("-----END PRIVATE KEY-----", "")
-      .replace(/\s/g, "");
-
-    const binaryDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
-
-    const cryptoKey = await crypto.subtle.importKey(
-      "pkcs8",
-      binaryDer.buffer,
-      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-      false,
-      ["sign"]
-    );
-
-    const signature = await crypto.subtle.sign(
-      "RSASSA-PKCS1-v1_5",
-      cryptoKey,
-      new TextEncoder().encode(unsignedToken)
-    );
-
-    const signedJWT = `${unsignedToken}.${base64url(String.fromCharCode(...new Uint8Array(signature)))}`;
-
-    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${signedJWT}`
-    });
-
-    const tokenData = await tokenRes.json();
-    if (!tokenData.access_token) {
-      result.tokenExchangeError = JSON.stringify(tokenData);
-      return result;
-    }
-    result.accessTokenObtained = true;
-    const accessToken = tokenData.access_token;
-
-    const breaking = isBreakingNews(latestNews);
-    const ttl = breaking ? NOTIFICATION_CONFIG.BREAKING_TTL_SECONDS : NOTIFICATION_CONFIG.REGULAR_TTL_SECONDS;
-    const tag = getSmartTag(latestNews, breaking);
-
-    result.isBreaking = breaking;
-    result.ttl = ttl;
-    result.tag = tag;
-
-    const targetUrl = `https://ajkernews.in/news/${latestNews.id}?from=push`;
-    const title = String(latestNews.headline || "নতুন খবর").slice(0, 180);
-    const body = String(latestNews.summary || "বিস্তারিত জানতে ক্লিক করুন").slice(0, 180);
-    const fcmUrl = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
-    const sentAt = new Date().toISOString();
-
-    console.log(`[SMART-PUSH] Type: ${breaking ? 'BREAKING' : 'REGULAR'} | TTL: ${ttl}s | Tag: ${tag}`);
-
-    for (const token of tokens) {
-      const message = {
-        message: {
-          token: token,
-          notification: { title, body },
-          data: {
-            url: targetUrl,
-            image: latestNews.image_url || "",
-            notificationId: `news:${latestNews.id}`,
-            title: title,
-            body: body,
-            isBreaking: breaking ? "1" : "0"
-          },
-          webpush: {
-            headers: {
-              Urgency: "high",
-              TTL: String(ttl)
-            },
-            notification: {
-              icon: "https://ajkernews.in/logo.png",
-              badge: "https://ajkernews.in/logo.png",
-              image: latestNews.image_url || undefined,
-              vibrate: breaking ? [200, 100, 200, 100, 200] : [200, 100, 200],
-              tag: tag,
-              renotify: true,
-              requireInteraction: breaking
-            },
-            fcmOptions: { link: targetUrl }
-          }
-        }
-      };
-
-      try {
-        const res = await fetch(fcmUrl, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${accessToken}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify(message)
-        });
-
-        if (res.ok) {
-          result.sent++;
-          try {
-            await env.DB.prepare(
-              `INSERT INTO push_log (id, news_id, token, status, title, sent_at) VALUES (?, ?, ?, ?, ?, ?)`
-            ).bind(crypto.randomUUID(), latestNews.id, token.slice(0, 30), 'sent', title.slice(0, 100), sentAt).run();
-          } catch (logErr) { /* silent */ }
-        } else {
-          const errData = await res.json().catch(() => ({}));
-          result.failed++;
-          const errCode = errData?.error?.details?.[0]?.errorCode || errData?.error?.status || 'unknown';
-          result.errors.push(`${errCode}: ${token.slice(0, 15)}...`);
-          if (errCode === 'UNREGISTERED' || errCode === 'NOT_FOUND') {
-            result.unregistered++;
-            result.invalidTokens.push(token);
-          }
-          try {
-            await env.DB.prepare(
-              `INSERT INTO push_log (id, news_id, token, status, error, title, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
-            ).bind(crypto.randomUUID(), latestNews.id, token.slice(0, 30), 'failed', errCode, title.slice(0, 100), sentAt).run();
-          } catch (logErr) { /* silent */ }
-        }
-      } catch (e) {
-        result.failed++;
-        result.errors.push(`Network: ${e.message}`);
-      }
-    }
-  } catch (e) {
-    result.tokenExchangeError = 'JWT/Crypto error: ' + e.message;
-  }
-
-  return result;
-}
-
-async function queueAndSendPushNotifications(env, newsIds) {
-  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    console.error('[PUSH-FATAL] FIREBASE_SERVICE_ACCOUNT_JSON secret is MISSING!');
-    return;
-  }
-
-  const ids = [...new Set((newsIds || []).filter(Boolean))];
-  if (!ids.length) {
-    console.warn('[PUSH] No news IDs provided');
-    return;
-  }
-
-  const placeholders = ids.map(() => "?").join(",");
-  const latestNews = await env.DB.prepare(`
-    SELECT id, headline, summary, image_url, score, category, created_at FROM news
-    WHERE id IN (${placeholders}) AND status = 'published'
-    ORDER BY score DESC, created_at DESC LIMIT 1
-  `).bind(...ids).first();
-
-  if (!latestNews) {
-    console.warn('[PUSH] No published news found for IDs:', ids);
-    return;
-  }
-
-  const subs = await env.DB.prepare(
-    `SELECT token FROM push_subscriptions WHERE token IS NOT NULL AND token != '' ORDER BY created_at DESC LIMIT ${NOTIFICATION_CONFIG.MAX_BATCH_SIZE}`
-  ).all();
-
-  if (!subs.results?.length) {
-    console.warn('[PUSH] No subscribers found');
-    return;
-  }
-
-  const tokens = subs.results.map(s => s.token).filter(Boolean);
-  console.log(`[PUSH-BG] Sending to ${tokens.length} subscribers`);
-
-  const result = await sendPushSync(env, latestNews, tokens);
-  console.log(`[PUSH-BG] Result:`, JSON.stringify(result));
-
-  if (result.invalidTokens?.length > 0) {
-    try {
-      const invalidPlaceholders = result.invalidTokens.map(() => "?").join(",");
-      await env.DB.prepare(
-        `DELETE FROM push_subscriptions WHERE token IN (${invalidPlaceholders})`
-      ).bind(...result.invalidTokens).run();
-      console.log(`[PUSH-BG] ✅ Removed ${result.invalidTokens.length} invalid tokens`);
-    } catch (e) {
-      console.error('[PUSH-BG] Failed to remove invalid tokens:', e?.message);
-    }
   }
 }
 

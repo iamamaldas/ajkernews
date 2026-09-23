@@ -1,44 +1,5 @@
-export async function getNews(db, category = "top", limit = 25) {
-  const safeLimit = Math.min(Math.max(Number(limit) || 25, 1), 25);
-
-  let sql;
-  let bindings = [];
-
-  if (category === "trending") {
-    sql = `
-      SELECT id, headline, summary, main_topic, category, image_url,
-             source_name, source_url, published_at, created_at
-      FROM news
-      WHERE status = 'published'
-      ORDER BY score DESC, published_at DESC
-      LIMIT ?
-    `;
-    bindings = [safeLimit];
-  } else if (category === "all") {
-    sql = `
-      SELECT id, headline, summary, main_topic, category, image_url,
-             source_name, source_url, published_at, created_at
-      FROM news
-      WHERE status = 'published'
-      ORDER BY published_at DESC
-      LIMIT ?
-    `;
-    bindings = [safeLimit];
-  } else {
-    sql = `
-      SELECT id, headline, summary, main_topic, category, image_url,
-             source_name, source_url, published_at, created_at
-      FROM news
-      WHERE status = 'published'
-      ORDER BY score DESC, published_at DESC
-      LIMIT ?
-    `;
-    bindings = [safeLimit];
-  }
-
-  const result = await db.prepare(sql).bind(...bindings).all();
-  return result.results || [];
-}
+// worker/src/database.js
+// ✅ FIXED: unused getNews, unpublishNews, pruneTo1000 সরানো
 
 export async function getNewsById(db, id) {
   return await db.prepare(`SELECT * FROM news WHERE id = ? LIMIT 1`).bind(id).first();
@@ -85,10 +46,6 @@ export async function publishNews(db, id, data) {
     .run();
 }
 
-export async function unpublishNews(db, id) {
-  await db.prepare(`UPDATE news SET status = 'candidate' WHERE id = ?`).bind(id).run();
-}
-
 export async function deleteNews(db, id) {
   await db.prepare(`DELETE FROM news WHERE id = ?`).bind(id).run();
 }
@@ -105,13 +62,4 @@ export async function deleteOldestNews(db) {
 export async function countNews(db) {
   const row = await db.prepare(`SELECT COUNT(*) AS total FROM news`).first();
   return Number(row?.total || 0);
-}
-
-export async function pruneTo1000(db) {
-  let total = await countNews(db);
-  while (total > 1000) {
-    await deleteOldestNews(db);
-    total--;
-  }
-  return total;
 }

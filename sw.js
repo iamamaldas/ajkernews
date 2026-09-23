@@ -1,9 +1,9 @@
 /**
  * Ajker News Service Worker
- * v2026-09-22 — Push event handler added
+ * v2026-09-23 — SSE + FCM Silent Push + Notification Handler
  */
 
-const CACHE_VERSION = "ajker-news-v2026-09-22-push";
+const CACHE_VERSION = "ajker-news-v2026-09-23-sse-fcm";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
 self.addEventListener("install", event => {
@@ -38,6 +38,7 @@ self.addEventListener("fetch", event => {
     return;
   }
 
+  // ✅ Never cache SSE stream / API / navigation
   if (
     url.pathname.startsWith("/api/") ||
     url.pathname.startsWith("/go/") ||
@@ -82,6 +83,7 @@ self.addEventListener("message", event => {
 
 /* =========================================================
  * PUSH EVENT HANDLER — FCM fallback
+ * Handles both regular notifications and silent data-only
  * ========================================================= */
 
 self.addEventListener("push", (event) => {
@@ -103,6 +105,25 @@ self.addEventListener("push", (event) => {
 
   console.log("[SW] Push payload:", JSON.stringify(payload));
 
+  // ✅ Silent data-only push (new news published) → notify all open tabs
+  if (payload.data && payload.data.type === "news_published") {
+    const count = parseInt(payload.data.count || "0", 10);
+    event.waitUntil(
+      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+        clients.forEach((client) => {
+          client.postMessage({
+            type: "news_published",
+            count: count,
+            ids: (payload.data.ids || "").split(",").filter(Boolean)
+          });
+        });
+      })
+    );
+    // ✅ Don't show visual notification for silent updates
+    return;
+  }
+
+  // Regular notification display
   const title = payload.notification?.title || payload.data?.title || "আজকের নিউজ";
   const body = payload.notification?.body || payload.data?.body || "নতুন খবর এসেছে";
   const url = payload.data?.url || payload.fcmOptions?.link || "https://ajkernews.in/";

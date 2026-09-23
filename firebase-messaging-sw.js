@@ -1,7 +1,6 @@
 /**
  * Firebase Cloud Messaging Service Worker
- * Handles background push notifications from FCM
- * v4 — FIXED onBackgroundMessage (no Promise return)
+ * v5 — Silent data-only push + notification click
  */
 
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js');
@@ -19,15 +18,29 @@ firebase.initializeApp({
 if (firebase.messaging.isSupported()) {
   const messaging = firebase.messaging();
 
-  // ✅ FIXED: Promise return না করে .then/.catch দিয়ে handle
   messaging.onBackgroundMessage((payload) => {
-    console.log('[FCM-SW] Background message received:', JSON.stringify(payload));
+    console.log('[FCM-SW] Background message:', JSON.stringify(payload));
 
-    const notificationTitle = payload.notification?.title 
-      || payload.data?.title 
+    // ✅ Silent data-only push → notify all open tabs
+    if (payload.data && payload.data.type === 'news_published') {
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+        clients.forEach((client) => {
+          client.postMessage({
+            type: 'news_published',
+            count: parseInt(payload.data.count || '0', 10),
+            ids: (payload.data.ids || '').split(',').filter(Boolean)
+          });
+        });
+      });
+      return; // Don't show visual notification
+    }
+
+    // Regular notification
+    const notificationTitle = payload.notification?.title
+      || payload.data?.title
       || 'আজকের নিউজ';
-    const notificationBody = payload.notification?.body 
-      || payload.data?.body 
+    const notificationBody = payload.notification?.body
+      || payload.data?.body
       || 'নতুন খবর এসেছে';
 
     const notificationOptions = {
@@ -45,25 +58,14 @@ if (firebase.messaging.isSupported()) {
       }
     };
 
-    // ✅ FIX: Promise return না করে chain করুন
     self.registration.showNotification(notificationTitle, notificationOptions)
       .then(() => console.log('[FCM-SW] ✅ Notification shown'))
       .catch((err) => console.error('[FCM-SW] ❌ showNotification failed:', err));
-
-    // ✅ কিছু return করবেন না
   });
-
-  messaging.onMessage((payload) => {
-    console.log('[FCM-SW] Foreground message:', JSON.stringify(payload));
-  });
-} else {
-  console.warn('[FCM-SW] Firebase Messaging is not supported in this browser.');
 }
 
-// ✅ Notification click handler
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-
   const targetUrl = event.notification.data?.url || 'https://ajkernews.in/';
   const fullUrl = targetUrl.startsWith('http')
     ? targetUrl
@@ -79,23 +81,7 @@ self.addEventListener('notificationclick', (event) => {
           });
         }
       }
-      if (clients.openWindow) {
-        return clients.openWindow(fullUrl);
-      }
-    })
-  );
-});
-
-// ✅ Push subscription change handler
-self.addEventListener('pushsubscriptionchange', (event) => {
-  event.waitUntil(
-    self.registration.pushManager.getSubscription().then((subscription) => {
-      if (!subscription) return;
-      return fetch('https://ajkernews.in/api/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: subscription.endpoint })
-      });
+      if (clients.openWindow) return clients.openWindow(fullUrl);
     })
   );
 });

@@ -1,7 +1,6 @@
-/**
- * Ajker News Service Worker
- * v2026-09-23 — SSE + FCM Silent Push + Notification Handler
- */
+// sw.js
+// ✅ FIXED: push + notificationclick handlers সরানো (FCM SW handle করবে)
+// শুধু cache, install, activate, message রাখা হয়েছে
 
 const CACHE_VERSION = "ajker-news-v2026-09-23-sse-fcm";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
@@ -38,7 +37,6 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  // ✅ Never cache SSE stream / API / navigation
   if (
     url.pathname.startsWith("/api/") ||
     url.pathname.startsWith("/go/") ||
@@ -81,102 +79,5 @@ self.addEventListener("message", event => {
   }
 });
 
-/* =========================================================
- * PUSH EVENT HANDLER — FCM fallback
- * Handles both regular notifications and silent data-only
- * ========================================================= */
-
-self.addEventListener("push", (event) => {
-  console.log("[SW] Push event received");
-
-  let payload = {};
-  try {
-    if (event.data) {
-      payload = event.data.json();
-    }
-  } catch (e) {
-    console.error("[SW] Failed to parse push payload:", e);
-    try {
-      payload = { notification: { title: "আজকের নিউজ", body: event.data.text() } };
-    } catch (e2) {
-      payload = { notification: { title: "আজকের নিউজ", body: "নতুন খবর এসেছে" } };
-    }
-  }
-
-  console.log("[SW] Push payload:", JSON.stringify(payload));
-
-  // ✅ Silent data-only push (new news published) → notify all open tabs
-  if (payload.data && payload.data.type === "news_published") {
-    const count = parseInt(payload.data.count || "0", 10);
-    event.waitUntil(
-      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-        clients.forEach((client) => {
-          client.postMessage({
-            type: "news_published",
-            count: count,
-            ids: (payload.data.ids || "").split(",").filter(Boolean)
-          });
-        });
-      })
-    );
-    // ✅ Don't show visual notification for silent updates
-    return;
-  }
-
-  // Regular notification display
-  const title = payload.notification?.title || payload.data?.title || "আজকের নিউজ";
-  const body = payload.notification?.body || payload.data?.body || "নতুন খবর এসেছে";
-  const url = payload.data?.url || payload.fcmOptions?.link || "https://ajkernews.in/";
-  const image = payload.data?.image || payload.notification?.image || undefined;
-  const icon = payload.notification?.icon || payload.data?.icon || "https://ajkernews.in/logo.png";
-
-  const options = {
-    body: body,
-    icon: icon,
-    badge: "https://ajkernews.in/logo.png",
-    image: image,
-    vibrate: [200, 100, 200],
-    tag: payload.data?.notificationId || "ajker-news",
-    renotify: true,
-    requireInteraction: false,
-    data: {
-      url: url,
-      notificationId: payload.data?.notificationId || ""
-    }
-  };
-
-  event.waitUntil(
-    self.registration.showNotification(title, options)
-      .then(() => console.log("[SW] ✅ Notification shown via root SW"))
-      .catch((err) => console.error("[SW] ❌ showNotification failed:", err))
-  );
-});
-
-/* =========================================================
- * NOTIFICATION CLICK HANDLER
- * ========================================================= */
-
-self.addEventListener("notificationclick", (event) => {
-  event.notification.close();
-
-  const targetUrl = event.notification.data?.url || "https://ajkernews.in/";
-  const fullUrl = targetUrl.startsWith("http")
-    ? targetUrl
-    : `https://ajkernews.in${targetUrl.startsWith("/") ? targetUrl : "/" + targetUrl}`;
-
-  event.waitUntil(
-    clients.matchAll({ type: "window", includeUncontrolled: true }).then((windowClients) => {
-      for (const client of windowClients) {
-        if (client.url.startsWith("https://ajkernews.in") && "focus" in client) {
-          return client.focus().then(() => {
-            if ("navigate" in client) return client.navigate(fullUrl);
-            return client;
-          });
-        }
-      }
-      if (clients.openWindow) {
-        return clients.openWindow(fullUrl);
-      }
-    })
-  );
-});
+// ✅ FCM SW push + notificationclick handle করবে
+// এখানে আর push handler নেই (duplicate এড়ানোর জন্য)

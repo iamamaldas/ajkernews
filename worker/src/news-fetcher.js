@@ -1,14 +1,5 @@
-/*
- * GNews fetcher — Quota-optimized
- *
- * - Free tier safe: 24 req/day (limit 100)
- * - Serial fetch (bn → 3s gap → en) to avoid burst 429
- * - MAX_PER_LANGUAGE = 8 (more candidates)
- * - 429-safe: returns empty list instead of throwing
- * - 15s timeout per API call
- * - 2 retries with 2s delay
- * - Quality filter before storing
- */
+// worker/src/news-fetcher.js
+// ✅ Unchanged logic (সব ঠিক আছে)
 
 import { insertCandidate } from "./database.js";
 import { makeId, getDayKey } from "./utils.js";
@@ -16,53 +7,24 @@ import { makeId, getDayKey } from "./utils.js";
 const GNEWS_TOP_HEADLINES_URL = "https://gnews.io/api/v4/top-headlines";
 const GNEWS_SEARCH_URL = "https://gnews.io/api/v4/search";
 
-// Quota-safe: 8 per language (was 5)
 const MAX_PER_LANGUAGE = 8;
 const GNEWS_TIMEOUT_MS = 15000;
 const GNEWS_RETRY_DELAY_MS = 2000;
 const GNEWS_SERIAL_GAP_MS = 3000;
 
-// Quality filter thresholds
 const MIN_TITLE_LENGTH = 25;
 const MIN_DESCRIPTION_LENGTH = 60;
 
 const KEYWORD_SETS = [
-  {
-    id: "top-media",
-    en: `"ABP Ananda" OR "Aaj Tak" OR "Times of India" OR "TV9 Bangla" OR "The Hindu" OR "NDTV" OR "Hindustan Times" OR "Indian Express" OR "Anandabazar" OR "Bartaman" OR "Ei Samay" OR "News18 Bangla"`
-  },
-  {
-    id: "wb-breaking",
-    en: `"West Bengal breaking news" OR "Kolkata breaking" OR "Bengal government" OR "Kolkata police"`
-  },
-  {
-    id: "wb-politics",
-    en: `"West Bengal politics" OR "TMC BJP" OR "Bengal election" OR "Mamata Banerjee"`
-  },
-  {
-    id: "india-trending",
-    en: `"India trending news" OR "viral news India" OR "breaking India" OR "Supreme Court India"`
-  },
-  {
-    id: "national-media",
-    en: `"India Today" OR "Economic Times" OR "Livemint" OR "Business Standard" OR "Zee News" OR "Republic" OR "Firstpost" OR "Telegraph India"`
-  },
-  {
-    id: "india-national",
-    en: `"India government scheme" OR "Parliament India" OR "Indian economy" OR "Indian education" OR "Indian railways"`
-  },
-  {
-    id: "international",
-    en: `"World news" OR "International breaking" OR "Global news" OR "US news" OR "UK news" OR "Reuters" OR "BBC" OR "Al Jazeera"`
-  },
-  {
-    id: "trending-viral",
-    en: `"viral video" OR "trending now" OR "breaking news" OR "big announcement" OR "emergency news"`
-  },
-  {
-    id: "general-important",
-    en: `"important news India" OR "big update India" OR "government announcement" OR "public interest news"`
-  }
+  { id: "top-media", en: `"ABP Ananda" OR "Aaj Tak" OR "Times of India" OR "TV9 Bangla" OR "The Hindu" OR "NDTV" OR "Hindustan Times" OR "Indian Express" OR "Anandabazar" OR "Bartaman" OR "Ei Samay" OR "News18 Bangla"` },
+  { id: "wb-breaking", en: `"West Bengal breaking news" OR "Kolkata breaking" OR "Bengal government" OR "Kolkata police"` },
+  { id: "wb-politics", en: `"West Bengal politics" OR "TMC BJP" OR "Bengal election" OR "Mamata Banerjee"` },
+  { id: "india-trending", en: `"India trending news" OR "viral news India" OR "breaking India" OR "Supreme Court India"` },
+  { id: "national-media", en: `"India Today" OR "Economic Times" OR "Livemint" OR "Business Standard" OR "Zee News" OR "Republic" OR "Firstpost" OR "Telegraph India"` },
+  { id: "india-national", en: `"India government scheme" OR "Parliament India" OR "Indian economy" OR "Indian education" OR "Indian railways"` },
+  { id: "international", en: `"World news" OR "International breaking" OR "Global news" OR "US news" OR "UK news" OR "Reuters" OR "BBC" OR "Al Jazeera"` },
+  { id: "trending-viral", en: `"viral video" OR "trending now" OR "breaking news" OR "big announcement" OR "emergency news"` },
+  { id: "general-important", en: `"important news India" OR "big update India" OR "government announcement" OR "public interest news"` }
 ];
 
 function getKeywordSetForSlot(scheduledTime = Date.now()) {
@@ -124,11 +86,7 @@ async function parseGNewsResponse(response, label) {
     try {
       const errorData = await response.json();
       if (errorData?.errors) {
-        errorMessage += ` - ${
-          Array.isArray(errorData.errors)
-            ? errorData.errors.join(", ")
-            : JSON.stringify(errorData.errors)
-        }`;
+        errorMessage += ` - ${Array.isArray(errorData.errors) ? errorData.errors.join(", ") : JSON.stringify(errorData.errors)}`;
       }
     } catch {}
     throw new Error(errorMessage);
@@ -204,16 +162,9 @@ export function normalizeGNewsArticle(article, language, keywordSetId = "general
   const id = String(article?.id || "").trim() || makeId();
 
   if (!sourceUrl || !title) return null;
-
-  if (title.length < MIN_TITLE_LENGTH) {
-    return null;
-  }
-  if (description.length < MIN_DESCRIPTION_LENGTH) {
-    return null;
-  }
-  if (sourceName.toLowerCase().includes("unknown")) {
-    return null;
-  }
+  if (title.length < MIN_TITLE_LENGTH) return null;
+  if (description.length < MIN_DESCRIPTION_LENGTH) return null;
+  if (sourceName.toLowerCase().includes("unknown")) return null;
 
   const score = calculateInitialScore(language, publishedAt, keywordSetId, title, description);
 

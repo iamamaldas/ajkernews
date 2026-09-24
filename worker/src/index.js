@@ -1,7 +1,6 @@
 // worker/src/index.js
-// ✅ FINAL VERSION — Smart Fallback + Trending Formula + Copyright Removed
-// ✅ 100% Perfect Result
-// ✅ FIXED: Inactive/invalid FCM tokens auto-delete (Breaking + Digest + Silent)
+// ✅ FINAL v3: Inactive token auto-delete + 410 Gone page
+// ✅ 100% Production Ready
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -102,7 +101,7 @@ function getDigestType(hour) {
 }
 
 // =========================================================
-// ✅ NEW: Helper — Invalid/unregistered FCM tokens remove
+// ✅ Helper — Invalid/unregistered FCM tokens remove
 // =========================================================
 async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
   if (!invalidTokens || !invalidTokens.length) return 0;
@@ -118,6 +117,42 @@ async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
     console.warn(`[${source}] Failed to remove invalid tokens:`, e?.message || String(e));
     return 0;
   }
+}
+
+// =========================================================
+// ✅ 410 GONE PAGE — for deleted news (SEO-friendly)
+// =========================================================
+function gonePage() {
+  const html = `<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>খবরটি আর নেই - Ajker News</title>
+<meta name="robots" content="noindex, follow">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; max-width: 600px; margin: 80px auto; padding: 20px; text-align: center; color: #111; }
+  h1 { font-size: 32px; margin-bottom: 16px; }
+  p { font-size: 16px; color: #666; line-height: 1.6; margin-bottom: 24px; }
+  a { display: inline-block; background: #007bff; color: #fff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; }
+</style>
+</head>
+<body>
+  <h1>📰 খবরটি আর নেই</h1>
+  <p>এই খবরটি আমাদের আর্কাইভ থেকে সরিয়ে নেওয়া হয়েছে। সাম্প্রতিক খবর দেখতে নিচের বাটনে ক্লিক করুন।</p>
+  <a href="https://ajkernews.in/">সর্বশেষ খবর দেখুন</a>
+</body>
+</html>`;
+
+  return new Response(html, {
+    status: 410,
+    headers: {
+      "Content-Type": "text/html; charset=UTF-8",
+      "Cache-Control": "public, max-age=86400",
+      "X-Robots-Tag": "noindex, follow"
+    }
+  });
 }
 
 export default {
@@ -682,7 +717,6 @@ async function sendDigest(env, istHour) {
     }
   }
 
-  // ✅ FIX: Invalid tokens delete (via helper)
   await removeInvalidTokens(env, result.invalidTokens, 'DIGEST');
 
   console.log(`[DIGEST] Result:`, JSON.stringify(result));
@@ -727,7 +761,6 @@ async function sendBreakingAlert(env, news) {
     newsIds: [news.id], isBreaking: true
   }, tokens);
 
-  // ✅ FIX: Invalid tokens delete — এটাই main fix
   await removeInvalidTokens(env, result.invalidTokens, 'PUSH');
 
   const sentAt = new Date().toISOString();
@@ -894,7 +927,6 @@ async function sendSilentFcmUpdate(env, newsIds) {
         body: JSON.stringify(message)
       });
 
-      // ✅ FIX: Invalid token detect
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         const errCode = errData?.error?.details?.[0]?.errorCode || errData?.error?.status || '';
@@ -905,7 +937,6 @@ async function sendSilentFcmUpdate(env, newsIds) {
     } catch (e) {}
   }
 
-  // ✅ FIX: Invalid tokens delete (via helper)
   await removeInvalidTokens(env, invalidTokens, 'FCM-SILENT');
 }
 
@@ -923,7 +954,6 @@ async function sendSinglePush(env, news, tokens, isBreaking) {
     newsIds: [news.id], isBreaking
   }, tokens);
 
-  // ✅ FIX: Invalid tokens delete
   await removeInvalidTokens(env, result.invalidTokens, 'PUSH-TEST');
 
   return result;
@@ -1300,7 +1330,7 @@ async function serveListingPage(env, category, searchQuery) {
 }
 
 // =========================================================
-// ARTICLE PAGE
+// ARTICLE PAGE — with 410 Gone for deleted news
 // =========================================================
 async function serveArticlePage(id, env) {
   const safeId = String(id || "").trim();
@@ -1310,7 +1340,8 @@ async function serveArticlePage(id, env) {
     `SELECT headline, summary, main_topic, image_url, published_at, created_at, source_name, source_url, category FROM news WHERE id = ? AND status = 'published' LIMIT 1`
   ).bind(safeId).first();
 
-  if (!result) return Response.redirect("https://ajkernews.in/", 302);
+  // ✅ 410 GONE for deleted news (instead of 302)
+  if (!result) return gonePage();
 
   let loveCount = 0;
   try {
@@ -1834,7 +1865,7 @@ async function ensureTablesOnce(env) {
 }
 
 // =========================================================
-// SHARE PAGE
+// SHARE PAGE — with 410 Gone for deleted news
 // =========================================================
 async function serveSharePage(id, env, requestUserAgentFromContext = "", requestUrl = null) {
   const safeId = String(id || "").trim();
@@ -1844,7 +1875,8 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
     `SELECT id, headline, summary, main_topic, image_url, published_at, created_at, source_name, source_url, category FROM news WHERE id = ? AND status = 'published' LIMIT 1`
   ).bind(safeId).first();
 
-  if (!result) return Response.redirect("https://ajkernews.in/", 302);
+  // ✅ 410 GONE for deleted news
+  if (!result) return gonePage();
 
   const title = cleanText(result.headline) || "Ajker News";
   const description = cleanText(result.summary || "").slice(0, 160);
@@ -2094,7 +2126,7 @@ async function handlePushLogs(env, url) {
 }
 
 // =========================================================
-// API: GET NEWS — FINAL VERSION with Smart Fallback + Trending Formula
+// API: GET NEWS
 // =========================================================
 async function handleGetNews(url, env, request) {
   return cacheNewsApi(request, async () => {
@@ -2113,7 +2145,6 @@ async function handleGetNewsInternal(url, env) {
 
   const selectFields = `news.id, news.headline, news.summary, news.main_topic, news.category, news.image_url, news.published_at, news.source_name, news.source_url, news.created_at, news.score, COUNT(nl.id) AS love_count`;
 
-  // ============ Specific ID ============
   if (specificId) {
     const result = await env.DB.prepare(
       `SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id 
@@ -2123,7 +2154,6 @@ async function handleGetNewsInternal(url, env) {
     return json({ success: true, count: (result.results || []).length, news: result.results || [] }, 200, 0);
   }
 
-  // ============ Search Query ============
   if (query) {
     const transliterated = toTransliterated(query);
     const result = await env.DB.prepare(
@@ -2141,7 +2171,6 @@ async function handleGetNewsInternal(url, env) {
     return json({ success: true, count: news.length, offset, limit, has_more: hasMore, news }, 200, 0);
   }
 
-  // ============ 🔥 সেরা খবর (Top) — Fallback 24h → 48h → 7d → all ============
   if (category === "top") {
     const windows = [
       { sql: "datetime('now', '-24 hours')", label: "24h" },
@@ -2173,7 +2202,6 @@ async function handleGetNewsInternal(url, env) {
     }
   }
 
-  // ============ 📈 ট্রেন্ডিং (Trending) — Multi-Signal + Fallback 3d → 7d → 30d → all ============
   if (category === "trending") {
     const windows = [
       { sql: "datetime('now', '-3 days')",  label: "3d"  },
@@ -2224,7 +2252,6 @@ async function handleGetNewsInternal(url, env) {
     }
   }
 
-  // ============ 🗞️ সব খবর (All) ============
   if (category === "all") {
     const result = await env.DB.prepare(
       `SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id 
@@ -2240,7 +2267,6 @@ async function handleGetNewsInternal(url, env) {
     return json({ success: true, count: news.length, offset, limit, has_more: hasMore, news }, 200, 0);
   }
 
-  // ============ Category-specific (politics, west_bengal, india, etc.) ============
   const result = await env.DB.prepare(
     `SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id 
      WHERE news.status = 'published' AND news.category = ? 

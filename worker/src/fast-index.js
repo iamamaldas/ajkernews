@@ -2,6 +2,7 @@
 // ✅ FIXED: Google Indexing API URL ঠিক করা হয়েছে
 // ✅ FIXED: btoa Unicode bug — utils.base64url ব্যবহার
 // ✅ FIXED: JWT code — jwt.js helper ব্যবহার
+// ✅ FIXED: GOOGLE_SERVICE_ACCOUNT_JSON ব্যবহার (FCM এর JSON না)
 
 import { submitToIndexNow } from "./indexnow.js";
 import { notifyWebSub } from "./websub.js";
@@ -57,14 +58,15 @@ export async function fastIndexNews(env, ids) {
   return { ok, submitted: urls.length, successfulChannels, channels };
 }
 
-// ✅ FIXED: Google Indexing API — সঠিক URL ও flow
+// ✅ FIXED: Google Indexing API — GOOGLE_SERVICE_ACCOUNT_JSON ব্যবহার
 async function submitToGoogleIndexingAPI(env, urls) {
-  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    return { ok: false, reason: "missing_service_account_json" };
+  // ✅ Google Indexing API এর জন্য আলাদা secret
+  if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+    return { ok: false, reason: "missing_google_service_account_json" };
   }
 
   try {
-    const serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
+    const serviceAccount = JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON);
 
     // ✅ সঠিক scope ও audience
     const signedJWT = await createSignedJWT(

@@ -21,35 +21,27 @@
 <link rel="icon" type="image/png" sizes="512x512" href="/logo.png">
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="dns-prefetch" href="https://www.gstatic.com">
+<link rel="preconnect" href="https://pagead2.googlesyndication.com" crossorigin>
+<link rel="dns-prefetch" href="https://pagead2.googlesyndication.com">
 <meta property="og:title" content="Ajker News | আজকের নিউজ">
 <meta property="og:description" content="কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ বাংলা খবর।">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://ajkernews.in/">
 <meta property="og:image" content="https://ajkernews.in/logo.png">
+
+<!-- ✅ Google AdSense Script -->
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXXXXXXXX" crossorigin="anonymous"></script>
+
 <script type="application/ld+json">
 { "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in/logo.png" }
 </script>
+
 <style>
 * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-tap-highlight-color: transparent; }
 html { scroll-behavior: smooth; font-size: 16px; -webkit-text-size-adjust: 100%; }
 body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; max-width: 100vw; overflow-x: hidden; min-height: 100vh; display: flex; flex-direction: column; padding-bottom: 0; }
 
-.header {
-  position: sticky;
-  top: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px;
-  min-height: 68px;
-  background: rgba(255,255,255,0.95);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border-bottom: 1px solid rgba(0,0,0,0.06);
-  gap: 12px;
-}
-
+.header { position: sticky; top: 0; z-index: 1000; display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; min-height: 68px; background: rgba(255,255,255,0.95); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border-bottom: 1px solid rgba(0,0,0,0.06); gap: 12px; }
 .header-left { display: flex; align-items: center; gap: 10px; min-width: 0; flex-shrink: 1; }
 .header-home-link { display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; transition: transform 0.15s ease; min-width: 0; }
 .header-home-link:active { transform: scale(0.97); }
@@ -67,11 +59,6 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .hamburger { flex-direction: column; gap: 4.5px; }
 .hamburger span { display: block; width: 19px; height: 2.2px; background: #111111; border-radius: 2px; transition: all 0.2s ease; }
 
-@media (min-width: 481px) and (max-width: 768px) {
-  .header-left h1 { font-size: 22px; letter-spacing: -0.5px; }
-  .header-logo { height: 38px; }
-}
-
 .trending-banner { display: flex; align-items: center; justify-content: space-between; min-height: 52px; padding: 12px 16px; background: linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%); color: #ffffff; box-shadow: 0 2px 8px rgba(0,0,0,0.25); }
 .trending-banner span { font-size: 16.5px; font-weight: 700; letter-spacing: -0.1px; }
 .banner-right-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 16px; border-radius: 20px; background: #ffffff; color: #111111; text-decoration: none; font-size: 13px; font-weight: 700; white-space: nowrap; border: none; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.12); margin-right: 2px; transition: transform 0.15s ease, box-shadow 0.15s ease; }
@@ -79,48 +66,13 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .banner-right-btn:active { transform: scale(0.97); }
 .banner-right-btn svg { width: 15px; height: 15px; flex-shrink: 0; stroke: #111111; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
-/* ✅ NEW: New News Banner */
-.new-news-banner {
-  display: none;
-  position: sticky;
-  top: 120px;
-  z-index: 998;
-  padding: 12px 16px;
-  background: linear-gradient(135deg, #e53935 0%, #c62828 100%);
-  color: #fff;
-  font-weight: 700;
-  font-size: 14px;
-  cursor: pointer;
-  align-items: center;
-  gap: 10px;
-  box-shadow: 0 4px 16px rgba(229, 57, 53, 0.35);
-  animation: slideDown 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-}
+.new-news-banner { display: none; position: sticky; top: 120px; z-index: 998; padding: 12px 16px; background: linear-gradient(135deg, #e53935 0%, #c62828 100%); color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; align-items: center; gap: 10px; box-shadow: 0 4px 16px rgba(229, 57, 53, 0.35); animation: slideDown 0.35s cubic-bezier(0.4, 0, 0.2, 1); }
 .new-news-banner.show { display: flex; }
 .new-news-icon { font-size: 18px; flex-shrink: 0; }
 .new-news-text { flex: 1; letter-spacing: -0.1px; }
-.new-news-close {
-  background: rgba(255, 255, 255, 0.2);
-  border: none;
-  color: #fff;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  font-size: 18px;
-  font-weight: 700;
-  cursor: pointer;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  line-height: 1;
-}
+.new-news-close { background: rgba(255, 255, 255, 0.2); border: none; color: #fff; width: 26px; height: 26px; border-radius: 50%; font-size: 18px; font-weight: 700; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1; }
 .new-news-close:active { background: rgba(255, 255, 255, 0.35); }
-@keyframes slideDown {
-  from { transform: translateY(-100%); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
+@keyframes slideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
 .search-modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; padding:70px 16px 20px; justify-content:center; align-items:flex-start; background:rgba(10,10,10,0.55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index:1000; overflow-y:auto; }
 .search-modal.active { display:flex; animation: fadeIn 0.2s ease; }
@@ -191,6 +143,14 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .love-btn.loved { color:#e74c3c; }
 .love-btn.loved svg { fill:#e74c3c !important; stroke:#e74c3c !important; }
 
+.adsense-infeed { display: block; width: 100%; min-height: 250px; background: #ffffff; border-radius: 18px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 6px 24px rgba(0,0,0,0.06); padding: 8px; text-align: center; position: relative; }
+.adsense-infeed::before { content: 'Sponsored'; display: block; font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; text-align: center; }
+
+.footer-personal-ad { margin: 40px auto 20px; max-width: 800px; padding: 30px 16px 0; border-top: 1px solid #eee; }
+.footer-ad-label { text-align: center; font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+.footer-ad-card { display: block; text-decoration: none; color: inherit; border: 1px solid #e0e0e0; border-radius: 12px; overflow: hidden; background: #fff; transition: box-shadow 0.2s; }
+.footer-ad-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+
 #loadMoreBtn { display:none; width:100%; padding:16px; background:#111111; color:#ffffff; border:none; border-radius:14px; font-size:15.5px; font-weight:700; cursor:pointer; margin-top:26px; transition: background 0.15s, transform 0.15s, box-shadow 0.15s; letter-spacing:-0.1px; box-shadow: 0 4px 14px rgba(0,0,0,0.15); }
 #loadMoreBtn:hover { background:#000; transform: translateY(-2px); box-shadow: 0 8px 22px rgba(0,0,0,0.2); }
 #loadMoreBtn:active { transform: translateY(0) scale(0.98); }
@@ -232,23 +192,18 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   .header-logo { height:28px; }
   .header-left, .header-home-link { gap:9px; }
   .header-right { gap:0; }
-
   .notif-btn, .search-btn, .hamburger { width:36px !important; height:36px !important; }
   .search-svg { width:18px !important; height:18px !important; }
   .hamburger { gap:4px !important; }
   .hamburger span { width:18px !important; height:2.2px !important; }
   .notif-btn svg { width:20px !important; height:20px !important; }
-
   .trending-banner { padding:10px 14px; min-height:46px; }
   .trending-banner span { font-size:15px; font-weight:700; letter-spacing:0; }
   .banner-right-btn { padding:6px 13px; font-size:11.5px; border-radius:20px; gap:5px; }
   .banner-right-btn svg { width:13px; height:13px; }
-
   .new-news-banner { top: 110px; padding: 10px 14px; font-size: 13px; }
-
   .main-content { padding:12px; }
   #newsContainer { gap:12px; }
-
   .news-card { border-radius:16px; }
   .news-image-wrapper { aspect-ratio: auto; min-height: 180px; max-height: 320px; }
   .news-image { aspect-ratio: auto; width:100%; height:auto; min-height: 180px; max-height: 320px; object-fit: contain; background:#f2f3f5; }
@@ -261,26 +216,23 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   .action-btn { padding:6px 10px; font-size:13px; }
   .action-btn svg { width:17px; height:17px; }
   .action-count { font-size:11.5px; }
-
+  .adsense-infeed { min-height: 220px; }
+  .footer-personal-ad { margin: 30px 12px 15px; padding: 22px 12px 0; }
   .search-modal { padding:80px 14px 20px; }
   .search-modal-box { padding:18px 18px 22px; border-radius:16px; }
   .close-search { font-size:25px; top:4px; right:10px; }
   .search-modal-box .search-submit-btn { padding:9px 22px; font-size:14px; }
   .search-modal-box input { font-size:16px; padding:12px 14px; }
   .search-input-wrapper { gap:12px; }
-
   .floating-app-btn { right:14px; bottom:18px; width:54px; height:54px; }
   .floating-app-btn svg { width:20px; height:20px; }
   .floating-app-btn span { font-size:8.5px; }
-
   .modal-content { width:94%; margin:4% auto; padding:16px; max-height:88vh; border-radius:16px; }
   #modal-body { padding-right:2px; }
-
   .notif-prompt-box { padding: 24px 18px 18px; }
   .notif-prompt-title { font-size: 18px; }
   .notif-prompt-text { font-size: 13.5px; }
   .notif-prompt-btn { padding: 12px 14px; font-size: 14px; }
-
   .footer { padding:22px 14px 14px; }
   .footer-links { gap:18px; margin-bottom:12px; }
   .footer-links a { font-size:12.5px; }
@@ -325,7 +277,6 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   </button>
 </div>
 
-<!-- ✅ NEW: New News Banner -->
 <div id="newNewsBanner" class="new-news-banner" onclick="loadNewNewsNow()">
   <span class="new-news-icon">🆕</span>
   <span class="new-news-text" id="newNewsText">নতুন খবর এসেছে — দেখতে ট্যাপ করুন</span>
@@ -369,10 +320,29 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
     </div>
   </div>
 </div>
+
 <div class="main-content">
+  <!-- 🟢 ADSENSE — TOP BANNER -->
+  <div class="adsense-infeed" style="margin-bottom: 16px;">
+    <ins class="adsbygoogle"
+         style="display:block"
+         data-ad-client="ca-pub-XXXXXXXXXXXXXXXX"
+         data-ad-slot="1111111111"
+         data-ad-format="auto"
+         data-full-width-responsive="true"></ins>
+    <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+  </div>
+
   <div id="newsContainer"></div>
   <button id="loadMoreBtn" onclick="loadMoreNews()">আরও খবর দেখুন</button>
 </div>
+
+<!-- 🟡 PERSONAL AD — FOOTER -->
+<div class="footer-personal-ad">
+  <div class="footer-ad-label">Sponsored</div>
+  <div id="footer-ad-content"></div>
+</div>
+
 <footer class="footer">
   <div class="footer-links">
     <a href="javascript:void(0)" onclick="openModal('pages/about.html')">About</a>
@@ -408,11 +378,9 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 
   const app = initializeApp(firebaseConfig);
   const messaging = getMessaging(app);
-
   window.__firebase = { app, messaging, getToken, onMessage, deleteToken };
   window.__VAPID_KEY = "BPIJghMstrMW--U1O0rRUbDVm1epdMAOaR6WZ3mRE03C2bD33IYL_02NDKYk8us6WnRFGHQ7wPnvhEKCXeuzmlA";
   window.__firebaseReady = true;
-
   console.log('[Firebase] Initialized');
 </script>
 
@@ -420,6 +388,13 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 const WORKER_BASE = window.location.origin;
 const API_URL = `${WORKER_BASE}/api/news`;
 const SITE_URL = window.location.origin;
+
+const ADSENSE_CLIENT = "ca-pub-XXXXXXXXXXXXXXXX";
+const AD_SLOTS = {
+  topBanner: "1111111111",
+  inFeed1: "2222222222",
+  inFeed2: "3333333333"
+};
 
 let currentCategory = 'top';
 let currentSearchQuery = '';
@@ -430,6 +405,52 @@ let currentOffset = 0;
 const PAGE_SIZE = 10;
 let hasMoreNews = false;
 let deferredPrompt = null;
+
+function renderAdSenseInFeed(slotId) {
+  return `<div class="adsense-infeed" data-ad-slot="${slotId}">
+    <ins class="adsbygoogle"
+         style="display:block"
+         data-ad-client="${ADSENSE_CLIENT}"
+         data-ad-slot="${slotId}"
+         data-ad-format="fluid"
+         data-ad-layout="in-article"></ins>
+  </div>`;
+}
+
+function renderPersonalFooterAd(ad) {
+  return `<a href="${ad.url}" target="_blank" rel="noopener" class="footer-ad-card">
+    ${ad.image ? `<img src="${ad.image}" alt="${ad.title}" style="width:100%;height:auto;max-height:200px;object-fit:cover;display:block;">` : ''}
+    <div style="padding: 18px 20px;">
+      <div style="font-size:19px;font-weight:700;color:#111;margin-bottom:8px;">${ad.title}</div>
+      <div style="font-size:15px;color:#666;line-height:1.5;margin-bottom:16px;">${ad.description || ''}</div>
+      <div style="display:inline-block;background:#007bff;color:#fff;padding:10px 22px;border-radius:8px;font-size:15px;font-weight:600;">${ad.cta || 'Learn More'} →</div>
+    </div>
+  </a>`;
+}
+
+async function loadFooterPersonalAd() {
+  try {
+    const res = await fetch(`${WORKER_BASE}/api/ads?placement=footer`);
+    const data = await res.json();
+    if (!data.success || !data.ad) {
+      document.querySelector('.footer-personal-ad').style.display = 'none';
+      return;
+    }
+    document.getElementById('footer-ad-content').innerHTML = renderPersonalFooterAd(data.ad);
+  } catch (e) {
+    console.error('Footer ad failed:', e);
+    const el = document.querySelector('.footer-personal-ad');
+    if (el) el.style.display = 'none';
+  }
+}
+
+function reinitializeAdSense() {
+  try {
+    document.querySelectorAll('ins.adsbygoogle:not([data-adsbygoogle-status])').forEach(() => {
+      (adsbygoogle = window.adsbygoogle || []).push({});
+    });
+  } catch (e) { console.error('[AdSense]', e); }
+}
 
 function sortByLatest(newsArray) {
   if (!Array.isArray(newsArray)) return [];
@@ -473,21 +494,14 @@ function escapeHtml(value) {
   return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
 
-/* ✅ ENGLISH DATE/TIME — IST (Asia/Kolkata) FORCED */
 function formatDate(dateString) {
   if (!dateString) return '';
   const date = new Date(dateString);
   if (isNaN(date.getTime())) return '';
   return date.toLocaleDateString('en-US', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'Asia/Kolkata'
+    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata'
   }) + ' • ' + date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-    timeZone: 'Asia/Kolkata'
+    hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata'
   });
 }
 
@@ -513,10 +527,7 @@ function getCategoryLabel(category) {
   return labels[category] || category || 'সাধারণ';
 }
 
-window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  deferredPrompt = e;
-});
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; });
 
 async function installApp() {
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
@@ -548,26 +559,18 @@ async function loadNews(category = 'top', search = '', options = {}) {
   currentCategory = category || 'top';
   const { showLoading = true, keepExisting = false } = options;
   const container = document.getElementById('newsContainer');
-
   if (isLoadingNews) return;
-
   isLoadingNews = true;
   currentSearchQuery = search || '';
   if (showLoading && !keepExisting) showSkeleton(container, 3);
-
-  try {
-    await loadNewsNetwork(category, search);
-  } catch (err) {
-    console.error('loadNews failed:', err);
-  } finally {
-    isLoadingNews = false;
-  }
+  try { await loadNewsNetwork(category, search); }
+  catch (err) { console.error('loadNews failed:', err); }
+  finally { isLoadingNews = false; }
 }
 
 async function loadNewsNetwork(category, search) {
   const MAX_ATTEMPTS = 5;
   const BASE_DELAY = 800;
-
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const params = new URLSearchParams();
@@ -575,7 +578,6 @@ async function loadNewsNetwork(category, search) {
       params.set('limit', '10');
       if (search) params.set('q', search);
       params.set('_t', String(Date.now()));
-
       const url = API_URL + '?' + params.toString();
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 12000);
@@ -583,39 +585,27 @@ async function loadNewsNetwork(category, search) {
       try {
         response = await fetch(url, {
           method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache'
-          },
+          headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
           cache: 'no-store',
           signal: controller.signal
         });
       } finally { clearTimeout(timeoutId); }
-
       if (!response.ok) throw new Error('News API HTTP ' + response.status);
       const data = await response.json();
       if (!data || !Array.isArray(data.news)) throw new Error('Invalid response');
-
       const normalized = data.news.map(normalizeNews).filter(Boolean);
       const sorted = sortByLatest(normalized);
       currentNews = sorted;
       visibleCount = 10;
       hasMoreNews = data.has_more || false;
-
       renderNews(currentNews, hasMoreNews);
       updateLoveCounts(normalized);
       return;
     } catch (error) {
       console.warn(`[loadNewsNetwork] attempt ${attempt}/${MAX_ATTEMPTS} failed:`, error?.message || error);
-      if (attempt < MAX_ATTEMPTS) {
-        const delay = BASE_DELAY * attempt;
-        await new Promise(r => setTimeout(r, delay));
-      }
+      if (attempt < MAX_ATTEMPTS) await new Promise(r => setTimeout(r, BASE_DELAY * attempt));
     }
   }
-
-  console.warn('[loadNewsNetwork] All retry attempts failed. Keeping silent.');
 }
 
 async function updateLoveCounts(normalized) {
@@ -627,12 +617,10 @@ async function updateLoveCounts(normalized) {
     if (loveData.success && loveData.counts) {
       Object.keys(loveData.counts).forEach(id => {
         const count = loveData.counts[id];
-        document.querySelectorAll(`[data-love-count="${id}"]`).forEach(el => {
-          el.textContent = String(count);
-        });
+        document.querySelectorAll(`[data-love-count="${id}"]`).forEach(el => { el.textContent = String(count); });
       });
     }
-  } catch (e) { /* silent */ }
+  } catch (e) {}
 }
 
 function buildNewsHtml(news) {
@@ -687,9 +675,16 @@ function renderNews(newsList, hasMore = false) {
     return;
   }
   const limited = newsList.slice(0, visibleCount);
-  container.innerHTML = limited.map(buildNewsHtml).join('');
+  let html = '';
+  limited.forEach((news, index) => {
+    html += buildNewsHtml(news);
+    if (index === 2) html += renderAdSenseInFeed(AD_SLOTS.inFeed1);
+    if (index === 6) html += renderAdSenseInFeed(AD_SLOTS.inFeed2);
+  });
+  container.innerHTML = html;
   requestAnimationFrame(() => {
     container.querySelectorAll('.news-card').forEach(c => c.classList.add('visible'));
+    reinitializeAdSense();
   });
   const loadMoreBtn = document.getElementById('loadMoreBtn');
   if (loadMoreBtn) loadMoreBtn.style.display = hasMore ? 'block' : 'none';
@@ -707,15 +702,8 @@ async function loadMoreNews() {
     params.set('offset', String(currentOffset));
     if (currentSearchQuery) params.set('q', currentSearchQuery);
     params.set('_t', String(Date.now()));
-
     const url = API_URL + '?' + params.toString();
-    const response = await fetch(url, {
-      headers: {
-        'Accept': 'application/json',
-        'Cache-Control': 'no-cache'
-      },
-      cache: 'no-store'
-    });
+    const response = await fetch(url, { headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' }, cache: 'no-store' });
     const data = await response.json();
     if (!data.news || data.news.length === 0) {
       hasMoreNews = false;
@@ -757,28 +745,17 @@ async function shareNews(id, headline, summary) {
   const safeSummary = String(summary || '').trim();
   const shortSummary = safeSummary.slice(0, 100).trim();
   const summaryPart = shortSummary ? `${shortSummary}${safeSummary.length > 100 ? '...' : ''}\n\n` : '';
-
   if (navigator.share) {
     try {
-      await navigator.share({
-        title: headline,
-        text: `${headline}\n\n${summaryPart}বিস্তারিত পড়ুন`,
-        url: shareUrl
-      });
+      await navigator.share({ title: headline, text: `${headline}\n\n${summaryPart}বিস্তারিত পড়ুন`, url: shareUrl });
       return;
     } catch (err) { if (err && err.name === 'AbortError') return; }
   }
-
   const shareText = `${headline}\n\n${summaryPart}বিস্তারিত পড়ুন: ${shareUrl}`;
-
   if (navigator.clipboard && window.isSecureContext) {
-    try {
-      await navigator.clipboard.writeText(shareText);
-      showCopyToast('লিংক কপি হয়েছে');
-      return;
-    } catch (err) {}
+    try { await navigator.clipboard.writeText(shareText); showCopyToast('লিংক কপি হয়েছে'); return; }
+    catch (err) {}
   }
-
   try {
     const textarea = document.createElement('textarea');
     textarea.value = shareText;
@@ -810,18 +787,9 @@ let notificationSetupInProgress = false;
 async function toggleNotification() {
   const btn = document.getElementById('notifyBtn');
   if (notificationSetupInProgress) return;
-  if (!('Notification' in window) || !('serviceWorker' in navigator)) {
-    alert('এই ব্রাউজারে নোটিফিকেশন সাপোর্টেড নয়।');
-    return;
-  }
-
-  if (!window.__firebase || typeof window.__firebase.getToken !== 'function') {
-    alert('Firebase এখনো ready নয়। একটু পরে আবার চেষ্টা করুন।');
-    return;
-  }
-
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) { alert('এই ব্রাউজারে নোটিফিকেশন সাপোর্টেড নয়।'); return; }
+  if (!window.__firebase || typeof window.__firebase.getToken !== 'function') { alert('Firebase এখনো ready নয়। একটু পরে আবার চেষ্টা করুন।'); return; }
   const isCurrentlySubscribed = btn.classList.contains('subscribed');
-
   if (isCurrentlySubscribed) {
     if (!confirm('নোটিফিকেশন বন্ধ করতে চান?')) return;
     notificationSetupInProgress = true;
@@ -829,20 +797,16 @@ async function toggleNotification() {
     try {
       let fcmRegistration = window.__fcmRegistration;
       if (!fcmRegistration) {
-        fcmRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
-          scope: '/firebase-cloud-messaging-push-scope'
-        });
+        fcmRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/firebase-cloud-messaging-push-scope' });
         window.__fcmRegistration = fcmRegistration;
       }
       const existingToken = await window.__firebase.getToken(window.__firebase.messaging, {
         vapidKey: window.__VAPID_KEY,
         serviceWorkerRegistration: fcmRegistration
       }).catch(() => null);
-
       if (existingToken) {
         await fetch(`${WORKER_BASE}/api/unsubscribe`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ endpoint: existingToken, token: existingToken })
         }).catch(() => {});
       }
@@ -850,70 +814,37 @@ async function toggleNotification() {
       btn.classList.remove('subscribed');
       localStorage.setItem('notifSubscribed', '0');
       alert('নোটিফিকেশন বন্ধ করা হয়েছে।');
-    } catch (error) {
-      alert('নোটিফিকেশন বন্ধ করা যায়নি: ' + (error?.message || error));
-    } finally {
-      notificationSetupInProgress = false;
-      btn.disabled = false;
-    }
+    } catch (error) { alert('নোটিফিকেশন বন্ধ করা যায়নি: ' + (error?.message || error)); }
+    finally { notificationSetupInProgress = false; btn.disabled = false; }
     return;
   }
-
   notificationSetupInProgress = true;
   btn.disabled = true;
   try {
     let attempts = 0;
-    while (!window.__firebaseReady && attempts < 20) {
-      await new Promise(r => setTimeout(r, 200));
-      attempts++;
-    }
-    if (!window.__firebaseReady) {
-      alert('Firebase initialize হয়নি। পেজ reload করুন।');
-      return;
-    }
-
-    if (Notification.permission === 'denied') {
-      alert('ব্রাউজার নোটিফিকেশন blocked। ব্রাউজার সেটিংস থেকে চালু করুন।');
-      return;
-    }
-
+    while (!window.__firebaseReady && attempts < 20) { await new Promise(r => setTimeout(r, 200)); attempts++; }
+    if (!window.__firebaseReady) { alert('Firebase initialize হয়নি। পেজ reload করুন।'); return; }
+    if (Notification.permission === 'denied') { alert('ব্রাউজার নোটিফিকেশন blocked। ব্রাউজার সেটিংস থেকে চালু করুন।'); return; }
     const permission = await Notification.requestPermission();
-    if (permission !== 'granted') {
-      alert('নোটিফিকেশন চালু করতে অনুমতি দিন।');
-      return;
-    }
-
+    if (permission !== 'granted') { alert('নোটিফিকেশন চালু করতে অনুমতি দিন।'); return; }
     let fcmRegistration = window.__fcmRegistration;
     if (!fcmRegistration) {
-      fcmRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
-        scope: '/firebase-cloud-messaging-push-scope'
-      });
+      fcmRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/firebase-cloud-messaging-push-scope' });
       window.__fcmRegistration = fcmRegistration;
     }
     await navigator.serviceWorker.ready;
-
-    const fcmToken = await window.__firebase.getToken(window.__firebase.messaging, {
-      vapidKey: window.__VAPID_KEY,
-      serviceWorkerRegistration: fcmRegistration
-    });
+    const fcmToken = await window.__firebase.getToken(window.__firebase.messaging, { vapidKey: window.__VAPID_KEY, serviceWorkerRegistration: fcmRegistration });
     if (!fcmToken) throw new Error('FCM token পাওয়া যায়নি');
-
     const res = await fetch(`${WORKER_BASE}/api/subscribe`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: fcmToken })
     });
     if (!res.ok) throw new Error('Subscribe HTTP ' + res.status);
-
     btn.classList.add('subscribed');
     localStorage.setItem('notifSubscribed', '1');
     alert('নোটিফিকেশন চালু হয়েছে! নতুন খবর এলে আমরা জানাব।');
-  } catch (error) {
-    alert('নোটিফিকেশন চালু করা যায়নি: ' + (error?.message || error));
-  } finally {
-    notificationSetupInProgress = false;
-    btn.disabled = false;
-  }
+  } catch (error) { alert('নোটিফিকেশন চালু করা যায়নি: ' + (error?.message || error)); }
+  finally { notificationSetupInProgress = false; btn.disabled = false; }
 }
 
 async function checkNotificationStatus() {
@@ -922,11 +853,8 @@ async function checkNotificationStatus() {
   if (!btn) return;
   const localFlag = localStorage.getItem('notifSubscribed');
   const permissionGranted = Notification.permission === 'granted';
-  if (permissionGranted && localFlag === '1') {
-    btn.classList.add('subscribed');
-  } else {
-    btn.classList.remove('subscribed');
-  }
+  if (permissionGranted && localFlag === '1') btn.classList.add('subscribed');
+  else btn.classList.remove('subscribed');
 }
 
 async function openCommentModal(id) {
@@ -943,13 +871,8 @@ async function openCommentModal(id) {
       <textarea id="commentText" placeholder="মন্তব্য লিখুন..." style="width:100%;padding:8px;margin-bottom:8px;border:1px solid #ddd;border-radius:4px;height:70px;"></textarea>
       <button onclick="submitComment('${id}')" style="background:#000;color:#fff;border:none;padding:8px 15px;border-radius:4px;cursor:pointer;">পাঠান</button>
     </div><div class="comments-list" id="commentsList">`;
-    if (comments.length === 0) {
-      html += `<div style="color:#888;padding:10px;">প্রথম মন্তব্য করুন!</div>`;
-    } else {
-      comments.forEach(c => {
-        html += `<div style="border-bottom:1px solid #eee;padding:10px 0;"><strong>${escapeHtml(c.author_name)}</strong><p style="margin:5px 0 0;">${escapeHtml(c.comment_text)}</p></div>`;
-      });
-    }
+    if (comments.length === 0) html += `<div style="color:#888;padding:10px;">প্রথম মন্তব্য করুন!</div>`;
+    else comments.forEach(c => { html += `<div style="border-bottom:1px solid #eee;padding:10px 0;"><strong>${escapeHtml(c.author_name)}</strong><p style="margin:5px 0 0;">${escapeHtml(c.comment_text)}</p></div>`; });
     html += `</div>`;
     body.innerHTML = html;
     modal.style.display = 'block';
@@ -962,8 +885,7 @@ async function submitComment(newsId) {
   if (!text) return alert('মন্তব্য লিখুন!');
   try {
     await fetch(`${WORKER_BASE}/api/comments`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ newsId, author, text })
     });
     await openCommentModal(newsId);
@@ -995,9 +917,7 @@ function openSearchModal() {
   document.getElementById('searchModal').classList.add('active');
   setTimeout(() => document.getElementById('searchInput').focus(), 100);
 }
-function closeSearchModal() {
-  document.getElementById('searchModal').classList.remove('active');
-}
+function closeSearchModal() { document.getElementById('searchModal').classList.remove('active'); }
 function openModal(url) {
   const modal = document.getElementById('modal');
   const body = document.getElementById('modal-body');
@@ -1012,69 +932,39 @@ function openModal(url) {
     modal.style.display = 'block';
   });
 }
-function closeModal() {
-  document.getElementById('modal').style.display = 'none';
-}
+function closeModal() { document.getElementById('modal').style.display = 'none'; }
 document.getElementById('currentYear').textContent = new Date().getFullYear();
 
-/* =========================================================
- * SSE + FCM LIVE NEWS UPDATE
- * ========================================================= */
 let liveStream = null;
 let bannerTimeout = null;
 
 function startLiveStream() {
-  if (!window.EventSource) {
-    console.warn('[SSE] EventSource not supported');
-    return;
-  }
-
-  if (liveStream) {
-    try { liveStream.close(); } catch (e) {}
-  }
-
+  if (!window.EventSource) return;
+  if (liveStream) { try { liveStream.close(); } catch (e) {} }
   try {
     liveStream = new EventSource(`${WORKER_BASE}/api/live`);
-
-    liveStream.addEventListener('connected', () => {
-      console.log('[SSE] Connected');
-    });
-
+    liveStream.addEventListener('connected', () => { console.log('[SSE] Connected'); });
     liveStream.addEventListener('news_published', (e) => {
       try {
         const data = JSON.parse(e.data || '{}');
-        console.log('[SSE] New news published:', data);
         showNewNewsBanner(data.count || 1);
-      } catch (err) {
-        showNewNewsBanner(1);
-      }
+      } catch (err) { showNewNewsBanner(1); }
     });
-
     liveStream.addEventListener('timeout', () => {
-      console.log('[SSE] Timeout — reconnecting...');
       try { liveStream.close(); } catch (e) {}
       setTimeout(startLiveStream, 1000);
     });
-
     liveStream.onerror = () => {
-      console.warn('[SSE] Error — reconnecting in 3s');
       try { liveStream.close(); } catch (e) {}
       setTimeout(startLiveStream, 3000);
     };
-  } catch (err) {
-    console.error('[SSE] Setup failed:', err);
-    setTimeout(startLiveStream, 5000);
-  }
+  } catch (err) { setTimeout(startLiveStream, 5000); }
 }
 
-/* ✅ FCM Silent Push listener from service worker */
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('message', (event) => {
     const data = event.data || {};
-    if (data.type === 'news_published') {
-      console.log('[FCM-SW] Silent update received:', data);
-      showNewNewsBanner(data.count || 1);
-    }
+    if (data.type === 'news_published') showNewNewsBanner(data.count || 1);
   });
 }
 
@@ -1082,14 +972,10 @@ function showNewNewsBanner(count) {
   const banner = document.getElementById('newNewsBanner');
   const text = document.getElementById('newNewsText');
   if (!banner || !text) return;
-
   text.textContent = `🆕 ${count}টি নতুন খবর এসেছে — দেখতে ট্যাপ করুন`;
   banner.classList.add('show');
-
   if (bannerTimeout) clearTimeout(bannerTimeout);
-  bannerTimeout = setTimeout(() => {
-    banner.classList.remove('show');
-  }, 2 * 60 * 1000);
+  bannerTimeout = setTimeout(() => { banner.classList.remove('show'); }, 2 * 60 * 1000);
 }
 
 function dismissNewNewsBanner() {
@@ -1104,9 +990,6 @@ async function loadNewNewsNow() {
   await loadNews('top', '', { showLoading: false, keepExisting: false });
 }
 
-/* =========================================================
- * NOTIFICATION PROMPT
- * ========================================================= */
 const NOTIFICATION_PROMPT_DELAY = 15000;
 const NOTIFICATION_LATER_DELAY = 10 * 60 * 60 * 1000;
 const NOTIFICATION_LATER_KEY = 'notifPromptLaterAt';
@@ -1136,47 +1019,22 @@ function handleNotificationPromptLater() {
   hideNotificationPrompt();
 }
 
-/* =========================================================
- * INIT
- * ========================================================= */
 (async function initApp() {
   try { localStorage.removeItem('newsCache:v1'); } catch (e) {}
-
-  await loadNews('top', '', {
-    showLoading: true,
-    keepExisting: false
-  });
-
+  await loadNews('top', '', { showLoading: true, keepExisting: false });
   if ('serviceWorker' in navigator) {
     try {
-      const fcmReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
-        updateViaCache: 'none',
-        scope: '/firebase-cloud-messaging-push-scope'
-      });
-      console.log('[SW] Firebase SW registered:', fcmReg.scope);
+      const fcmReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { updateViaCache: 'none', scope: '/firebase-cloud-messaging-push-scope' });
       window.__fcmRegistration = fcmReg;
-    } catch (err) {
-      console.error('[SW] Firebase SW registration failed:', err);
-    }
-
+    } catch (err) { console.error('[SW] Firebase SW failed:', err); }
     try {
-      const mainReg = await navigator.serviceWorker.register('/sw.js', {
-        updateViaCache: 'none',
-        scope: '/'
-      });
-      console.log('[SW] Main SW registered:', mainReg.scope);
-
-      mainReg.update().catch((e) => {
-        console.warn('[SW] Update check skipped:', e?.message);
-      });
-    } catch (err) {
-      console.error('[SW] Main SW registration failed:', err);
-    }
+      const mainReg = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none', scope: '/' });
+      mainReg.update().catch((e) => {});
+    } catch (err) { console.error('[SW] Main SW failed:', err); }
   }
-
   await checkNotificationStatus();
-
-  // ✅ Start SSE live stream
+  await loadFooterPersonalAd();
+  reinitializeAdSense();
   startLiveStream();
 })();
 

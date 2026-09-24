@@ -1,6 +1,7 @@
 // worker/src/index.js
-// ✅ FINAL VERSION — Auto-Clean Invalid Tokens + Smart Fallback + Trending Formula
+// ✅ FINAL VERSION — Smart Fallback + Trending Formula + Copyright Removed
 // ✅ 100% Perfect Result
+// ✅ FIXED: Inactive/invalid FCM tokens auto-delete (Breaking + Digest + Silent)
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -98,6 +99,25 @@ function getDigestType(hour) {
   if (hour === 18) return "evening";
   if (hour === 21) return "night";
   return "general";
+}
+
+// =========================================================
+// ✅ NEW: Helper — Invalid/unregistered FCM tokens remove
+// =========================================================
+async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
+  if (!invalidTokens || !invalidTokens.length) return 0;
+  try {
+    const placeholders = invalidTokens.map(() => "?").join(",");
+    const result = await env.DB.prepare(
+      `DELETE FROM push_subscriptions WHERE token IN (${placeholders})`
+    ).bind(...invalidTokens).run();
+    const deleted = Number(result?.meta?.changes || invalidTokens.length);
+    console.log(`[${source}] Removed ${deleted} invalid/unregistered tokens`);
+    return deleted;
+  } catch (e) {
+    console.warn(`[${source}] Failed to remove invalid tokens:`, e?.message || String(e));
+    return 0;
+  }
 }
 
 export default {
@@ -662,21 +682,14 @@ async function sendDigest(env, istHour) {
     }
   }
 
-  if (result.invalidTokens?.length > 0) {
-    try {
-      const invalidPlaceholders = result.invalidTokens.map(() => "?").join(",");
-      const delResult = await env.DB.prepare(
-        `DELETE FROM push_subscriptions WHERE token IN (${invalidPlaceholders})`
-      ).bind(...result.invalidTokens).run();
-      console.log(`[DIGEST] ✅ Auto-removed ${delResult.meta?.changes || 0} invalid tokens`);
-    } catch (e) {}
-  }
+  // ✅ FIX: Invalid tokens delete (via helper)
+  await removeInvalidTokens(env, result.invalidTokens, 'DIGEST');
 
   console.log(`[DIGEST] Result:`, JSON.stringify(result));
 }
 
 // =========================================================
-// BREAKING ALERT — ✅ AUTO-CLEAN invalid tokens
+// BREAKING ALERT
 // =========================================================
 async function sendBreakingAlert(env, news) {
   if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
@@ -714,6 +727,9 @@ async function sendBreakingAlert(env, news) {
     newsIds: [news.id], isBreaking: true
   }, tokens);
 
+  // ✅ FIX: Invalid tokens delete — এটাই main fix
+  await removeInvalidTokens(env, result.invalidTokens, 'PUSH');
+
   const sentAt = new Date().toISOString();
   const insertStmts = [];
   for (const token of tokens) {
@@ -725,19 +741,6 @@ async function sendBreakingAlert(env, news) {
   }
   if (insertStmts.length) {
     try { await env.DB.batch(insertStmts); } catch (e) {}
-  }
-
-  // ✅ AUTO-CLEAN: Invalid tokens delete
-  if (result.invalidTokens?.length > 0) {
-    try {
-      const invalidPlaceholders = result.invalidTokens.map(() => "?").join(",");
-      const delResult = await env.DB.prepare(
-        `DELETE FROM push_subscriptions WHERE token IN (${invalidPlaceholders})`
-      ).bind(...result.invalidTokens).run();
-      console.log(`[PUSH] ✅ Auto-removed ${delResult.meta?.changes || 0} invalid tokens`);
-    } catch (e) {
-      console.warn("[PUSH] Invalid token cleanup failed:", e?.message);
-    }
   }
 
   console.log(`[PUSH] Result:`, JSON.stringify(result));
@@ -862,6 +865,7 @@ async function sendSilentFcmUpdate(env, newsIds) {
 
   const { accessToken, projectId } = credentials;
   const fcmUrl = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
+  const invalidTokens = [];
 
   for (const token of tokens) {
     const message = {
@@ -881,7 +885,7 @@ async function sendSilentFcmUpdate(env, newsIds) {
     };
 
     try {
-      await fetch(fcmUrl, {
+      const res = await fetch(fcmUrl, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${accessToken}`,
@@ -889,12 +893,24 @@ async function sendSilentFcmUpdate(env, newsIds) {
         },
         body: JSON.stringify(message)
       });
+
+      // ✅ FIX: Invalid token detect
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        const errCode = errData?.error?.details?.[0]?.errorCode || errData?.error?.status || '';
+        if (errCode === 'UNREGISTERED' || errCode === 'NOT_FOUND') {
+          invalidTokens.push(token);
+        }
+      }
     } catch (e) {}
   }
+
+  // ✅ FIX: Invalid tokens delete (via helper)
+  await removeInvalidTokens(env, invalidTokens, 'FCM-SILENT');
 }
 
 // =========================================================
-// LEGACY single push — ✅ AUTO-CLEAN invalid tokens
+// LEGACY single push
 // =========================================================
 async function sendSinglePush(env, news, tokens, isBreaking) {
   const title = String(news.headline || "নতুন খবর").slice(0, 180);
@@ -907,18 +923,8 @@ async function sendSinglePush(env, news, tokens, isBreaking) {
     newsIds: [news.id], isBreaking
   }, tokens);
 
-  // ✅ AUTO-CLEAN: Invalid tokens delete
-  if (result.invalidTokens?.length > 0) {
-    try {
-      const invalidPlaceholders = result.invalidTokens.map(() => "?").join(",");
-      const delResult = await env.DB.prepare(
-        `DELETE FROM push_subscriptions WHERE token IN (${invalidPlaceholders})`
-      ).bind(...result.invalidTokens).run();
-      console.log(`[PUSH-TEST] ✅ Auto-removed ${delResult.meta?.changes || 0} invalid tokens`);
-    } catch (e) {
-      console.warn("[PUSH-TEST] Invalid token cleanup failed:", e?.message);
-    }
-  }
+  // ✅ FIX: Invalid tokens delete
+  await removeInvalidTokens(env, result.invalidTokens, 'PUSH-TEST');
 
   return result;
 }

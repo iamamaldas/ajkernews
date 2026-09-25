@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v4: 410 Gone + Ads endpoint + Notification fix
+// ✅ FINAL v5: 410 Gone + Auto-detect ads endpoint
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -99,6 +99,9 @@ function getDigestType(hour) {
   return "general";
 }
 
+// =========================================================
+// ✅ Helper — Invalid/unregistered FCM tokens remove
+// =========================================================
 async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
   if (!invalidTokens || !invalidTokens.length) return 0;
   try {
@@ -115,6 +118,9 @@ async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
   }
 }
 
+// =========================================================
+// ✅ 410 GONE PAGE
+// =========================================================
 function gonePage() {
   const html = `<!DOCTYPE html>
 <html lang="bn">
@@ -215,7 +221,19 @@ export default {
         return await handleAffiliate(url, env);
       }
 
-      // ✅ NEW: Ads route
+      // ✅ COMBINED: Ads config (AdSense + Personal)
+      if (url.pathname === "/api/ads-config" && request.method === "GET") {
+        return json({
+          success: true,
+          publisherId: ADS_CONFIG.publisherId || "",
+          adSlots: ADS_CONFIG.adSlots || {},
+          personalAds: {
+            footer: AFFILIATE_CONFIG.ads?.footer || []
+          }
+        }, 200, 60);
+      }
+
+      // ✅ NEW: Ads placement endpoint (for footer personal ad)
       if (url.pathname === "/api/ads" && request.method === "GET") {
         return await handleGetAds(url, env);
       }
@@ -429,7 +447,6 @@ export default {
     console.log(`[CRON] ${cron} started | IST Hour: ${istHour}`);
 
     try {
-      // ✅ FIXED: Digest with IST-adjusted cron times
       if (NOTIFICATION_CONFIG.PRIME_HOURS.includes(istHour) &&
           (cron === "30 2 * * *" || cron === "30 7 * * *" || cron === "30 12 * * *" || cron === "30 15 * * *")) {
         console.log(`[DIGEST] Prime time hit: IST ${istHour}:00`);
@@ -528,7 +545,7 @@ export default {
 };
 
 // =========================================================
-// ✅ Ads Handler (from AFFILIATE_CONFIG.ads)
+// ✅ Ads Handler (Personal ads by placement)
 // =========================================================
 async function handleGetAds(url, env) {
   const placement = url.searchParams.get("placement") || "default";

@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v8: AdSense Auto Ads + notification click fix + clean article page
+// ✅ FINAL v8: Adsterra + notification click fix + clean article page
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -92,6 +92,20 @@ function getDigestType(hour) {
 }
 
 // =========================================================
+// ADSTERRA SCRIPTS
+// =========================================================
+function getAdsterraScripts() {
+  const scripts = [];
+  if (ADS_CONFIG?.scripts?.socialBar && ADS_CONFIG.scripts.socialBar !== "YOUR_SOCIAL_BAR_URL") {
+    scripts.push(`<script async src="${ADS_CONFIG.scripts.socialBar}" data-cfasync="false"></script>`);
+  }
+  if (ADS_CONFIG?.scripts?.popunder && ADS_CONFIG.scripts.popunder !== "YOUR_POPUNDER_URL") {
+    scripts.push(`<script async src="${ADS_CONFIG.scripts.popunder}" data-cfasync="false"></script>`);
+  }
+  return scripts.join("\n");
+}
+
+// =========================================================
 // ✅ Helper — Invalid/unregistered FCM tokens remove
 // =========================================================
 async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
@@ -135,7 +149,6 @@ function gonePage() {
   <a href="https://ajkernews.in/">সর্বশেষ খবর দেখুন</a>
 </body>
 </html>`;
-
   return new Response(html, {
     status: 410,
     headers: {
@@ -209,7 +222,6 @@ export default {
         return await serveSharePage(id, env, userAgent, url);
       }
 
-      // ✅ AdSense config endpoint (auto-detect)
       if (url.pathname === "/api/ads-config" && request.method === "GET") {
         return json({
           success: true,
@@ -713,11 +725,7 @@ async function sendBreakingAlert(env, news) {
 }
 
 // =========================================================
-// GENERIC PUSH SENDER
-// ✅ FIXED: notification payload বাদ — শুধু data payload
-// কারণ: notification block থাকলে FCM SDK auto show করে,
-// service worker onBackgroundMessage fire হয় না, তাই
-// notificationclick handler trigger হয় না।
+// GENERIC PUSH SENDER (data-only for notification click)
 // =========================================================
 async function sendDigestPush(env, payload, tokens) {
   const result = {
@@ -742,7 +750,6 @@ async function sendDigestPush(env, payload, tokens) {
   const logStmts = [];
 
   for (const token of tokens) {
-    // ✅ FIX: notification payload বাদ — শুধু data
     const message = {
       message: {
         token: token,
@@ -1224,6 +1231,7 @@ async function serveListingPage(env, category, searchQuery) {
 <meta property="og:url" content="${escapeHtml(canonical)}">
 <meta property="og:image" content="https://ajkernews.in/logo.png">
 <script type="application/ld+json">${itemListLd}</script>
+${getAdsterraScripts()}
 </head>
 <body style="max-width:820px;margin:0 auto;padding:20px;font-family:Inter,-apple-system,sans-serif;color:#111;">
 <header>
@@ -1258,8 +1266,7 @@ async function serveListingPage(env, category, searchQuery) {
 }
 
 // =========================================================
-// ARTICLE PAGE
-// ✅ FIXED: "সম্পর্কিত খবর" → "সাম্প্রতিক খবর" (clean, no category match)
+// ARTICLE PAGE — with সাম্প্রতিক খবর + Adsterra
 // =========================================================
 async function serveArticlePage(id, env) {
   const safeId = String(id || "").trim();
@@ -1306,7 +1313,7 @@ async function serveArticlePage(id, env) {
     }
   } catch (e) { sourceDomain = result.source_name || "Ajker News"; }
 
-  // ✅ FIXED: শুধু সাম্প্রতিক খবর (category match বাদ)
+  // ✅ সাম্প্রতিক খবর — শুধু newest, category match বাদ
   let recentNews = [];
   try {
     const recent = await env.DB.prepare(
@@ -1354,7 +1361,6 @@ async function serveArticlePage(id, env) {
     ]
   });
 
-  // ✅ FIXED: সাম্প্রতিক খবর heading
   const recentHtml = recentNews.length ? `
   <aside class="related-box">
     <h3>সাম্প্রতিক খবর</h3>
@@ -1384,6 +1390,7 @@ async function serveArticlePage(id, env) {
 <meta name="twitter:card" content="summary_large_image">
 <script type="application/ld+json">${newsArticleLd}</script>
 <script type="application/ld+json">${breadcrumbLd}</script>
+${getAdsterraScripts()}
 <style>
   * { margin:0; padding:0; box-sizing:border-box; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
   html { scroll-behavior: smooth; font-size: 16px; -webkit-text-size-adjust: 100%; }
@@ -1827,6 +1834,7 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${escapeHtml(title)} - Ajker News</title>
 <meta name="description" content="${escapeHtml(description)}">
+<meta name="robots" content="noindex, nofollow">
 <meta property="og:title" content="${escapeHtml(title)}">
 <meta property="og:description" content="${escapeHtml(description)}">
 <meta property="og:image" content="${escapeHtml(image)}">
@@ -1834,6 +1842,7 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="Ajker News">
 <meta name="twitter:card" content="summary_large_image">
+${getAdsterraScripts()}
 <style>
   * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, sans-serif; }
   body { background: #f5f5f5; color: #111; padding: 0 0 40px; }
@@ -1962,7 +1971,7 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
       "Content-Type": "text/html; charset=UTF-8",
       "Cache-Control": "public, no-cache, must-revalidate, max-age=0",
       "Pragma": "no-cache", "Expires": "0",
-      "X-Robots-Tag": "index, follow"
+      "X-Robots-Tag": "noindex, nofollow"
     }
   });
 }

@@ -1,10 +1,9 @@
 // worker/src/index.js
-// ✅ FINAL v5: 410 Gone + Auto-detect ads endpoint
+// ✅ FINAL v6: AdSense ONLY — clean site
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
 import ADS_CONFIG from "./config-ads.js";
-import AFFILIATE_CONFIG from "./config-affiliate.js";
 import { processSelectedNews } from "./gemini.js";
 import { runGNewsBatch } from "./news-fetcher.js";
 import { selectBestCandidates, publishSelectedNews } from "./news-selector.js";
@@ -57,13 +56,6 @@ function toTransliterated(text) {
 }
 
 const BOT_REGEX = /googlebot|google-inspectiontool|apis-google|mediapartners-google|adsbot-google|googleother|feedfetcher-google|google-read-aloud|google-site-verification|storebot-google|googlebot-news|googlebot-image|googlebot-video|bingbot|msnbot|adidxbot|bingpreview|yandex|baiduspider|baiduboxapp|sogou|exabot|duckduckbot|duckassistbot|applebot|applebot-extended|slurp|twitterbot|facebookexternalhit|facebookcatalog|facebot|whatsapp|telegrambot|linkedinbot|pinterest|slackbot|discordbot|petalbot|semrushbot|ahrefsbot|mj12bot|dotbot|gptbot|chatgpt-user|perplexitybot|ccbot|anthropic-ai|claude-web|youbot|lighthouse|chrome-lighthouse/i;
-
-function getVapidEmail(env) {
-  const raw = String(env.VAPID_EMAIL || "").trim();
-  if (!raw) return "mailto:info@ajkernews.in";
-  if (raw.toLowerCase().startsWith("mailto:")) return raw;
-  return `mailto:${raw}`;
-}
 
 function getISTHour() {
   const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
@@ -217,25 +209,13 @@ export default {
         return await serveSharePage(id, env, userAgent, url);
       }
 
-      if (url.pathname === "/api/affiliate" && request.method === "GET") {
-        return await handleAffiliate(url, env);
-      }
-
-      // ✅ COMBINED: Ads config (AdSense + Personal)
+      // ✅ AdSense config endpoint (auto-detect)
       if (url.pathname === "/api/ads-config" && request.method === "GET") {
         return json({
           success: true,
           publisherId: ADS_CONFIG.publisherId || "",
-          adSlots: ADS_CONFIG.adSlots || {},
-          personalAds: {
-            footer: AFFILIATE_CONFIG.ads?.footer || []
-          }
+          adSlots: ADS_CONFIG.adSlots || {}
         }, 200, 60);
-      }
-
-      // ✅ NEW: Ads placement endpoint (for footer personal ad)
-      if (url.pathname === "/api/ads" && request.method === "GET") {
-        return await handleGetAds(url, env);
       }
 
       if (url.pathname === "/news" && url.searchParams.has("id")) {
@@ -543,27 +523,6 @@ export default {
     }
   }
 };
-
-// =========================================================
-// ✅ Ads Handler (Personal ads by placement)
-// =========================================================
-async function handleGetAds(url, env) {
-  const placement = url.searchParams.get("placement") || "default";
-  const ads = AFFILIATE_CONFIG.ads?.[placement] || AFFILIATE_CONFIG.ads?.default || [];
-  if (!ads.length) return json({ success: false, ads: [] }, 200, 0);
-  const ad = ads[Math.floor(Math.random() * ads.length)];
-  return json({
-    success: true,
-    ad: {
-      id: ad.id,
-      title: ad.title,
-      description: ad.description,
-      image: ad.image,
-      url: ad.url,
-      cta: ad.cta || "Learn More"
-    }
-  }, 200, 0);
-}
 
 // =========================================================
 // SSE LIVE STREAM
@@ -1774,7 +1733,6 @@ async function ensureTables(env) {
     `CREATE TABLE IF NOT EXISTS news_loves (id INTEGER PRIMARY KEY AUTOINCREMENT, news_id TEXT, device_id TEXT, UNIQUE(news_id, device_id))`,
     `CREATE TABLE IF NOT EXISTS news_comments (id TEXT PRIMARY KEY, news_id TEXT, author_name TEXT, comment_text TEXT, created_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS push_subscriptions (id TEXT PRIMARY KEY, endpoint TEXT UNIQUE, keys_json TEXT, token TEXT, created_at TEXT)`,
-    `CREATE TABLE IF NOT EXISTS affiliate_clicks (id TEXT PRIMARY KEY, affiliate_name TEXT, click_url TEXT, device_id TEXT, created_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS push_clicks (id TEXT PRIMARY KEY, news_id TEXT, device_id TEXT, source TEXT, created_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS push_log (id TEXT PRIMARY KEY, news_id TEXT, token TEXT, status TEXT, error TEXT, title TEXT, sent_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS push_sent (id TEXT PRIMARY KEY, news_id TEXT, token TEXT, sent_at TEXT, UNIQUE(news_id, token))`,
@@ -2010,27 +1968,6 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
       "X-Robots-Tag": "index, follow"
     }
   });
-}
-
-// =========================================================
-// AFFILIATE
-// =========================================================
-async function handleAffiliate(url, env) {
-  const ref = url.searchParams.get("ref") || "direct";
-  let targetUrl = url.searchParams.get("url");
-
-  if (!targetUrl && AFFILIATE_CONFIG.redirectMap && AFFILIATE_CONFIG.redirectMap[ref]) {
-    targetUrl = AFFILIATE_CONFIG.redirectMap[ref];
-  }
-  if (!targetUrl) targetUrl = AFFILIATE_CONFIG.defaultRedirect;
-
-  if (AFFILIATE_CONFIG.trackClicks) {
-    try {
-      await env.DB.prepare(`INSERT INTO affiliate_clicks (id, affiliate_name, click_url, device_id, created_at) VALUES (?, ?, ?, ?, ?)`)
-        .bind(crypto.randomUUID(), ref, targetUrl, "unknown", new Date().toISOString()).run();
-    } catch (error) { console.error("Affiliate log error:", error?.message || String(error)); }
-  }
-  return Response.redirect(targetUrl, 302);
 }
 
 // =========================================================

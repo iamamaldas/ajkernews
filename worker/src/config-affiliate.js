@@ -1,19 +1,19 @@
 // worker/src/config-affiliate.js
-// 🟡 PERSONAL ADS + AFFILIATE URLs
-// ⚠️ AdSense এর কিছু এখানে না
+// 🟡 PERSONAL ADS + AFFILIATE URLs — auto-detected by frontend
 
 export default {
   trackClicks: true,
 
   defaultRedirect: "https://ajkernews.in",
 
+  // Affiliate URL map
   redirectMap: {
     "amazon": "https://amazon.in/your-affiliate-tag",
     "angelone": "https://angel-one.onelink.me/Wjgr/m0h5ge9c",
     "personal": "https://your-personal-ad-page.com"
   },
 
-  // 🟡 PERSONAL ADS (Footer Display)
+  // 🟡 Personal Ads (Footer display)
   ads: {
     footer: [
       {

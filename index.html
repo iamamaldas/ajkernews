@@ -29,8 +29,8 @@
 <meta property="og:url" content="https://ajkernews.in/">
 <meta property="og:image" content="https://ajkernews.in/logo.png">
 
-<!-- ✅ Google AdSense Script -->
-<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXXXXXXXX" crossorigin="anonymous"></script>
+<!-- ✅ Google AdSense Script (client ID auto-loaded from /api/ads-config) -->
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-PLACEHOLDER" crossorigin="anonymous" id="adsenseScript"></script>
 
 <script type="application/ld+json">
 { "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in/logo.png" }
@@ -322,12 +322,12 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 </div>
 
 <div class="main-content">
-  <!-- 🟢 ADSENSE — TOP BANNER -->
+  <!-- 🟢 ADSENSE — TOP BANNER (auto-detected) -->
   <div class="adsense-infeed" style="margin-bottom: 16px;">
     <ins class="adsbygoogle"
          style="display:block"
-         data-ad-client="ca-pub-XXXXXXXXXXXXXXXX"
-         data-ad-slot="1111111111"
+         data-ad-client="ca-pub-PLACEHOLDER"
+         data-ad-slot="PLACEHOLDER"
          data-ad-format="auto"
          data-full-width-responsive="true"></ins>
     <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
@@ -337,7 +337,7 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   <button id="loadMoreBtn" onclick="loadMoreNews()">আরও খবর দেখুন</button>
 </div>
 
-<!-- 🟡 PERSONAL AD — FOOTER -->
+<!-- 🟡 PERSONAL AD — FOOTER (auto-detected) -->
 <div class="footer-personal-ad">
   <div class="footer-ad-label">Sponsored</div>
   <div id="footer-ad-content"></div>
@@ -381,7 +381,26 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   window.__firebase = { app, messaging, getToken, onMessage, deleteToken };
   window.__VAPID_KEY = "BPIJghMstrMW--U1O0rRUbDVm1epdMAOaR6WZ3mRE03C2bD33IYL_02NDKYk8us6WnRFGHQ7wPnvhEKCXeuzmlA";
   window.__firebaseReady = true;
-  console.log('[Firebase] Initialized');
+
+  onMessage(messaging, (payload) => {
+    if (payload.notification && Notification.permission === 'granted') {
+      const title = payload.notification.title || 'Ajker News';
+      const body = payload.notification.body || '';
+      const url = payload.data?.url || '/';
+      const n = new Notification(title, {
+        body,
+        icon: '/logo.png',
+        badge: '/logo.png',
+        tag: payload.data?.notificationId || 'default',
+        data: { url }
+      });
+      n.onclick = () => {
+        window.focus();
+        if (url) window.open(url, '_blank');
+        n.close();
+      };
+    }
+  });
 </script>
 
 <script>
@@ -389,22 +408,75 @@ const WORKER_BASE = window.location.origin;
 const API_URL = `${WORKER_BASE}/api/news`;
 const SITE_URL = window.location.origin;
 
-const ADSENSE_CLIENT = "ca-pub-XXXXXXXXXXXXXXXX";
-const AD_SLOTS = {
+// ⚠️ Fallback — /api/ads-config থেকে auto-update হবে
+let ADSENSE_CLIENT = "ca-pub-XXXXXXXXXXXXXXXX";
+let AD_SLOTS = {
   topBanner: "1111111111",
   inFeed1: "2222222222",
   inFeed2: "3333333333"
 };
+let PERSONAL_FOOTER_ADS = [];
 
 let currentCategory = 'top';
 let currentSearchQuery = '';
 let currentNews = [];
-let visibleCount = 10;
+let visibleCount = 15;
 let isLoadingNews = false;
 let currentOffset = 0;
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 15;
 let hasMoreNews = false;
 let deferredPrompt = null;
+
+// ✅ Auto-load all ad configs from worker
+async function loadAllAdConfigs() {
+  try {
+    const res = await fetch(`${WORKER_BASE}/api/ads-config?_t=${Date.now()}`);
+    const data = await res.json();
+
+    if (data.success) {
+      // 🟢 AdSense
+      if (data.publisherId) {
+        ADSENSE_CLIENT = data.publisherId;
+        const script = document.getElementById('adsenseScript');
+        if (script && !script.dataset.updated) {
+          script.dataset.updated = '1';
+          script.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${data.publisherId}`;
+        }
+      }
+      if (data.adSlots) {
+        AD_SLOTS = {
+          topBanner: data.adSlots.topBanner || AD_SLOTS.topBanner,
+          inFeed1: data.adSlots.inFeed1 || AD_SLOTS.inFeed1,
+          inFeed2: data.adSlots.inFeed2 || AD_SLOTS.inFeed2
+        };
+      }
+
+      // 🟡 Personal Ads
+      if (data.personalAds && Array.isArray(data.personalAds.footer)) {
+        PERSONAL_FOOTER_ADS = data.personalAds.footer;
+      }
+
+      // Update top banner existing ad
+      updateTopBannerAd();
+
+      console.log('[Ads] Auto-loaded:', {
+        publisherId: ADSENSE_CLIENT,
+        adSlots: AD_SLOTS,
+        footerAdsCount: PERSONAL_FOOTER_ADS.length
+      });
+    }
+  } catch (e) {
+    console.warn('[Ads] Config fetch failed, using fallbacks');
+  }
+}
+
+function updateTopBannerAd() {
+  const topIns = document.querySelector('.main-content > .adsense-infeed ins.adsbygoogle');
+  if (topIns) {
+    topIns.setAttribute('data-ad-client', ADSENSE_CLIENT);
+    topIns.setAttribute('data-ad-slot', AD_SLOTS.topBanner);
+  }
+}
 
 function renderAdSenseInFeed(slotId) {
   return `<div class="adsense-infeed" data-ad-slot="${slotId}">
@@ -428,20 +500,16 @@ function renderPersonalFooterAd(ad) {
   </a>`;
 }
 
-async function loadFooterPersonalAd() {
-  try {
-    const res = await fetch(`${WORKER_BASE}/api/ads?placement=footer`);
-    const data = await res.json();
-    if (!data.success || !data.ad) {
-      document.querySelector('.footer-personal-ad').style.display = 'none';
-      return;
-    }
-    document.getElementById('footer-ad-content').innerHTML = renderPersonalFooterAd(data.ad);
-  } catch (e) {
-    console.error('Footer ad failed:', e);
-    const el = document.querySelector('.footer-personal-ad');
-    if (el) el.style.display = 'none';
+function loadFooterPersonalAd() {
+  const container = document.getElementById('footer-ad-content');
+  const wrapper = document.querySelector('.footer-personal-ad');
+  if (!container || !wrapper) return;
+  if (!PERSONAL_FOOTER_ADS.length) {
+    wrapper.style.display = 'none';
+    return;
   }
+  const ad = PERSONAL_FOOTER_ADS[Math.floor(Math.random() * PERSONAL_FOOTER_ADS.length)];
+  container.innerHTML = renderPersonalFooterAd(ad);
 }
 
 function reinitializeAdSense() {
@@ -575,7 +643,7 @@ async function loadNewsNetwork(category, search) {
     try {
       const params = new URLSearchParams();
       params.set('category', category || 'all');
-      params.set('limit', '10');
+      params.set('limit', '15');
       if (search) params.set('q', search);
       params.set('_t', String(Date.now()));
       const url = API_URL + '?' + params.toString();
@@ -596,7 +664,7 @@ async function loadNewsNetwork(category, search) {
       const normalized = data.news.map(normalizeNews).filter(Boolean);
       const sorted = sortByLatest(normalized);
       currentNews = sorted;
-      visibleCount = 10;
+      visibleCount = 15;
       hasMoreNews = data.has_more || false;
       renderNews(currentNews, hasMoreNews);
       updateLoveCounts(normalized);
@@ -698,7 +766,7 @@ async function loadMoreNews() {
     currentOffset += PAGE_SIZE;
     const params = new URLSearchParams();
     params.set('category', currentCategory || 'top');
-    params.set('limit', '10');
+    params.set('limit', '15');
     params.set('offset', String(currentOffset));
     if (currentSearchQuery) params.set('q', currentSearchQuery);
     params.set('_t', String(Date.now()));
@@ -1020,8 +1088,15 @@ function handleNotificationPromptLater() {
 }
 
 (async function initApp() {
+  // ✅ 1. Load ad configs first
+  await loadAllAdConfigs();
+
   try { localStorage.removeItem('newsCache:v1'); } catch (e) {}
+
+  // ✅ 2. Load news
   await loadNews('top', '', { showLoading: true, keepExisting: false });
+
+  // ✅ 3. Register service workers
   if ('serviceWorker' in navigator) {
     try {
       const fcmReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { updateViaCache: 'none', scope: '/firebase-cloud-messaging-push-scope' });
@@ -1032,8 +1107,12 @@ function handleNotificationPromptLater() {
       mainReg.update().catch((e) => {});
     } catch (err) { console.error('[SW] Main SW failed:', err); }
   }
+
   await checkNotificationStatus();
-  await loadFooterPersonalAd();
+
+  // ✅ 4. Footer personal ad
+  loadFooterPersonalAd();
+
   reinitializeAdSense();
   startLiveStream();
 })();

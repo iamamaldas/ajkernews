@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v8: Adsterra + notification click fix + clean article page
+// ✅ FINAL v9: notification + data both + auto push fix
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -725,7 +725,7 @@ async function sendBreakingAlert(env, news) {
 }
 
 // =========================================================
-// GENERIC PUSH SENDER (data-only for notification click)
+// ✅ GENERIC PUSH SENDER — notification + data BOTH
 // =========================================================
 async function sendDigestPush(env, payload, tokens) {
   const result = {
@@ -753,6 +753,15 @@ async function sendDigestPush(env, payload, tokens) {
     const message = {
       message: {
         token: token,
+
+        // ✅ FCM নিজেই নোটিফিকেশন দেখাবে (ফোন লক থাকলেও আসবে)
+        notification: {
+          title: payload.title,
+          body: payload.body,
+          ...(payload.image ? { image: payload.image } : {})
+        },
+
+        // ✅ Data payload — ক্লিক URL, ট্র্যাকিং, SW fallback
         data: {
           title: payload.title,
           body: payload.body,
@@ -761,9 +770,15 @@ async function sendDigestPush(env, payload, tokens) {
           notificationId: payload.tag,
           isBreaking: isBreaking ? "1" : "0"
         },
+
         webpush: {
-          headers: { Urgency: isBreaking ? "high" : "normal", TTL: String(ttl) },
-          fcmOptions: { link: payload.url }
+          headers: {
+            Urgency: isBreaking ? "high" : "normal",
+            TTL: String(ttl)
+          },
+          fcmOptions: {
+            link: payload.url
+          }
         }
       }
     };
@@ -783,21 +798,40 @@ async function sendDigestPush(env, payload, tokens) {
         logStmts.push(
           env.DB.prepare(
             `INSERT INTO push_log (id, news_id, token, status, title, sent_at) VALUES (?, ?, ?, ?, ?, ?)`
-          ).bind(crypto.randomUUID(), payload.newsIds?.[0] || null, token.slice(0, 30), 'sent', payload.title.slice(0, 100), sentAt)
+          ).bind(
+            crypto.randomUUID(),
+            payload.newsIds?.[0] || null,
+            token.slice(0, 30),
+            'sent',
+            payload.title.slice(0, 100),
+            sentAt
+          )
         );
       } else {
         const errData = await res.json().catch(() => ({}));
         result.failed++;
-        const errCode = errData?.error?.details?.[0]?.errorCode || errData?.error?.status || 'unknown';
+        const errCode = errData?.error?.details?.[0]?.errorCode
+                     || errData?.error?.status
+                     || 'unknown';
         result.errors.push(`${errCode}: ${token.slice(0, 15)}...`);
+
         if (errCode === 'UNREGISTERED' || errCode === 'NOT_FOUND') {
           result.unregistered++;
           result.invalidTokens.push(token);
         }
+
         logStmts.push(
           env.DB.prepare(
             `INSERT INTO push_log (id, news_id, token, status, error, title, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
-          ).bind(crypto.randomUUID(), payload.newsIds?.[0] || null, token.slice(0, 30), 'failed', errCode, payload.title.slice(0, 100), sentAt)
+          ).bind(
+            crypto.randomUUID(),
+            payload.newsIds?.[0] || null,
+            token.slice(0, 30),
+            'failed',
+            errCode,
+            payload.title.slice(0, 100),
+            sentAt
+          )
         );
       }
     } catch (e) {
@@ -814,7 +848,7 @@ async function sendDigestPush(env, payload, tokens) {
 }
 
 // =========================================================
-// SILENT FCM
+// SILENT FCM (background tab update — no notification)
 // =========================================================
 async function sendSilentFcmUpdate(env, newsIds) {
   if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) return;
@@ -876,7 +910,7 @@ async function sendSilentFcmUpdate(env, newsIds) {
 }
 
 // =========================================================
-// LEGACY single push
+// LEGACY single push (test endpoint)
 // =========================================================
 async function sendSinglePush(env, news, tokens, isBreaking) {
   const title = String(news.headline || "নতুন খবর").slice(0, 180);
@@ -1266,7 +1300,7 @@ ${getAdsterraScripts()}
 }
 
 // =========================================================
-// ARTICLE PAGE — with সাম্প্রতিক খবর + Adsterra
+// ARTICLE PAGE
 // =========================================================
 async function serveArticlePage(id, env) {
   const safeId = String(id || "").trim();
@@ -1313,7 +1347,6 @@ async function serveArticlePage(id, env) {
     }
   } catch (e) { sourceDomain = result.source_name || "Ajker News"; }
 
-  // ✅ সাম্প্রতিক খবর — শুধু newest, category match বাদ
   let recentNews = [];
   try {
     const recent = await env.DB.prepare(

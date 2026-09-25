@@ -1,6 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v3: Inactive token auto-delete + 410 Gone page
-// ✅ 100% Production Ready
+// ✅ FINAL v4: 410 Gone + Ads endpoint + Notification fix
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -22,7 +21,7 @@ const NOTIFICATION_CONFIG = {
   TTL_SECONDS: 172800,
   QUIET_START_HOUR: 23,
   QUIET_END_HOUR: 7,
-  BREAKING_SCORE_THRESHOLD: 55,
+  BREAKING_SCORE_THRESHOLD: 40,
   BREAKING_TTL_SECONDS: 172800,
   REGULAR_TTL_SECONDS: 86400,
   MAX_BATCH_SIZE: 500,
@@ -100,9 +99,6 @@ function getDigestType(hour) {
   return "general";
 }
 
-// =========================================================
-// ✅ Helper — Invalid/unregistered FCM tokens remove
-// =========================================================
 async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
   if (!invalidTokens || !invalidTokens.length) return 0;
   try {
@@ -111,17 +107,14 @@ async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
       `DELETE FROM push_subscriptions WHERE token IN (${placeholders})`
     ).bind(...invalidTokens).run();
     const deleted = Number(result?.meta?.changes || invalidTokens.length);
-    console.log(`[${source}] Removed ${deleted} invalid/unregistered tokens`);
+    console.log(`[${source}] Removed ${deleted} invalid tokens`);
     return deleted;
   } catch (e) {
-    console.warn(`[${source}] Failed to remove invalid tokens:`, e?.message || String(e));
+    console.warn(`[${source}] Failed:`, e?.message || String(e));
     return 0;
   }
 }
 
-// =========================================================
-// ✅ 410 GONE PAGE — for deleted news (SEO-friendly)
-// =========================================================
 function gonePage() {
   const html = `<!DOCTYPE html>
 <html lang="bn">
@@ -132,7 +125,7 @@ function gonePage() {
 <meta name="robots" content="noindex, follow">
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family: Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; max-width: 600px; margin: 80px auto; padding: 20px; text-align: center; color: #111; }
+  body { font-family: Inter,-apple-system,BlinkMacSystemFont,sans-serif; max-width: 600px; margin: 80px auto; padding: 20px; text-align: center; color: #111; }
   h1 { font-size: 32px; margin-bottom: 16px; }
   p { font-size: 16px; color: #666; line-height: 1.6; margin-bottom: 24px; }
   a { display: inline-block; background: #007bff; color: #fff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; }
@@ -220,6 +213,11 @@ export default {
 
       if (url.pathname === "/api/affiliate" && request.method === "GET") {
         return await handleAffiliate(url, env);
+      }
+
+      // ✅ NEW: Ads route
+      if (url.pathname === "/api/ads" && request.method === "GET") {
+        return await handleGetAds(url, env);
       }
 
       if (url.pathname === "/news" && url.searchParams.has("id")) {
@@ -394,7 +392,6 @@ export default {
             fcmResult: result
           }, 200, 0);
         } catch (error) {
-          console.error('[PUSH-TEST] Error:', error?.message || String(error));
           return json({ success: false, error: error.message }, 500, 0);
         }
       }
@@ -432,11 +429,11 @@ export default {
     console.log(`[CRON] ${cron} started | IST Hour: ${istHour}`);
 
     try {
+      // ✅ FIXED: Digest with IST-adjusted cron times
       if (NOTIFICATION_CONFIG.PRIME_HOURS.includes(istHour) &&
-          (cron === "0 8 * * *" || cron === "0 13 * * *" || cron === "0 18 * * *" || cron === "0 21 * * *")) {
-        console.log(`[DIGEST] Prime time hit: ${istHour}:00 IST`);
+          (cron === "30 2 * * *" || cron === "30 7 * * *" || cron === "30 12 * * *" || cron === "30 15 * * *")) {
+        console.log(`[DIGEST] Prime time hit: IST ${istHour}:00`);
         await sendDigest(env, istHour);
-        console.log(`[DIGEST] Completed in ${Date.now() - startTime}ms`);
         return;
       }
 
@@ -501,7 +498,7 @@ export default {
         if ([0, 6, 12, 18].includes(currentUtcHour)) {
           try {
             const cleanupResult = await enforceNewsLimit(env.DB);
-            console.log(`[CRON-CLEAN] News: ${cleanupResult.deleted} deleted, ${cleanupResult.total} total`);
+            console.log(`[CRON-CLEAN] News: ${cleanupResult.deleted} deleted`);
             if (cleanupResult.deleted > 0) {
               try {
                 await purgeNewsApiCache("https://ajkernews.in");
@@ -511,7 +508,7 @@ export default {
               } catch (e) {}
             }
           } catch (error) {
-            console.error("[CRON-CLEAN] News cleanup failed:", error?.message || String(error));
+            console.error("[CRON-CLEAN] Failed:", error?.message || String(error));
           }
 
           try {
@@ -522,16 +519,34 @@ export default {
           } catch (e) {}
         }
 
-        console.log(`[CRON-NEWS] Completed in ${Date.now() - startTime}ms`);
         return;
       }
-
-      console.warn(`[CRON] Unknown cron: ${cron} at IST hour ${istHour}`);
     } catch (error) {
-      console.error(`[CRON] Fatal error in ${cron}:`, error?.message || error?.stack || String(error));
+      console.error(`[CRON] Fatal:`, error?.message || error?.stack || String(error));
     }
   }
 };
+
+// =========================================================
+// ✅ Ads Handler (from AFFILIATE_CONFIG.ads)
+// =========================================================
+async function handleGetAds(url, env) {
+  const placement = url.searchParams.get("placement") || "default";
+  const ads = AFFILIATE_CONFIG.ads?.[placement] || AFFILIATE_CONFIG.ads?.default || [];
+  if (!ads.length) return json({ success: false, ads: [] }, 200, 0);
+  const ad = ads[Math.floor(Math.random() * ads.length)];
+  return json({
+    success: true,
+    ad: {
+      id: ad.id,
+      title: ad.title,
+      description: ad.description,
+      image: ad.image,
+      url: ad.url,
+      cta: ad.cta || "Learn More"
+    }
+  }, 200, 0);
+}
 
 // =========================================================
 // SSE LIVE STREAM
@@ -619,25 +634,15 @@ async function handleLiveStream(env, request) {
 // DIGEST SENDER
 // =========================================================
 async function sendDigest(env, istHour) {
-  if (isQuietHours()) {
-    console.log(`[DIGEST] Skipped — quiet hours`);
-    return;
-  }
-
-  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    console.error('[DIGEST] ❌ FIREBASE_SERVICE_ACCOUNT_JSON missing');
-    return;
-  }
+  if (isQuietHours()) return;
+  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) return;
 
   const subs = await env.DB.prepare(
     `SELECT token FROM push_subscriptions WHERE token IS NOT NULL AND token != '' ORDER BY created_at DESC LIMIT ${NOTIFICATION_CONFIG.MAX_BATCH_SIZE}`
   ).all();
 
   const tokens = (subs.results || []).map(s => s.token).filter(Boolean);
-  if (!tokens.length) {
-    console.warn('[DIGEST] No subscribers');
-    return;
-  }
+  if (!tokens.length) return;
 
   const recentNews = await env.DB.prepare(
     `SELECT id, headline, summary, image_url, score, category, created_at FROM news
@@ -646,10 +651,7 @@ async function sendDigest(env, istHour) {
   ).all();
 
   const candidates = recentNews.results || [];
-  if (!candidates.length) {
-    console.log('[DIGEST] No recent news');
-    return;
-  }
+  if (!candidates.length) return;
 
   const candidateIds = candidates.map(c => c.id);
   const sentRows = await env.DB.prepare(
@@ -661,27 +663,17 @@ async function sendDigest(env, istHour) {
     .filter(n => !sentIds.has(n.id))
     .slice(0, NOTIFICATION_CONFIG.DIGEST_NEWS_COUNT);
 
-  if (!unsentNews.length) {
-    console.log('[DIGEST] All recent news already sent');
-    return;
-  }
+  if (!unsentNews.length) return;
 
   const digestType = getDigestType(istHour);
   const label = getDigestLabel(istHour);
   const topNews = unsentNews[0];
-  const title = label;
   const body = unsentNews.map(n => `• ${n.headline}`).join('\n').slice(0, 200);
   const targetUrl = `https://ajkernews.in/news/${topNews.id}?from=push&digest=${digestType}`;
   const tag = `digest-${digestType}-${new Date().toISOString().split('T')[0]}`;
 
-  console.log(`[DIGEST] Sending ${digestType} digest with ${unsentNews.length} news to ${tokens.length} subscribers`);
-
   const result = await sendDigestPush(env, {
-    title,
-    body,
-    image: topNews.image_url,
-    url: targetUrl,
-    tag,
+    title: label, body, image: topNews.image_url, url: targetUrl, tag,
     newsIds: unsentNews.map(n => n.id)
   }, tokens);
 
@@ -689,13 +681,7 @@ async function sendDigest(env, istHour) {
     await env.DB.prepare(
       `INSERT INTO push_digest_log (id, digest_type, news_count, sent_count, sent_at)
        VALUES (?, ?, ?, ?, ?)`
-    ).bind(
-      crypto.randomUUID(),
-      digestType,
-      unsentNews.length,
-      result.sent,
-      new Date().toISOString()
-    ).run();
+    ).bind(crypto.randomUUID(), digestType, unsentNews.length, result.sent, new Date().toISOString()).run();
   } catch (e) {}
 
   const sentAt = new Date().toISOString();
@@ -709,52 +695,33 @@ async function sendDigest(env, istHour) {
       );
     }
   }
-  if (insertStmts.length) {
-    try {
-      await env.DB.batch(insertStmts);
-    } catch (e) {
-      console.warn('[DIGEST] Batch insert failed:', e?.message);
-    }
-  }
+  if (insertStmts.length) try { await env.DB.batch(insertStmts); } catch (e) {}
 
   await removeInvalidTokens(env, result.invalidTokens, 'DIGEST');
-
-  console.log(`[DIGEST] Result:`, JSON.stringify(result));
 }
 
 // =========================================================
 // BREAKING ALERT
 // =========================================================
 async function sendBreakingAlert(env, news) {
-  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    console.error('[PUSH] ❌ FIREBASE_SERVICE_ACCOUNT_JSON missing!');
-    return;
-  }
+  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) return;
 
   const subs = await env.DB.prepare(
     `SELECT token FROM push_subscriptions WHERE token IS NOT NULL AND token != '' ORDER BY created_at DESC LIMIT ${NOTIFICATION_CONFIG.MAX_BATCH_SIZE}`
   ).all();
 
   const tokens = (subs.results || []).map(s => s.token).filter(Boolean);
-  if (!tokens.length) {
-    console.warn('[PUSH] No subscribers');
-    return;
-  }
+  if (!tokens.length) return;
 
   const alreadySent = await env.DB.prepare(
     `SELECT id FROM push_sent WHERE news_id = ? LIMIT 1`
   ).bind(news.id).first();
-  if (alreadySent) {
-    console.log(`[PUSH] Already sent: ${news.id}`);
-    return;
-  }
+  if (alreadySent) return;
 
   const title = `🔴 ব্রেকিং: ${String(news.headline || "").slice(0, 150)}`;
   const body = String(news.summary || "এখনই পড়ুন →").slice(0, 150);
   const targetUrl = `https://ajkernews.in/news/${news.id}?from=push&breaking=1`;
   const tag = `breaking-${news.id}`;
-
-  console.log(`[PUSH] Sending to ${tokens.length} subscribers`);
 
   const result = await sendDigestPush(env, {
     title, body, image: news.image_url, url: targetUrl, tag,
@@ -764,19 +731,10 @@ async function sendBreakingAlert(env, news) {
   await removeInvalidTokens(env, result.invalidTokens, 'PUSH');
 
   const sentAt = new Date().toISOString();
-  const insertStmts = [];
-  for (const token of tokens) {
-    insertStmts.push(
-      env.DB.prepare(
-        `INSERT OR IGNORE INTO push_sent (id, news_id, token, sent_at) VALUES (?, ?, ?, ?)`
-      ).bind(crypto.randomUUID(), news.id, token.slice(0, 30), sentAt)
-    );
-  }
-  if (insertStmts.length) {
-    try { await env.DB.batch(insertStmts); } catch (e) {}
-  }
-
-  console.log(`[PUSH] Result:`, JSON.stringify(result));
+  const insertStmts = tokens.map(token => env.DB.prepare(
+    `INSERT OR IGNORE INTO push_sent (id, news_id, token, sent_at) VALUES (?, ?, ?, ?)`
+  ).bind(crypto.randomUUID(), news.id, token.slice(0, 30), sentAt));
+  if (insertStmts.length) try { await env.DB.batch(insertStmts); } catch (e) {}
 }
 
 // =========================================================
@@ -1330,7 +1288,7 @@ async function serveListingPage(env, category, searchQuery) {
 }
 
 // =========================================================
-// ARTICLE PAGE — with 410 Gone for deleted news
+// ARTICLE PAGE
 // =========================================================
 async function serveArticlePage(id, env) {
   const safeId = String(id || "").trim();
@@ -1340,7 +1298,6 @@ async function serveArticlePage(id, env) {
     `SELECT headline, summary, main_topic, image_url, published_at, created_at, source_name, source_url, category FROM news WHERE id = ? AND status = 'published' LIMIT 1`
   ).bind(safeId).first();
 
-  // ✅ 410 GONE for deleted news (instead of 302)
   if (!result) return gonePage();
 
   let loveCount = 0;
@@ -1865,7 +1822,7 @@ async function ensureTablesOnce(env) {
 }
 
 // =========================================================
-// SHARE PAGE — with 410 Gone for deleted news
+// SHARE PAGE
 // =========================================================
 async function serveSharePage(id, env, requestUserAgentFromContext = "", requestUrl = null) {
   const safeId = String(id || "").trim();
@@ -1875,7 +1832,6 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
     `SELECT id, headline, summary, main_topic, image_url, published_at, created_at, source_name, source_url, category FROM news WHERE id = ? AND status = 'published' LIMIT 1`
   ).bind(safeId).first();
 
-  // ✅ 410 GONE for deleted news
   if (!result) return gonePage();
 
   const title = cleanText(result.headline) || "Ajker News";
@@ -2196,7 +2152,6 @@ async function handleGetNewsInternal(url, env) {
       if (rawNews.length > 0) {
         const hasMore = rawNews.length > limit;
         const news = rawNews.slice(0, limit);
-        console.log(`[NEWS-TOP] window=${win.label}, count=${news.length}`);
         return json({ success: true, count: news.length, offset, limit, has_more: hasMore, news }, 200, 0);
       }
     }
@@ -2246,7 +2201,6 @@ async function handleGetNewsInternal(url, env) {
       if (rawNews.length > 0) {
         const hasMore = rawNews.length > limit;
         const news = rawNews.slice(0, limit);
-        console.log(`[NEWS-TRENDING] window=${win.label}, count=${news.length}`);
         return json({ success: true, count: news.length, offset, limit, has_more: hasMore, news }, 200, 0);
       }
     }

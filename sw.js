@@ -1,6 +1,6 @@
 // sw.js
-// ✅ FIXED: push + notificationclick handlers সরানো (FCM SW handle করবে)
-// শুধু cache, install, activate, message রাখা হয়েছে
+// ✅ Main Service Worker — শুধু cache, install, activate, message handle করে
+// FCM SW আলাদা ফাইলে handle করে (firebase-messaging-sw.js)
 
 const CACHE_VERSION = "ajker-news-v2026-09-23-sse-fcm";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
@@ -78,6 +78,3 @@ self.addEventListener("message", event => {
     self.skipWaiting();
   }
 });
-
-// ✅ FCM SW push + notificationclick handle করবে
-// এখানে আর push handler নেই (duplicate এড়ানোর জন্য)

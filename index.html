@@ -29,10 +29,9 @@
 <meta property="og:url" content="https://ajkernews.in/">
 <meta property="og:image" content="https://ajkernews.in/logo.png">
 
-<!-- ✅ Google AdSense Auto Ads Script (Google places everywhere automatically) -->
+<!-- ✅ Google AdSense Auto Ads Script -->
 <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXXXXXXXX" crossorigin="anonymous" id="adsenseScript"></script>
 
-<!-- ✅ AdSense Auto Ads Push Configuration (Optional - for Auto Ads) -->
 <script>
   (adsbygoogle = window.adsbygoogle || []).push({
     google_ad_client: "ca-pub-XXXXXXXXXXXXXXXX",
@@ -365,10 +364,11 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   window.__firebaseReady = true;
 
   onMessage(messaging, (payload) => {
+    console.log('[FCM] Foreground message:', payload);
     if (payload.notification && Notification.permission === 'granted') {
       const title = payload.notification.title || 'Ajker News';
       const body = payload.notification.body || '';
-      const url = payload.data?.url || '/';
+      const url = payload.data?.url || payload.fcmOptions?.link || '/';
       const n = new Notification(title, {
         body,
         icon: '/logo.png',
@@ -742,7 +742,7 @@ async function toggleNotification() {
     try {
       let fcmRegistration = window.__fcmRegistration;
       if (!fcmRegistration) {
-        fcmRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/firebase-cloud-messaging-push-scope' });
+        fcmRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' });
         window.__fcmRegistration = fcmRegistration;
       }
       const existingToken = await window.__firebase.getToken(window.__firebase.messaging, {
@@ -774,7 +774,7 @@ async function toggleNotification() {
     if (permission !== 'granted') { alert('নোটিফিকেশন চালু করতে অনুমতি দিন।'); return; }
     let fcmRegistration = window.__fcmRegistration;
     if (!fcmRegistration) {
-      fcmRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/firebase-cloud-messaging-push-scope' });
+      fcmRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' });
       window.__fcmRegistration = fcmRegistration;
     }
     await navigator.serviceWorker.ready;
@@ -969,7 +969,8 @@ function handleNotificationPromptLater() {
   await loadNews('top', '', { showLoading: true, keepExisting: false });
   if ('serviceWorker' in navigator) {
     try {
-      const fcmReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { updateViaCache: 'none', scope: '/firebase-cloud-messaging-push-scope' });
+      // ✅ FCM SW — must be at root scope for push notifications to work
+      const fcmReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { updateViaCache: 'none', scope: '/' });
       window.__fcmRegistration = fcmReg;
     } catch (err) { console.error('[SW] Firebase SW failed:', err); }
     try {

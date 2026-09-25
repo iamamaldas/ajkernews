@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v7: AdSense Auto Ads Only — clean site
+// ✅ FINAL v8: AdSense Auto Ads + notification click fix + clean article page
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -714,6 +714,10 @@ async function sendBreakingAlert(env, news) {
 
 // =========================================================
 // GENERIC PUSH SENDER
+// ✅ FIXED: notification payload বাদ — শুধু data payload
+// কারণ: notification block থাকলে FCM SDK auto show করে,
+// service worker onBackgroundMessage fire হয় না, তাই
+// notificationclick handler trigger হয় না।
 // =========================================================
 async function sendDigestPush(env, payload, tokens) {
   const result = {
@@ -738,29 +742,20 @@ async function sendDigestPush(env, payload, tokens) {
   const logStmts = [];
 
   for (const token of tokens) {
+    // ✅ FIX: notification payload বাদ — শুধু data
     const message = {
       message: {
         token: token,
-        notification: { title: payload.title, body: payload.body },
         data: {
+          title: payload.title,
+          body: payload.body,
           url: payload.url,
           image: payload.image || "",
           notificationId: payload.tag,
-          title: payload.title,
-          body: payload.body,
           isBreaking: isBreaking ? "1" : "0"
         },
         webpush: {
           headers: { Urgency: isBreaking ? "high" : "normal", TTL: String(ttl) },
-          notification: {
-            icon: "https://ajkernews.in/logo.png",
-            badge: "https://ajkernews.in/logo.png",
-            image: payload.image || undefined,
-            vibrate: isBreaking ? [200, 100, 200, 100, 200] : [200, 100],
-            tag: payload.tag,
-            renotify: true,
-            requireInteraction: isBreaking
-          },
           fcmOptions: { link: payload.url }
         }
       }
@@ -1264,6 +1259,7 @@ async function serveListingPage(env, category, searchQuery) {
 
 // =========================================================
 // ARTICLE PAGE
+// ✅ FIXED: "সম্পর্কিত খবর" → "সাম্প্রতিক খবর" (clean, no category match)
 // =========================================================
 async function serveArticlePage(id, env) {
   const safeId = String(id || "").trim();
@@ -1310,13 +1306,14 @@ async function serveArticlePage(id, env) {
     }
   } catch (e) { sourceDomain = result.source_name || "Ajker News"; }
 
-  let relatedNews = [];
+  // ✅ FIXED: শুধু সাম্প্রতিক খবর (category match বাদ)
+  let recentNews = [];
   try {
-    const related = await env.DB.prepare(
-      `SELECT id, headline FROM news WHERE status = 'published' AND id != ? AND category = ? ORDER BY created_at DESC LIMIT 4`
-    ).bind(safeId, category).all();
-    relatedNews = related.results || [];
-  } catch (e) {}
+    const recent = await env.DB.prepare(
+      `SELECT id, headline FROM news WHERE status = 'published' AND id != ? ORDER BY created_at DESC LIMIT 4`
+    ).bind(safeId).all();
+    recentNews = recent?.results || [];
+  } catch (e) { console.warn('[RECENT]', e?.message); }
 
   const catLabel = {
     top:'সেরা খবর', trending:'ট্রেন্ডিং', west_bengal:'পশ্চিমবঙ্গ',
@@ -1357,11 +1354,12 @@ async function serveArticlePage(id, env) {
     ]
   });
 
-  const relatedHtml = relatedNews.length ? `
+  // ✅ FIXED: সাম্প্রতিক খবর heading
+  const recentHtml = recentNews.length ? `
   <aside class="related-box">
-    <h3>সম্পর্কিত খবর</h3>
+    <h3>সাম্প্রতিক খবর</h3>
     <ul>
-      ${relatedNews.map(n => `<li><a href="https://ajkernews.in/news/${encodeURIComponent(n.id)}">${escapeHtml(n.headline || "")}</a></li>`).join("")}
+      ${recentNews.map(n => `<li><a href="https://ajkernews.in/news/${encodeURIComponent(n.id)}">${escapeHtml(n.headline || "")}</a></li>`).join("")}
     </ul>
   </aside>` : "";
 
@@ -1483,7 +1481,7 @@ async function serveArticlePage(id, env) {
       </button>
     </div>
   </article>
-  ${relatedHtml}
+  ${recentHtml}
 </main>
 <footer class="article-footer">
   <p><a href="https://ajkernews.in/">HOME</a></p>

@@ -29,8 +29,17 @@
 <meta property="og:url" content="https://ajkernews.in/">
 <meta property="og:image" content="https://ajkernews.in/logo.png">
 
-<!-- ✅ Google AdSense Script (client ID auto-loaded from /api/ads-config) -->
-<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-PLACEHOLDER" crossorigin="anonymous" id="adsenseScript"></script>
+<!-- ✅ Google AdSense Auto Ads Script (Google places everywhere automatically) -->
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXXXXXXXX" crossorigin="anonymous" id="adsenseScript"></script>
+
+<!-- ✅ AdSense Auto Ads Push Configuration (Optional - for Auto Ads) -->
+<script>
+  (adsbygoogle = window.adsbygoogle || []).push({
+    google_ad_client: "ca-pub-XXXXXXXXXXXXXXXX",
+    enable_page_level_ads: true,
+    overlays: { bottom: true }
+  });
+</script>
 
 <script type="application/ld+json">
 { "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in/logo.png" }
@@ -143,14 +152,6 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .love-btn.loved { color:#e74c3c; }
 .love-btn.loved svg { fill:#e74c3c !important; stroke:#e74c3c !important; }
 
-.adsense-infeed { display: block; width: 100%; min-height: 250px; background: #ffffff; border-radius: 18px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 6px 24px rgba(0,0,0,0.06); padding: 8px; text-align: center; position: relative; }
-.adsense-infeed::before { content: 'Sponsored'; display: block; font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; text-align: center; }
-
-.footer-personal-ad { margin: 40px auto 20px; max-width: 800px; padding: 30px 16px 0; border-top: 1px solid #eee; }
-.footer-ad-label { text-align: center; font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
-.footer-ad-card { display: block; text-decoration: none; color: inherit; border: 1px solid #e0e0e0; border-radius: 12px; overflow: hidden; background: #fff; transition: box-shadow 0.2s; }
-.footer-ad-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
-
 #loadMoreBtn { display:none; width:100%; padding:16px; background:#111111; color:#ffffff; border:none; border-radius:14px; font-size:15.5px; font-weight:700; cursor:pointer; margin-top:26px; transition: background 0.15s, transform 0.15s, box-shadow 0.15s; letter-spacing:-0.1px; box-shadow: 0 4px 14px rgba(0,0,0,0.15); }
 #loadMoreBtn:hover { background:#000; transform: translateY(-2px); box-shadow: 0 8px 22px rgba(0,0,0,0.2); }
 #loadMoreBtn:active { transform: translateY(0) scale(0.98); }
@@ -216,8 +217,6 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   .action-btn { padding:6px 10px; font-size:13px; }
   .action-btn svg { width:17px; height:17px; }
   .action-count { font-size:11.5px; }
-  .adsense-infeed { min-height: 220px; }
-  .footer-personal-ad { margin: 30px 12px 15px; padding: 22px 12px 0; }
   .search-modal { padding:80px 14px 20px; }
   .search-modal-box { padding:18px 18px 22px; border-radius:16px; }
   .close-search { font-size:25px; top:4px; right:10px; }
@@ -322,25 +321,8 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 </div>
 
 <div class="main-content">
-  <!-- 🟢 ADSENSE — TOP BANNER (auto-detected) -->
-  <div class="adsense-infeed" style="margin-bottom: 16px;">
-    <ins class="adsbygoogle"
-         style="display:block"
-         data-ad-client="ca-pub-PLACEHOLDER"
-         data-ad-slot="PLACEHOLDER"
-         data-ad-format="auto"
-         data-full-width-responsive="true"></ins>
-    <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
-  </div>
-
   <div id="newsContainer"></div>
   <button id="loadMoreBtn" onclick="loadMoreNews()">আরও খবর দেখুন</button>
-</div>
-
-<!-- 🟡 PERSONAL AD — FOOTER (auto-detected) -->
-<div class="footer-personal-ad">
-  <div class="footer-ad-label">Sponsored</div>
-  <div id="footer-ad-content"></div>
 </div>
 
 <footer class="footer">
@@ -408,15 +390,6 @@ const WORKER_BASE = window.location.origin;
 const API_URL = `${WORKER_BASE}/api/news`;
 const SITE_URL = window.location.origin;
 
-// ⚠️ Fallback — /api/ads-config থেকে auto-update হবে
-let ADSENSE_CLIENT = "ca-pub-XXXXXXXXXXXXXXXX";
-let AD_SLOTS = {
-  topBanner: "1111111111",
-  inFeed1: "2222222222",
-  inFeed2: "3333333333"
-};
-let PERSONAL_FOOTER_ADS = [];
-
 let currentCategory = 'top';
 let currentSearchQuery = '';
 let currentNews = [];
@@ -426,99 +399,6 @@ let currentOffset = 0;
 const PAGE_SIZE = 15;
 let hasMoreNews = false;
 let deferredPrompt = null;
-
-// ✅ Auto-load all ad configs from worker
-async function loadAllAdConfigs() {
-  try {
-    const res = await fetch(`${WORKER_BASE}/api/ads-config?_t=${Date.now()}`);
-    const data = await res.json();
-
-    if (data.success) {
-      // 🟢 AdSense
-      if (data.publisherId) {
-        ADSENSE_CLIENT = data.publisherId;
-        const script = document.getElementById('adsenseScript');
-        if (script && !script.dataset.updated) {
-          script.dataset.updated = '1';
-          script.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${data.publisherId}`;
-        }
-      }
-      if (data.adSlots) {
-        AD_SLOTS = {
-          topBanner: data.adSlots.topBanner || AD_SLOTS.topBanner,
-          inFeed1: data.adSlots.inFeed1 || AD_SLOTS.inFeed1,
-          inFeed2: data.adSlots.inFeed2 || AD_SLOTS.inFeed2
-        };
-      }
-
-      // 🟡 Personal Ads
-      if (data.personalAds && Array.isArray(data.personalAds.footer)) {
-        PERSONAL_FOOTER_ADS = data.personalAds.footer;
-      }
-
-      // Update top banner existing ad
-      updateTopBannerAd();
-
-      console.log('[Ads] Auto-loaded:', {
-        publisherId: ADSENSE_CLIENT,
-        adSlots: AD_SLOTS,
-        footerAdsCount: PERSONAL_FOOTER_ADS.length
-      });
-    }
-  } catch (e) {
-    console.warn('[Ads] Config fetch failed, using fallbacks');
-  }
-}
-
-function updateTopBannerAd() {
-  const topIns = document.querySelector('.main-content > .adsense-infeed ins.adsbygoogle');
-  if (topIns) {
-    topIns.setAttribute('data-ad-client', ADSENSE_CLIENT);
-    topIns.setAttribute('data-ad-slot', AD_SLOTS.topBanner);
-  }
-}
-
-function renderAdSenseInFeed(slotId) {
-  return `<div class="adsense-infeed" data-ad-slot="${slotId}">
-    <ins class="adsbygoogle"
-         style="display:block"
-         data-ad-client="${ADSENSE_CLIENT}"
-         data-ad-slot="${slotId}"
-         data-ad-format="fluid"
-         data-ad-layout="in-article"></ins>
-  </div>`;
-}
-
-function renderPersonalFooterAd(ad) {
-  return `<a href="${ad.url}" target="_blank" rel="noopener" class="footer-ad-card">
-    ${ad.image ? `<img src="${ad.image}" alt="${ad.title}" style="width:100%;height:auto;max-height:200px;object-fit:cover;display:block;">` : ''}
-    <div style="padding: 18px 20px;">
-      <div style="font-size:19px;font-weight:700;color:#111;margin-bottom:8px;">${ad.title}</div>
-      <div style="font-size:15px;color:#666;line-height:1.5;margin-bottom:16px;">${ad.description || ''}</div>
-      <div style="display:inline-block;background:#007bff;color:#fff;padding:10px 22px;border-radius:8px;font-size:15px;font-weight:600;">${ad.cta || 'Learn More'} →</div>
-    </div>
-  </a>`;
-}
-
-function loadFooterPersonalAd() {
-  const container = document.getElementById('footer-ad-content');
-  const wrapper = document.querySelector('.footer-personal-ad');
-  if (!container || !wrapper) return;
-  if (!PERSONAL_FOOTER_ADS.length) {
-    wrapper.style.display = 'none';
-    return;
-  }
-  const ad = PERSONAL_FOOTER_ADS[Math.floor(Math.random() * PERSONAL_FOOTER_ADS.length)];
-  container.innerHTML = renderPersonalFooterAd(ad);
-}
-
-function reinitializeAdSense() {
-  try {
-    document.querySelectorAll('ins.adsbygoogle:not([data-adsbygoogle-status])').forEach(() => {
-      (adsbygoogle = window.adsbygoogle || []).push({});
-    });
-  } catch (e) { console.error('[AdSense]', e); }
-}
 
 function sortByLatest(newsArray) {
   if (!Array.isArray(newsArray)) return [];
@@ -744,15 +624,12 @@ function renderNews(newsList, hasMore = false) {
   }
   const limited = newsList.slice(0, visibleCount);
   let html = '';
-  limited.forEach((news, index) => {
+  limited.forEach((news) => {
     html += buildNewsHtml(news);
-    if (index === 2) html += renderAdSenseInFeed(AD_SLOTS.inFeed1);
-    if (index === 6) html += renderAdSenseInFeed(AD_SLOTS.inFeed2);
   });
   container.innerHTML = html;
   requestAnimationFrame(() => {
     container.querySelectorAll('.news-card').forEach(c => c.classList.add('visible'));
-    reinitializeAdSense();
   });
   const loadMoreBtn = document.getElementById('loadMoreBtn');
   if (loadMoreBtn) loadMoreBtn.style.display = hasMore ? 'block' : 'none';
@@ -1088,15 +965,8 @@ function handleNotificationPromptLater() {
 }
 
 (async function initApp() {
-  // ✅ 1. Load ad configs first
-  await loadAllAdConfigs();
-
   try { localStorage.removeItem('newsCache:v1'); } catch (e) {}
-
-  // ✅ 2. Load news
   await loadNews('top', '', { showLoading: true, keepExisting: false });
-
-  // ✅ 3. Register service workers
   if ('serviceWorker' in navigator) {
     try {
       const fcmReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { updateViaCache: 'none', scope: '/firebase-cloud-messaging-push-scope' });
@@ -1107,13 +977,7 @@ function handleNotificationPromptLater() {
       mainReg.update().catch((e) => {});
     } catch (err) { console.error('[SW] Main SW failed:', err); }
   }
-
   await checkNotificationStatus();
-
-  // ✅ 4. Footer personal ad
-  loadFooterPersonalAd();
-
-  reinitializeAdSense();
   startLiveStream();
 })();
 

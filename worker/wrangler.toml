@@ -20,10 +20,10 @@ WORKER_ORIGIN = "https://ajkernews.ajkernews-1c0.workers.dev"
 
 [triggers]
 crons = [
-  "0 8 * * *",
-  "0 13 * * *",
-  "0 18 * * *",
-  "0 21 * * *",
+  "30 2 * * *",
+  "30 7 * * *",
+  "30 12 * * *",
+  "30 15 * * *",
   "0 */2 * * *"
 ]
 

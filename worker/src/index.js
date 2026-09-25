@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v6: AdSense ONLY — clean site
+// ✅ FINAL v7: AdSense Auto Ads Only — clean site
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -213,8 +213,7 @@ export default {
       if (url.pathname === "/api/ads-config" && request.method === "GET") {
         return json({
           success: true,
-          publisherId: ADS_CONFIG.publisherId || "",
-          adSlots: ADS_CONFIG.adSlots || {}
+          publisherId: ADS_CONFIG.publisherId || ""
         }, 200, 60);
       }
 

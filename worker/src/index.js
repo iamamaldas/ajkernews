@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v9: notification + data both + auto push fix
+// ✅ FINAL v10: robots.txt with IndexNow + notification + data both
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -106,7 +106,7 @@ function getAdsterraScripts() {
 }
 
 // =========================================================
-// ✅ Helper — Invalid/unregistered FCM tokens remove
+// Helper — Invalid/unregistered FCM tokens remove
 // =========================================================
 async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
   if (!invalidTokens || !invalidTokens.length) return 0;
@@ -125,7 +125,7 @@ async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
 }
 
 // =========================================================
-// ✅ 410 GONE PAGE
+// 410 GONE PAGE
 // =========================================================
 function gonePage() {
   const html = `<!DOCTYPE html>
@@ -172,7 +172,7 @@ export default {
       if (url.pathname === "/sitemap.xml") return await generateSitemap(env);
       if (url.pathname === "/news-sitemap.xml") return await generateNewsSitemap(env);
       if (url.pathname === "/rss.xml") return await generateRSS(env);
-      if (url.pathname === "/robots.txt") return generateRobotsTxt();
+      if (url.pathname === "/robots.txt") return generateRobotsTxt(env);
 
       if (url.pathname === "/api/live" && request.method === "GET") {
         return handleLiveStream(env, request);
@@ -725,7 +725,7 @@ async function sendBreakingAlert(env, news) {
 }
 
 // =========================================================
-// ✅ GENERIC PUSH SENDER — notification + data BOTH
+// GENERIC PUSH SENDER — notification + data BOTH
 // =========================================================
 async function sendDigestPush(env, payload, tokens) {
   const result = {
@@ -754,14 +754,14 @@ async function sendDigestPush(env, payload, tokens) {
       message: {
         token: token,
 
-        // ✅ FCM নিজেই নোটিফিকেশন দেখাবে (ফোন লক থাকলেও আসবে)
+        // FCM নিজেই নোটিফিকেশন দেখাবে (ফোন লক থাকলেও আসবে)
         notification: {
           title: payload.title,
           body: payload.body,
           ...(payload.image ? { image: payload.image } : {})
         },
 
-        // ✅ Data payload — ক্লিক URL, ট্র্যাকিং, SW fallback
+        // Data payload — ক্লিক URL, ট্র্যাকিং, SW fallback
         data: {
           title: payload.title,
           body: payload.body,
@@ -2378,7 +2378,14 @@ async function generateNewsSitemap(env) {
   }
 }
 
-function generateRobotsTxt() {
+// =========================================================
+// ROBOTS.TXT — with IndexNow
+// =========================================================
+function generateRobotsTxt(env) {
+  const indexNowLine = (env && env.INDEXNOW_KEY)
+    ? `# IndexNow\nIndexNow: https://ajkernews.in/${env.INDEXNOW_KEY}.txt\n\n`
+    : "";
+
   const text = `User-agent: *
 Allow: /
 Disallow: /api/
@@ -2407,12 +2414,15 @@ Allow: /
 User-agent: PerplexityBot
 Allow: /
 
-Sitemap: https://ajkernews.in/sitemap.xml
+${indexNowLine}Sitemap: https://ajkernews.in/sitemap.xml
 Sitemap: https://ajkernews.in/news-sitemap.xml
 `;
   return new Response(text, {
     status: 200,
-    headers: { "Content-Type": "text/plain; charset=UTF-8", "Cache-Control": "public, max-age=3600, s-maxage=3600" }
+    headers: {
+      "Content-Type": "text/plain; charset=UTF-8",
+      "Cache-Control": "public, max-age=3600, s-maxage=3600"
+    }
   });
 }
 

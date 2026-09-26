@@ -350,19 +350,30 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   window.__VAPID_KEY = "BPIJghMstrMW--U1O0rRUbDVm1epdMAOaR6WZ3mRE03C2bD33IYL_02NDKYk8us6WnRFGHQ7wPnvhEKCXeuzmlA";
   window.__firebaseReady = true;
 
+  // ✅ FOREGROUND: notification payload-এ ডুপ্লিকেট বন্ধ
   onMessage(messaging, (payload) => {
     console.log('[FCM] Foreground message:', payload);
-    if (payload.notification && Notification.permission === 'granted') {
-      const title = payload.notification.title || 'Ajker News';
-      const body = payload.notification.body || '';
-      const url = payload.data?.url || payload.fcmOptions?.link || '/';
+    
+    // FCM নিজেই notification দেখাবে, তাই onMessage-এ নতুন Notification() করা যাবে না
+    if (payload.notification) {
+      console.log('[FCM] Notification payload present — FCM auto-display');
+      return;
+    }
+    
+    // ✅ শুধু data-only payload হলে ম্যানুয়ালি দেখাই
+    if (payload.data && Notification.permission === 'granted') {
+      const title = payload.data.title || 'Ajker News';
+      const body = payload.data.body || '';
+      const url = payload.data.url || '/';
+      
       const n = new Notification(title, {
         body,
         icon: '/logo.png',
         badge: '/logo.png',
-        tag: payload.data?.notificationId || 'default',
+        tag: payload.data.notificationId || 'default',
         data: { url }
       });
+      
       n.onclick = () => {
         window.focus();
         if (url) window.open(url, '_blank');
@@ -956,7 +967,6 @@ function handleNotificationPromptLater() {
   await loadNews('top', '', { showLoading: true, keepExisting: false });
   if ('serviceWorker' in navigator) {
     try {
-      // ✅ FCM SW — must be at root scope for push notifications to work
       const fcmReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { updateViaCache: 'none', scope: '/' });
       window.__fcmRegistration = fcmReg;
     } catch (err) { console.error('[SW] Firebase SW failed:', err); }

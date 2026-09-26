@@ -24,5 +24,8 @@ Allow: /
 User-agent: PerplexityBot
 Allow: /
 
-Sitemap: https://ajkernews.in
-Sitemap: https://ajkernews.in
+# IndexNow
+IndexNow: https://ajkernews.in/505f0ac338ab2dff6905b38a94a9dd94.txt
+
+Sitemap: https://ajkernews.in/sitemap.xml
+Sitemap: https://ajkernews.in/news-sitemap.xml

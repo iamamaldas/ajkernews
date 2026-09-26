@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v10: robots.txt with IndexNow + notification + data both
+// ✅ FINAL v11: TTL extended + Urgency high + notification delivery fix
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -17,12 +17,12 @@ const MAX_NEWS = 1000;
 const API_PAGE_SIZE = 10;
 
 const NOTIFICATION_CONFIG = {
-  TTL_SECONDS: 172800,
+  TTL_SECONDS: 259200,
   QUIET_START_HOUR: 23,
   QUIET_END_HOUR: 7,
   BREAKING_SCORE_THRESHOLD: 40,
-  BREAKING_TTL_SECONDS: 172800,
-  REGULAR_TTL_SECONDS: 86400,
+  BREAKING_TTL_SECONDS: 259200,
+  REGULAR_TTL_SECONDS: 172800,
   MAX_BATCH_SIZE: 500,
   DIGEST_NEWS_COUNT: 3,
   PRIME_HOURS: [8, 13, 18, 21],
@@ -754,14 +754,12 @@ async function sendDigestPush(env, payload, tokens) {
       message: {
         token: token,
 
-        // FCM নিজেই নোটিফিকেশন দেখাবে (ফোন লক থাকলেও আসবে)
         notification: {
           title: payload.title,
           body: payload.body,
           ...(payload.image ? { image: payload.image } : {})
         },
 
-        // Data payload — ক্লিক URL, ট্র্যাকিং, SW fallback
         data: {
           title: payload.title,
           body: payload.body,
@@ -773,7 +771,7 @@ async function sendDigestPush(env, payload, tokens) {
 
         webpush: {
           headers: {
-            Urgency: isBreaking ? "high" : "normal",
+            Urgency: "high",
             TTL: String(ttl)
           },
           fcmOptions: {

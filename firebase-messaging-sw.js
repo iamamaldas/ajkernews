@@ -1,6 +1,5 @@
 // firebase-messaging-sw.js
-// ✅ FINAL FIX: notification payload + data payload উভয়ই handle
-// ডুপ্লিকেট নোটিফিকেশন এড়ানো এবং ক্লিক URL ট্র্যাকিং
+// ✅ FINAL v3: Background delivery + duplicate prevention
 
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging-compat.js');
@@ -34,15 +33,14 @@ if (firebase.messaging.isSupported()) {
       return;
     }
 
-    // ✅ যদি FCM নিজেই notification payload থেকে নোটিফিকেশন দেখায়,
-    // তাহলে SW থেকে আবার showNotification করলে ডুপ্লিকেট হবে।
-    // তাই শুধু data-only payload হলেই ম্যানুয়ালি showNotification করব।
+    // ✅ FCM নিজেই notification payload থেকে নোটিফিকেশন দেখাবে
+    // তাই SW থেকে আবার showNotification করলে ডুপ্লিকেট হবে
     if (payload.notification) {
-      console.log('[FCM-SW] Notification payload present — FCM auto-display করবে');
+      console.log('[FCM-SW] Notification payload present — FCM auto-displays');
       return;
     }
 
-    // Fallback: data-only payload হলে ম্যানুয়ালি নোটিফিকেশন দেখাই
+    // ✅ Fallback: data-only payload হলে ম্যানুয়ালি নোটিফিকেশন দেখাই
     const notificationTitle = payload.data?.title || 'আজকের নিউজ';
     const notificationBody = payload.data?.body || 'নতুন খবর এসেছে';
 
@@ -54,7 +52,7 @@ if (firebase.messaging.isSupported()) {
       vibrate: [200, 100, 200],
       tag: payload.data?.notificationId || 'ajker-news',
       renotify: true,
-      requireInteraction: false,
+      requireInteraction: true,
       data: {
         url: payload.data?.url || 'https://ajkernews.in/',
         notificationId: payload.data?.notificationId || ''

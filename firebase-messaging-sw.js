@@ -1,5 +1,5 @@
 // firebase-messaging-sw.js
-// ✅ FINAL v3: Background delivery + duplicate prevention
+// ✅ FINAL: Manual notification display
 
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging-compat.js');
@@ -17,9 +17,9 @@ if (firebase.messaging.isSupported()) {
   const messaging = firebase.messaging();
 
   messaging.onBackgroundMessage((payload) => {
-    console.log('[FCM-SW] Background message received:', JSON.stringify(payload));
+    console.log('[FCM-SW] Message:', JSON.stringify(payload));
 
-    // ✅ Silent update (news_published event) — শুধু ক্লায়েন্টে মেসেজ পাঠায়, নোটিফিকেশন দেখায় না
+    // Silent update — notification দেখাবে না
     if (payload.data && payload.data.type === 'news_published') {
       self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
         clients.forEach((client) => {
@@ -33,44 +33,35 @@ if (firebase.messaging.isSupported()) {
       return;
     }
 
-    // ✅ FCM নিজেই notification payload থেকে নোটিফিকেশন দেখাবে
-    // তাই SW থেকে আবার showNotification করলে ডুপ্লিকেট হবে
-    if (payload.notification) {
-      console.log('[FCM-SW] Notification payload present — FCM auto-displays');
-      return;
-    }
+    // Notification Display
+    const title = payload.notification?.title
+      || payload.data?.title
+      || 'Ajker News';
+    const body = payload.notification?.body
+      || payload.data?.body
+      || 'নতুন খবর এসেছে';
+    const image = payload.notification?.image
+      || payload.data?.image
+      || undefined;
 
-    // ✅ Fallback: data-only payload হলে ম্যানুয়ালি নোটিফিকেশন দেখাই
-    const notificationTitle = payload.data?.title || 'আজকের নিউজ';
-    const notificationBody = payload.data?.body || 'নতুন খবর এসেছে';
-
-    const notificationOptions = {
-      body: notificationBody,
-      icon: payload.data?.icon || 'https://ajkernews.in/logo.png',
-      badge: 'https://ajkernews.in/logo.png',
-      image: payload.data?.image || undefined,
+    return self.registration.showNotification(title, {
+      body: body,
+      icon: '/logo.png',
+      badge: '/logo.png',
+      image: image,
       vibrate: [200, 100, 200],
       tag: payload.data?.notificationId || 'ajker-news',
       renotify: true,
-      requireInteraction: true,
       data: {
         url: payload.data?.url || 'https://ajkernews.in/',
         notificationId: payload.data?.notificationId || ''
       }
-    };
-
-    self.registration.showNotification(notificationTitle, notificationOptions)
-      .then(() => console.log('[FCM-SW] ✅ Fallback notification shown'))
-      .catch((err) => console.error('[FCM-SW] ❌ showNotification failed:', err));
+    });
   });
 }
 
-// =========================================================
-// Notification click handling
-// =========================================================
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-
   const targetUrl = event.notification.data?.url || 'https://ajkernews.in/';
   const fullUrl = targetUrl.startsWith('http')
     ? targetUrl

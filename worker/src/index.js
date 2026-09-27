@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v11: TTL extended + Urgency high + notification delivery fix
+// ✅ FINAL v12: click_action + Android high priority + unique tags
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -708,7 +708,7 @@ async function sendBreakingAlert(env, news) {
   const title = `🔴 ব্রেকিং: ${String(news.headline || "").slice(0, 150)}`;
   const body = String(news.summary || "এখনই পড়ুন →").slice(0, 150);
   const targetUrl = `https://ajkernews.in/news/${news.id}?from=push&breaking=1`;
-  const tag = `breaking-${news.id}`;
+  const tag = `breaking-${news.id}-${Date.now()}`;
 
   const result = await sendDigestPush(env, {
     title, body, image: news.image_url, url: targetUrl, tag,
@@ -725,7 +725,7 @@ async function sendBreakingAlert(env, news) {
 }
 
 // =========================================================
-// GENERIC PUSH SENDER — notification + data BOTH
+// ✅ GENERIC PUSH SENDER — notification + data + click_action + high priority
 // =========================================================
 async function sendDigestPush(env, payload, tokens) {
   const result = {
@@ -754,17 +754,17 @@ async function sendDigestPush(env, payload, tokens) {
       message: {
         token: token,
 
+        // ✅ Notification with click_action for proper URL navigation
         notification: {
           title: payload.title,
           body: payload.body,
-          ...(payload.image ? { image: payload.image } : {})
+          ...(payload.image ? { image: payload.image } : {}),
+          click_action: payload.url
         },
 
+        // ✅ Data payload — minimal, only needed fields
         data: {
-          title: payload.title,
-          body: payload.body,
           url: payload.url,
-          image: payload.image || "",
           notificationId: payload.tag,
           isBreaking: isBreaking ? "1" : "0"
         },
@@ -776,6 +776,29 @@ async function sendDigestPush(env, payload, tokens) {
           },
           fcmOptions: {
             link: payload.url
+          }
+        },
+
+        // ✅ Android high priority for background delivery
+        android: {
+          priority: "high",
+          notification: {
+            channel_id: "ajker-news-high",
+            sound: "default",
+            click_action: "FLUTTER_NOTIFICATION_CLICK"
+          }
+        },
+
+        apns: {
+          headers: {
+            "apns-priority": "10"
+          },
+          payload: {
+            aps: {
+              sound: "default",
+              badge: 1,
+              "content-available": 1
+            }
           }
         }
       }
@@ -914,7 +937,7 @@ async function sendSinglePush(env, news, tokens, isBreaking) {
   const title = String(news.headline || "নতুন খবর").slice(0, 180);
   const body = String(news.summary || "বিস্তারিত জানতে ক্লিক করুন").slice(0, 180);
   const targetUrl = `https://ajkernews.in/news/${news.id}?from=push`;
-  const tag = isBreaking ? `breaking-${news.id}` : `news-${news.id}`;
+  const tag = `${isBreaking ? 'breaking' : 'news'}-${news.id}-${Date.now()}`;
 
   const result = await sendDigestPush(env, {
     title, body, image: news.image_url, url: targetUrl, tag,

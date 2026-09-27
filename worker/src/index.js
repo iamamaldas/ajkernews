@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v13: Web Push compatible — removed invalid fields
+// ✅ FINAL v14: Web Push FIXED — webpush.notification যোগ করা হয়েছে
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -725,8 +725,8 @@ async function sendBreakingAlert(env, news) {
 }
 
 // =========================================================
-// ✅ GENERIC PUSH SENDER — Web Push Compatible
-// Only uses VALID fields for FCM HTTP v1 Web Token
+// ✅ GENERIC PUSH SENDER — Web Push FIXED
+// webpush.notification block যোগ করা হয়েছে → Chrome বাংলায় title/body দেখাবে
 // =========================================================
 async function sendDigestPush(env, payload, tokens) {
   const result = {
@@ -751,7 +751,6 @@ async function sendDigestPush(env, payload, tokens) {
   const logStmts = [];
 
   for (const token of tokens) {
-    // ✅ FCM HTTP v1 Web Push — only valid fields
     const message = {
       message: {
         token: token,
@@ -763,12 +762,26 @@ async function sendDigestPush(env, payload, tokens) {
         },
 
         data: {
+          title: payload.title,
+          body: payload.body,
+          image: payload.image || "",
           url: payload.url,
           notificationId: payload.tag,
           isBreaking: isBreaking ? "1" : "0"
         },
 
         webpush: {
+          notification: {
+            title: payload.title,
+            body: payload.body,
+            icon: "https://ajkernews.in/logo.png",
+            badge: "https://ajkernews.in/logo.png",
+            ...(payload.image ? { image: payload.image } : {}),
+            tag: payload.tag,
+            renotify: true,
+            requireInteraction: true,
+            data: { url: payload.url }
+          },
           headers: {
             Urgency: "high",
             TTL: String(ttl)

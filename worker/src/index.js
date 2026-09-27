@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v14: Web Push FIXED — webpush.notification যোগ করা হয়েছে
+// ✅ FINAL v15: Web Push FIXED — notification block removed, SW handles display
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -725,8 +725,9 @@ async function sendBreakingAlert(env, news) {
 }
 
 // =========================================================
-// ✅ GENERIC PUSH SENDER — Web Push FIXED
-// webpush.notification block যোগ করা হয়েছে → Chrome বাংলায় title/body দেখাবে
+// ✅ GENERIC PUSH SENDER — Web Push FINAL FIX
+// ❌ root-level notification block REMOVED (Chrome web-এ auto-display করে fallback দেখায়)
+// ✅ webpush.notification + data.title/body — SW বা Chrome দুটোই title/body পাবে
 // =========================================================
 async function sendDigestPush(env, payload, tokens) {
   const result = {
@@ -751,16 +752,13 @@ async function sendDigestPush(env, payload, tokens) {
   const logStmts = [];
 
   for (const token of tokens) {
+    // ✅ FCM HTTP v1 Web Push — NO root-level notification
+    // Chrome FCM SDK auto-display করে fallback দেখায়, তাই SW-র উপর ছেড়ে দেওয়া
     const message = {
       message: {
         token: token,
 
-        notification: {
-          title: payload.title,
-          body: payload.body,
-          ...(payload.image ? { image: payload.image } : {})
-        },
-
+        // ✅ data-only: SW নিজে showNotification() কল করবে
         data: {
           title: payload.title,
           body: payload.body,
@@ -770,6 +768,7 @@ async function sendDigestPush(env, payload, tokens) {
           isBreaking: isBreaking ? "1" : "0"
         },
 
+        // ✅ webpush.notification: modern browser-এর native path
         webpush: {
           notification: {
             title: payload.title,

@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v12: click_action + Android high priority + unique tags
+// ✅ FINAL v13: Web Push compatible — removed invalid fields
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -725,7 +725,8 @@ async function sendBreakingAlert(env, news) {
 }
 
 // =========================================================
-// ✅ GENERIC PUSH SENDER — notification + data + click_action + high priority
+// ✅ GENERIC PUSH SENDER — Web Push Compatible
+// Only uses VALID fields for FCM HTTP v1 Web Token
 // =========================================================
 async function sendDigestPush(env, payload, tokens) {
   const result = {
@@ -750,19 +751,17 @@ async function sendDigestPush(env, payload, tokens) {
   const logStmts = [];
 
   for (const token of tokens) {
+    // ✅ FCM HTTP v1 Web Push — only valid fields
     const message = {
       message: {
         token: token,
 
-        // ✅ Notification with click_action for proper URL navigation
         notification: {
           title: payload.title,
           body: payload.body,
-          ...(payload.image ? { image: payload.image } : {}),
-          click_action: payload.url
+          ...(payload.image ? { image: payload.image } : {})
         },
 
-        // ✅ Data payload — minimal, only needed fields
         data: {
           url: payload.url,
           notificationId: payload.tag,
@@ -776,29 +775,6 @@ async function sendDigestPush(env, payload, tokens) {
           },
           fcmOptions: {
             link: payload.url
-          }
-        },
-
-        // ✅ Android high priority for background delivery
-        android: {
-          priority: "high",
-          notification: {
-            channel_id: "ajker-news-high",
-            sound: "default",
-            click_action: "FLUTTER_NOTIFICATION_CLICK"
-          }
-        },
-
-        apns: {
-          headers: {
-            "apns-priority": "10"
-          },
-          payload: {
-            aps: {
-              sound: "default",
-              badge: 1,
-              "content-available": 1
-            }
           }
         }
       }
@@ -900,7 +876,6 @@ async function sendSilentFcmUpdate(env, newsIds) {
           ids: newsIds.slice(0, 5).join(','),
           ts: String(Date.now())
         },
-        android: { priority: "normal" },
         webpush: {
           headers: { Urgency: "low", TTL: "300" }
         }

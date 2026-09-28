@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v18: Silent FCM disabled — only real notifications (breaking + digest)
+// ✅ FINAL v19: Triple notification block (root + data + webpush) + silent FCM disabled
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -731,7 +731,8 @@ async function sendBreakingAlert(env, news) {
 }
 
 // =========================================================
-// GENERIC PUSH SENDER — DATA-ONLY
+// ✅ GENERIC PUSH SENDER — TRIPLE NOTIFICATION (root + data + webpush)
+// FCM HTTP v1 API requires root-level notification to avoid "This site has been updated" fallback
 // =========================================================
 async function sendDigestPush(env, payload, tokens) {
   const result = {
@@ -756,24 +757,49 @@ async function sendDigestPush(env, payload, tokens) {
   const logStmts = [];
 
   for (const token of tokens) {
+    const title = String(payload.title || "Ajker News");
+    const body = String(payload.body || "নতুন খবর এসেছে");
+
     const message = {
       message: {
         token: token,
+
+        // ✅ 1. Root-level notification — FCM SDK auto-display path (REQUIRED!)
+        notification: {
+          title: title,
+          body: body,
+          ...(payload.image ? { image: String(payload.image) } : {})
+        },
+
+        // ✅ 2. Data block — SW fallback path
         data: {
-          title: String(payload.title || "Ajker News"),
-          body: String(payload.body || "নতুন খবর এসেছে"),
+          title: title,
+          body: body,
           image: String(payload.image || ""),
           url: String(payload.url || "https://ajkernews.in/"),
           notificationId: String(payload.tag || Date.now()),
           isBreaking: isBreaking ? "1" : "0"
         },
+
+        // ✅ 3. Webpush notification — modern browser native path
         webpush: {
+          notification: {
+            title: title,
+            body: body,
+            icon: "https://ajkernews.in/logo.png",
+            badge: "https://ajkernews.in/logo.png",
+            ...(payload.image ? { image: String(payload.image) } : {}),
+            tag: String(payload.tag || Date.now()),
+            renotify: true,
+            requireInteraction: true,
+            data: { url: String(payload.url || "https://ajkernews.in/") }
+          },
           headers: {
             Urgency: "high",
             TTL: String(ttl)
           },
           fcmOptions: {
-            link: payload.url
+            link: String(payload.url || "https://ajkernews.in/")
           }
         }
       }
@@ -799,7 +825,7 @@ async function sendDigestPush(env, payload, tokens) {
             payload.newsIds?.[0] || null,
             token.slice(0, 30),
             'sent',
-            payload.title.slice(0, 100),
+            title.slice(0, 100),
             sentAt
           )
         );
@@ -825,7 +851,7 @@ async function sendDigestPush(env, payload, tokens) {
             token.slice(0, 30),
             'failed',
             errCode,
-            payload.title.slice(0, 100),
+            title.slice(0, 100),
             sentAt
           )
         );
@@ -844,12 +870,12 @@ async function sendDigestPush(env, payload, tokens) {
 }
 
 // =========================================================
-// SILENT FCM — DISABLED (kept for future use, not called)
+// SILENT FCM — DISABLED
 // =========================================================
 async function sendSilentFcmUpdate(env, newsIds) {
-  // ❌ DISABLED: This function sends data-only messages without title/body,
-  // which Chrome renders as "This site has been updated in the background."
-  // The SSE stream (/api/live) already handles background tab updates.
+  // ❌ DISABLED: data-only message without notification block
+  // causes Chrome to render "This site has been updated in the background."
+  // SSE /api/live handles background tab updates instead.
   return { disabled: true, reason: "silent-fcm-disabled" };
 }
 
@@ -1073,15 +1099,8 @@ async function updateNews(env) {
       console.warn("[LIVE] Broadcast failed:", e?.message);
     }
 
-    // ✅ Silent FCM update DISABLED — SSE handles background tab notifications
-    // if (!isQuietHours()) {
-    //   try {
-    //     await sendSilentFcmUpdate(env, publishedIds);
-    //     console.log(`[FCM-SILENT] Background tabs notified`);
-    //   } catch (e) {
-    //     console.warn("[FCM-SILENT] Failed:", e?.message);
-    //   }
-    // }
+    // ✅ Silent FCM update DISABLED — SSE handles background tabs
+    // await sendSilentFcmUpdate(env, publishedIds);
   }
 
   return {

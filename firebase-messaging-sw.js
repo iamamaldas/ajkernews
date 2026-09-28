@@ -1,5 +1,5 @@
 // firebase-messaging-sw.js
-// ✅ FINAL: Manual notification display
+// ✅ FINAL: Data-only message → SW manually shows notification
 
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging-compat.js');
@@ -17,11 +17,11 @@ if (firebase.messaging.isSupported()) {
   const messaging = firebase.messaging();
 
   messaging.onBackgroundMessage((payload) => {
-    console.log('[FCM-SW] Message:', JSON.stringify(payload));
+    console.log('[FCM-SW] Background message:', JSON.stringify(payload));
 
-    // Silent update — notification দেখাবে না
+    // Silent update — news_published event, no notification
     if (payload.data && payload.data.type === 'news_published') {
-      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
         clients.forEach((client) => {
           client.postMessage({
             type: 'news_published',
@@ -30,19 +30,13 @@ if (firebase.messaging.isSupported()) {
           });
         });
       });
-      return;
     }
 
-    // Notification Display
-    const title = payload.notification?.title
-      || payload.data?.title
-      || 'Ajker News';
-    const body = payload.notification?.body
-      || payload.data?.body
-      || 'নতুন খবর এসেছে';
-    const image = payload.notification?.image
-      || payload.data?.image
-      || undefined;
+    // ✅ Data-only message → SW manually shows notification
+    const title = payload.data?.title || 'Ajker News';
+    const body = payload.data?.body || 'নতুন খবর এসেছে';
+    const image = payload.data?.image || undefined;
+    const url = payload.data?.url || 'https://ajkernews.in/';
 
     return self.registration.showNotification(title, {
       body: body,
@@ -50,12 +44,10 @@ if (firebase.messaging.isSupported()) {
       badge: '/logo.png',
       image: image,
       vibrate: [200, 100, 200],
-      tag: payload.data?.notificationId || 'ajker-news',
+      tag: payload.data?.notificationId || 'ajker-news-' + Date.now(),
       renotify: true,
-      data: {
-        url: payload.data?.url || 'https://ajkernews.in/',
-        notificationId: payload.data?.notificationId || ''
-      }
+      requireInteraction: true,
+      data: { url: url }
     });
   });
 }

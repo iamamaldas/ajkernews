@@ -19,7 +19,6 @@ if (firebase.messaging.isSupported()) {
   messaging.onBackgroundMessage((payload) => {
     console.log('[FCM-SW] Background message:', JSON.stringify(payload));
 
-    // Silent update — news_published event, no notification
     if (payload.data && payload.data.type === 'news_published') {
       return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
         clients.forEach((client) => {
@@ -32,7 +31,6 @@ if (firebase.messaging.isSupported()) {
       });
     }
 
-    // ✅ Data-only message → SW manually shows notification
     const title = payload.data?.title || 'Ajker News';
     const body = payload.data?.body || 'নতুন খবর এসেছে';
     const image = payload.data?.image || undefined;

@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v16: Data-only push — SW manually shows notification
+// ✅ FINAL v17: Data-only push + /api/debug-tokens endpoint
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -297,6 +297,31 @@ export default {
 
       if (url.pathname === "/api/push-sync" && request.method === "POST") {
         return await handlePushSync(request, env);
+      }
+
+      // ✅ NEW: /api/debug-tokens endpoint (secret protected)
+      if (url.pathname === "/api/debug-tokens" && request.method === "GET") {
+        const secret = url.searchParams.get("secret");
+        const validSecret = env.DEBUG_TOKENS_SECRET || "ajkernews-push-2026";
+        if (secret !== validSecret) {
+          return json({ success: false, error: "Unauthorized" }, 401, 0);
+        }
+        try {
+          const subs = await env.DB.prepare(
+            `SELECT id, token, created_at FROM push_subscriptions WHERE token IS NOT NULL AND token != '' ORDER BY created_at DESC LIMIT 100`
+          ).all();
+          return json({
+            success: true,
+            count: (subs.results || []).length,
+            tokens: (subs.results || []).map(r => ({
+              id: r.id,
+              token: r.token,
+              created_at: r.created_at
+            }))
+          }, 200, 0);
+        } catch (error) {
+          return json({ success: false, error: error.message }, 500, 0);
+        }
       }
 
       if (url.pathname === "/api/debug" && request.method === "GET") {
@@ -707,10 +732,7 @@ async function sendBreakingAlert(env, news) {
 }
 
 // =========================================================
-// ✅ GENERIC PUSH SENDER — DATA-ONLY (SW manually shows notification)
-// ❌ No notification block anywhere
-// ❌ No webpush.notification block
-// ✅ Only data + webpush headers
+// ✅ GENERIC PUSH SENDER — DATA-ONLY
 // =========================================================
 async function sendDigestPush(env, payload, tokens) {
   const result = {
@@ -735,7 +757,6 @@ async function sendDigestPush(env, payload, tokens) {
   const logStmts = [];
 
   for (const token of tokens) {
-    // ✅ DATA-ONLY message — FCM will ALWAYS delegate to onBackgroundMessage
     const message = {
       message: {
         token: token,

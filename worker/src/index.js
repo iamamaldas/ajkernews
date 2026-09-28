@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v15: Web Push FIXED — notification block removed, SW handles display
+// ✅ FINAL v16: Data-only push — SW manually shows notification
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -91,9 +91,6 @@ function getDigestType(hour) {
   return "general";
 }
 
-// =========================================================
-// ADSTERRA SCRIPTS
-// =========================================================
 function getAdsterraScripts() {
   const scripts = [];
   if (ADS_CONFIG?.scripts?.socialBar && ADS_CONFIG.scripts.socialBar !== "YOUR_SOCIAL_BAR_URL") {
@@ -105,9 +102,6 @@ function getAdsterraScripts() {
   return scripts.join("\n");
 }
 
-// =========================================================
-// Helper — Invalid/unregistered FCM tokens remove
-// =========================================================
 async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
   if (!invalidTokens || !invalidTokens.length) return 0;
   try {
@@ -124,9 +118,6 @@ async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
   }
 }
 
-// =========================================================
-// 410 GONE PAGE
-// =========================================================
 function gonePage() {
   const html = `<!DOCTYPE html>
 <html lang="bn">
@@ -535,9 +526,6 @@ export default {
   }
 };
 
-// =========================================================
-// SSE LIVE STREAM
-// =========================================================
 async function handleLiveStream(env, request) {
   const encoder = new TextEncoder();
   let lastCheck = new Date(Date.now() - 60 * 1000).toISOString();
@@ -617,9 +605,6 @@ async function handleLiveStream(env, request) {
   });
 }
 
-// =========================================================
-// DIGEST SENDER
-// =========================================================
 async function sendDigest(env, istHour) {
   if (isQuietHours()) return;
   if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) return;
@@ -687,9 +672,6 @@ async function sendDigest(env, istHour) {
   await removeInvalidTokens(env, result.invalidTokens, 'DIGEST');
 }
 
-// =========================================================
-// BREAKING ALERT
-// =========================================================
 async function sendBreakingAlert(env, news) {
   if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) return;
 
@@ -725,9 +707,10 @@ async function sendBreakingAlert(env, news) {
 }
 
 // =========================================================
-// ✅ GENERIC PUSH SENDER — Web Push FINAL FIX
-// ❌ root-level notification block REMOVED (Chrome web-এ auto-display করে fallback দেখায়)
-// ✅ webpush.notification + data.title/body — SW বা Chrome দুটোই title/body পাবে
+// ✅ GENERIC PUSH SENDER — DATA-ONLY (SW manually shows notification)
+// ❌ No notification block anywhere
+// ❌ No webpush.notification block
+// ✅ Only data + webpush headers
 // =========================================================
 async function sendDigestPush(env, payload, tokens) {
   const result = {
@@ -752,35 +735,19 @@ async function sendDigestPush(env, payload, tokens) {
   const logStmts = [];
 
   for (const token of tokens) {
-    // ✅ FCM HTTP v1 Web Push — NO root-level notification
-    // Chrome FCM SDK auto-display করে fallback দেখায়, তাই SW-র উপর ছেড়ে দেওয়া
+    // ✅ DATA-ONLY message — FCM will ALWAYS delegate to onBackgroundMessage
     const message = {
       message: {
         token: token,
-
-        // ✅ data-only: SW নিজে showNotification() কল করবে
         data: {
-          title: payload.title,
-          body: payload.body,
-          image: payload.image || "",
-          url: payload.url,
-          notificationId: payload.tag,
+          title: String(payload.title || "Ajker News"),
+          body: String(payload.body || "নতুন খবর এসেছে"),
+          image: String(payload.image || ""),
+          url: String(payload.url || "https://ajkernews.in/"),
+          notificationId: String(payload.tag || Date.now()),
           isBreaking: isBreaking ? "1" : "0"
         },
-
-        // ✅ webpush.notification: modern browser-এর native path
         webpush: {
-          notification: {
-            title: payload.title,
-            body: payload.body,
-            icon: "https://ajkernews.in/logo.png",
-            badge: "https://ajkernews.in/logo.png",
-            ...(payload.image ? { image: payload.image } : {}),
-            tag: payload.tag,
-            renotify: true,
-            requireInteraction: true,
-            data: { url: payload.url }
-          },
           headers: {
             Urgency: "high",
             TTL: String(ttl)
@@ -856,9 +823,6 @@ async function sendDigestPush(env, payload, tokens) {
   return result;
 }
 
-// =========================================================
-// SILENT FCM (background tab update — no notification)
-// =========================================================
 async function sendSilentFcmUpdate(env, newsIds) {
   if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) return;
 
@@ -917,9 +881,6 @@ async function sendSilentFcmUpdate(env, newsIds) {
   await removeInvalidTokens(env, invalidTokens, 'FCM-SILENT');
 }
 
-// =========================================================
-// LEGACY single push (test endpoint)
-// =========================================================
 async function sendSinglePush(env, news, tokens, isBreaking) {
   const title = String(news.headline || "নতুন খবর").slice(0, 180);
   const body = String(news.summary || "বিস্তারিত জানতে ক্লিক করুন").slice(0, 180);
@@ -936,9 +897,6 @@ async function sendSinglePush(env, news, tokens, isBreaking) {
   return result;
 }
 
-// =========================================================
-// NEWS UPDATE PIPELINE
-// =========================================================
 async function updateNews(env) {
   if (!env.DB) throw new Error("D1 binding DB is missing");
   if (!env.GNEWS_API_KEY) throw new Error("GNEWS_API_KEY secret is missing");
@@ -1169,9 +1127,6 @@ async function updateNews(env) {
   };
 }
 
-// =========================================================
-// BOT PAGES
-// =========================================================
 async function serveBotHomepage(env) {
   return await serveListingPage(env, "top", null);
 }
@@ -1307,9 +1262,6 @@ ${getAdsterraScripts()}
   }
 }
 
-// =========================================================
-// ARTICLE PAGE
-// =========================================================
 async function serveArticlePage(id, env) {
   const safeId = String(id || "").trim();
   if (!safeId) return Response.redirect("https://ajkernews.in/", 302);
@@ -1769,9 +1721,6 @@ ${getAdsterraScripts()}
   });
 }
 
-// =========================================================
-// TABLES SETUP
-// =========================================================
 async function ensureTables(env) {
   const queries = [
     `CREATE TABLE IF NOT EXISTS news (id TEXT PRIMARY KEY, source_url TEXT UNIQUE, source_name TEXT, source_title TEXT, source_description TEXT, headline TEXT, summary TEXT, main_topic TEXT, category TEXT, language TEXT DEFAULT 'bn', image_url TEXT, published_at TEXT, created_at TEXT, day_key TEXT, status TEXT DEFAULT 'published', score INTEGER DEFAULT 0, search_text TEXT, indexed_at TEXT)`,
@@ -1841,9 +1790,6 @@ async function ensureTablesOnce(env) {
   }
 }
 
-// =========================================================
-// SHARE PAGE
-// =========================================================
 async function serveSharePage(id, env, requestUserAgentFromContext = "", requestUrl = null) {
   const safeId = String(id || "").trim();
   if (!safeId) return Response.redirect("https://ajkernews.in/", 302);
@@ -2017,9 +1963,6 @@ ${getAdsterraScripts()}
   });
 }
 
-// =========================================================
-// PUSH CLICK TRACKING
-// =========================================================
 async function handlePushClick(request, env) {
   try {
     const body = await request.json();
@@ -2082,9 +2025,6 @@ async function handlePushLogs(env, url) {
   }
 }
 
-// =========================================================
-// API: GET NEWS
-// =========================================================
 async function handleGetNews(url, env, request) {
   return cacheNewsApi(request, async () => {
     return await handleGetNewsInternal(url, env);
@@ -2237,9 +2177,6 @@ async function handleGetNewsInternal(url, env) {
   return json({ success: true, count: news.length, offset, limit, has_more: hasMore, news }, 200, 0);
 }
 
-// =========================================================
-// SUBSCRIBE / UNSUBSCRIBE
-// =========================================================
 async function handleSubscribe(request, env) {
   try {
     const body = await request.json();
@@ -2289,9 +2226,6 @@ async function handlePushSync(request, env) {
   return json({ success: true, synced: true }, 200, 0);
 }
 
-// =========================================================
-// LOVE + COMMENTS
-// =========================================================
 async function toggleLove(request, env) {
   try {
     const { id, deviceId } = await request.json();
@@ -2332,9 +2266,6 @@ async function addComment(request, env) {
   }
 }
 
-// =========================================================
-// SITEMAP / RSS / ROBOTS
-// =========================================================
 async function generateSitemap(env) {
   try {
     const result = await env.DB.prepare(`SELECT id, published_at, created_at FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT 1000`).all();
@@ -2386,9 +2317,6 @@ async function generateNewsSitemap(env) {
   }
 }
 
-// =========================================================
-// ROBOTS.TXT — with IndexNow
-// =========================================================
 function generateRobotsTxt(env) {
   const indexNowLine = (env && env.INDEXNOW_KEY)
     ? `# IndexNow\nIndexNow: https://ajkernews.in/${env.INDEXNOW_KEY}.txt\n\n`
@@ -2463,9 +2391,6 @@ ${items}
   });
 }
 
-// =========================================================
-// HELPERS
-// =========================================================
 function corsHeaders() {
   return {
     "access-control-allow-origin": "*",

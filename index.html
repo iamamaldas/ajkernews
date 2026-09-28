@@ -350,22 +350,15 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   window.__VAPID_KEY = "BPIJghMstrMW--U1O0rRUbDVm1epdMAOaR6WZ3mRE03C2bD33IYL_02NDKYk8us6WnRFGHQ7wPnvhEKCXeuzmlA";
   window.__firebaseReady = true;
 
-  // ✅ FOREGROUND: notification payload-এ ডুপ্লিকেট বন্ধ
+  // ✅ Data-only → manually show notification in foreground
   onMessage(messaging, (payload) => {
     console.log('[FCM] Foreground message:', payload);
-    
-    // FCM নিজেই notification দেখাবে, তাই onMessage-এ নতুন Notification() করা যাবে না
-    if (payload.notification) {
-      console.log('[FCM] Notification payload present — FCM auto-display');
-      return;
-    }
-    
-    // ✅ শুধু data-only payload হলে ম্যানুয়ালি দেখাই
+
     if (payload.data && Notification.permission === 'granted') {
       const title = payload.data.title || 'Ajker News';
       const body = payload.data.body || '';
       const url = payload.data.url || '/';
-      
+
       const n = new Notification(title, {
         body,
         icon: '/logo.png',
@@ -373,7 +366,7 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
         tag: payload.data.notificationId || 'default',
         data: { url }
       });
-      
+
       n.onclick = () => {
         window.focus();
         if (url) window.open(url, '_blank');
@@ -740,7 +733,7 @@ async function toggleNotification() {
     try {
       let fcmRegistration = window.__fcmRegistration;
       if (!fcmRegistration) {
-        fcmRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' });
+        fcmRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { updateViaCache: 'none', scope: '/' });
         window.__fcmRegistration = fcmRegistration;
       }
       const existingToken = await window.__firebase.getToken(window.__firebase.messaging, {
@@ -772,7 +765,7 @@ async function toggleNotification() {
     if (permission !== 'granted') { alert('নোটিফিকেশন চালু করতে অনুমতি দিন।'); return; }
     let fcmRegistration = window.__fcmRegistration;
     if (!fcmRegistration) {
-      fcmRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' });
+      fcmRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { updateViaCache: 'none', scope: '/' });
       window.__fcmRegistration = fcmRegistration;
     }
     await navigator.serviceWorker.ready;

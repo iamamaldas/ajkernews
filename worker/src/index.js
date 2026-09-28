@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v17: Data-only push + /api/debug-tokens endpoint
+// ✅ FINAL v18: Silent FCM disabled — only real notifications (breaking + digest)
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -299,7 +299,6 @@ export default {
         return await handlePushSync(request, env);
       }
 
-      // ✅ NEW: /api/debug-tokens endpoint (secret protected)
       if (url.pathname === "/api/debug-tokens" && request.method === "GET") {
         const secret = url.searchParams.get("secret");
         const validSecret = env.DEBUG_TOKENS_SECRET || "ajkernews-push-2026";
@@ -732,7 +731,7 @@ async function sendBreakingAlert(env, news) {
 }
 
 // =========================================================
-// ✅ GENERIC PUSH SENDER — DATA-ONLY
+// GENERIC PUSH SENDER — DATA-ONLY
 // =========================================================
 async function sendDigestPush(env, payload, tokens) {
   const result = {
@@ -844,62 +843,14 @@ async function sendDigestPush(env, payload, tokens) {
   return result;
 }
 
+// =========================================================
+// SILENT FCM — DISABLED (kept for future use, not called)
+// =========================================================
 async function sendSilentFcmUpdate(env, newsIds) {
-  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) return;
-
-  const subs = await env.DB.prepare(
-    `SELECT token FROM push_subscriptions WHERE token IS NOT NULL AND token != '' LIMIT ${NOTIFICATION_CONFIG.MAX_BATCH_SIZE}`
-  ).all();
-
-  const tokens = (subs.results || []).map(s => s.token).filter(Boolean);
-  if (!tokens.length) return;
-
-  let credentials;
-  try {
-    credentials = await getFcmCredentials(env);
-  } catch (e) { return; }
-
-  const { accessToken, projectId } = credentials;
-  const fcmUrl = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
-  const invalidTokens = [];
-
-  for (const token of tokens) {
-    const message = {
-      message: {
-        token: token,
-        data: {
-          type: 'news_published',
-          count: String(newsIds.length),
-          ids: newsIds.slice(0, 5).join(','),
-          ts: String(Date.now())
-        },
-        webpush: {
-          headers: { Urgency: "low", TTL: "300" }
-        }
-      }
-    };
-
-    try {
-      const res = await fetch(fcmUrl, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${accessToken}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(message)
-      });
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        const errCode = errData?.error?.details?.[0]?.errorCode || errData?.error?.status || '';
-        if (errCode === 'UNREGISTERED' || errCode === 'NOT_FOUND') {
-          invalidTokens.push(token);
-        }
-      }
-    } catch (e) {}
-  }
-
-  await removeInvalidTokens(env, invalidTokens, 'FCM-SILENT');
+  // ❌ DISABLED: This function sends data-only messages without title/body,
+  // which Chrome renders as "This site has been updated in the background."
+  // The SSE stream (/api/live) already handles background tab updates.
+  return { disabled: true, reason: "silent-fcm-disabled" };
 }
 
 async function sendSinglePush(env, news, tokens, isBreaking) {
@@ -1122,14 +1073,15 @@ async function updateNews(env) {
       console.warn("[LIVE] Broadcast failed:", e?.message);
     }
 
-    if (!isQuietHours()) {
-      try {
-        await sendSilentFcmUpdate(env, publishedIds);
-        console.log(`[FCM-SILENT] Background tabs notified`);
-      } catch (e) {
-        console.warn("[FCM-SILENT] Failed:", e?.message);
-      }
-    }
+    // ✅ Silent FCM update DISABLED — SSE handles background tab notifications
+    // if (!isQuietHours()) {
+    //   try {
+    //     await sendSilentFcmUpdate(env, publishedIds);
+    //     console.log(`[FCM-SILENT] Background tabs notified`);
+    //   } catch (e) {
+    //     console.warn("[FCM-SILENT] Failed:", e?.message);
+    //   }
+    // }
   }
 
   return {

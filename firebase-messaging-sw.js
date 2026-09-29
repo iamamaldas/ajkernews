@@ -1,5 +1,5 @@
 // firebase-messaging-sw.js
-// ✅ FINAL: Data-only message → SW manually shows notification
+// ✅ FINAL v2: No duplicate notification — browser auto-handles webpush.notification
 
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging-compat.js');
@@ -16,6 +16,8 @@ firebase.initializeApp({
 if (firebase.messaging.isSupported()) {
   const messaging = firebase.messaging();
 
+  // ✅ Browser নিজেই webpush.notification render করবে।
+  // এখানে শুধু silent data messages handle করি (news_published SSE bridge)
   messaging.onBackgroundMessage((payload) => {
     console.log('[FCM-SW] Background message:', JSON.stringify(payload));
 
@@ -31,22 +33,8 @@ if (firebase.messaging.isSupported()) {
       });
     }
 
-    const title = payload.data?.title || 'Ajker News';
-    const body = payload.data?.body || 'নতুন খবর এসেছে';
-    const image = payload.data?.image || undefined;
-    const url = payload.data?.url || 'https://ajkernews.in/';
-
-    return self.registration.showNotification(title, {
-      body: body,
-      icon: '/logo.png',
-      badge: '/logo.png',
-      image: image,
-      vibrate: [200, 100, 200],
-      tag: payload.data?.notificationId || 'ajker-news-' + Date.now(),
-      renotify: true,
-      requireInteraction: true,
-      data: { url: url }
-    });
+    // অন্য সব notification browser automatic দেখাবে (webpush.notification এর মাধ্যমে)
+    // এখানে manually showNotification কল করা লাগবে না — নাহলে double notification আসবে।
   });
 }
 

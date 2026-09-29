@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v21: Mobile Chrome compatible payload (root notification + android + webpush without notification)
+// ✅ FINAL v23: FCM notification fix + cron timing fix
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -25,7 +25,7 @@ const NOTIFICATION_CONFIG = {
   REGULAR_TTL_SECONDS: 172800,
   MAX_BATCH_SIZE: 500,
   DIGEST_NEWS_COUNT: 3,
-  PRIME_HOURS: [8, 13, 18, 21],
+  PRIME_HOURS: [8, 13, 17, 21],  // ✅ FIX: 18 → 17
 };
 
 let tablesReadyPromise = null;
@@ -78,7 +78,7 @@ function isBreakingNews(news) {
 function getDigestLabel(hour) {
   if (hour === 8) return "🌅 সকালের সেরা খবর";
   if (hour === 13) return "☀️ দুপুরের আপডেট";
-  if (hour === 18) return "🌇 বিকেলের সেরা খবর";
+  if (hour === 17) return "🌇 বিকেলের সেরা খবর";  // ✅ FIX: 18 → 17
   if (hour === 21) return "🌙 রাতের আপডেট";
   return "📰 আজকের খবর";
 }
@@ -86,7 +86,7 @@ function getDigestLabel(hour) {
 function getDigestType(hour) {
   if (hour === 8) return "morning";
   if (hour === 13) return "noon";
-  if (hour === 18) return "evening";
+  if (hour === 17) return "evening";  // ✅ FIX: 18 → 17
   if (hour === 21) return "night";
   return "general";
 }
@@ -453,10 +453,22 @@ export default {
     console.log(`[CRON] ${cron} started | IST Hour: ${istHour}`);
 
     try {
-      if (NOTIFICATION_CONFIG.PRIME_HOURS.includes(istHour) &&
-          (cron === "30 2 * * *" || cron === "30 7 * * *" || cron === "30 12 * * *" || cron === "30 15 * * *")) {
-        console.log(`[DIGEST] Prime time hit: IST ${istHour}:00`);
-        await sendDigest(env, istHour);
+      // ✅ FIX: Cron → IST hour mapping
+      // Cron UTC → IST hour:
+      //   30 2 * * *  → 08:00 IST
+      //   30 7 * * *  → 13:00 IST
+      //   0 12 * * *  → 17:30 IST
+      //   30 15 * * * → 21:00 IST
+      const PRIME_CRONS = {
+        "30 2 * * *":  8,
+        "30 7 * * *":  13,
+        "0 12 * * *":  17,
+        "30 15 * * *": 21
+      };
+
+      if (PRIME_CRONS[cron] !== undefined) {
+        console.log(`[DIGEST] Prime time hit: cron=${cron} IST=${istHour}`);
+        await sendDigest(env, PRIME_CRONS[cron]);
         return;
       }
 
@@ -731,8 +743,8 @@ async function sendBreakingAlert(env, news) {
 }
 
 // =========================================================
-// ✅ FINAL v21 — Mobile Chrome Compatible Payload
-// Root notification + android + webpush (without notification block)
+// ✅ FINAL v23 — Mobile Chrome + Desktop Chrome compatible FCM
+// Root notification + android + webpush.fcmOptions.link
 // =========================================================
 async function sendDigestPush(env, payload, tokens) {
   const result = {
@@ -746,6 +758,7 @@ async function sendDigestPush(env, payload, tokens) {
     result.accessTokenObtained = true;
   } catch (e) {
     result.tokenExchangeError = e.message;
+    console.error('[FCM] Credentials failed:', e.message);
     return result;
   }
 
@@ -759,12 +772,10 @@ async function sendDigestPush(env, payload, tokens) {
   for (const token of tokens) {
     const title = String(payload.title || "Ajker News");
     const body = String(payload.body || "নতুন খবর এসেছে");
+    const image = String(payload.image || "");
     const notifTag = String(payload.tag || Date.now());
+    const targetUrl = String(payload.url || "https://ajkernews.in/");
 
-    // ✅ Mobile Chrome + Desktop Chrome compatible:
-    // Root notification block (both platforms render)
-    // + android block (Android specific high priority)
-    // + webpush block with headers/fcmOptions (NO notification — prevents duplicate)
     const message = {
       message: {
         token: token,
@@ -772,14 +783,14 @@ async function sendDigestPush(env, payload, tokens) {
         notification: {
           title: title,
           body: body,
-          ...(payload.image ? { image: String(payload.image) } : {})
+          ...(image ? { image: image } : {})
         },
 
         data: {
           title: title,
           body: body,
-          image: String(payload.image || ""),
-          url: String(payload.url || "https://ajkernews.in/"),
+          image: image,
+          url: targetUrl,
           notificationId: notifTag,
           isBreaking: isBreaking ? "1" : "0"
         },
@@ -792,7 +803,7 @@ async function sendDigestPush(env, payload, tokens) {
             icon: "stock_ticker_update",
             color: "#e53935",
             tag: notifTag,
-            ...(payload.image ? { image: String(payload.image) } : {}),
+            ...(image ? { image: image } : {}),
             click_action: "FCM_PLUGIN_ACTIVITY"
           }
         },
@@ -803,7 +814,7 @@ async function sendDigestPush(env, payload, tokens) {
             TTL: String(ttl)
           },
           fcmOptions: {
-            link: String(payload.url || "https://ajkernews.in/")
+            link: targetUrl
           }
         }
       }
@@ -840,6 +851,7 @@ async function sendDigestPush(env, payload, tokens) {
                      || errData?.error?.status
                      || 'unknown';
         result.errors.push(`${errCode}: ${token.slice(0, 15)}...`);
+        console.error('[FCM] Send failed:', errCode, JSON.stringify(errData).slice(0, 200));
 
         if (errCode === 'UNREGISTERED' || errCode === 'NOT_FOUND') {
           result.unregistered++;
@@ -863,6 +875,7 @@ async function sendDigestPush(env, payload, tokens) {
     } catch (e) {
       result.failed++;
       result.errors.push(`Network: ${e.message}`);
+      console.error('[FCM] Network error:', e.message);
     }
   }
 
@@ -870,6 +883,7 @@ async function sendDigestPush(env, payload, tokens) {
     try { await env.DB.batch(logStmts); } catch (e) {}
   }
 
+  console.log(`[FCM] Result: sent=${result.sent} failed=${result.failed} unregistered=${result.unregistered}`);
   return result;
 }
 
@@ -877,9 +891,6 @@ async function sendDigestPush(env, payload, tokens) {
 // SILENT FCM — DISABLED
 // =========================================================
 async function sendSilentFcmUpdate(env, newsIds) {
-  // ❌ DISABLED: data-only message without notification block
-  // causes Chrome to render "This site has been updated in the background."
-  // SSE /api/live handles background tab updates instead.
   return { disabled: true, reason: "silent-fcm-disabled" };
 }
 
@@ -1102,9 +1113,6 @@ async function updateNews(env) {
     } catch (e) {
       console.warn("[LIVE] Broadcast failed:", e?.message);
     }
-
-    // ✅ Silent FCM update DISABLED — SSE handles background tabs
-    // await sendSilentFcmUpdate(env, publishedIds);
   }
 
   return {

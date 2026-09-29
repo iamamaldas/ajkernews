@@ -1,6 +1,5 @@
 // sw.js
-// ✅ FINAL v22 — Consolidated Service Worker
-// Handles: cache + FCM background notification + notificationclick
+// ✅ FINAL v23 — Consolidated Service Worker (cache + FCM)
 
 const CACHE_VERSION = "ajker-news-v2026-09-29-final";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
@@ -24,7 +23,6 @@ if (firebase.messaging.isSupported()) {
   messaging.onBackgroundMessage((payload) => {
     console.log('[SW-FCM] Background message received:', JSON.stringify(payload));
 
-    // Handle silent news_published event
     if (payload.data && payload.data.type === 'news_published') {
       return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
         clients.forEach((client) => {
@@ -37,7 +35,6 @@ if (firebase.messaging.isSupported()) {
       });
     }
 
-    // Standard notification payload (fallback if Chrome doesn't auto-render)
     const title = payload.data?.title || payload.notification?.title || 'Ajker News';
     const body = payload.data?.body || payload.notification?.body || 'নতুন খবর এসেছে';
     const image = payload.data?.image || payload.notification?.image || undefined;

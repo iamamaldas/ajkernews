@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v20: Single webpush.notification (no duplicate root notification)
+// ✅ FINAL v21: Mobile Chrome compatible payload (root notification + android + webpush without notification)
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -731,9 +731,8 @@ async function sendBreakingAlert(env, news) {
 }
 
 // =========================================================
-// ✅ GENERIC PUSH SENDER — SINGLE webpush.notification (no duplicate)
-// FCM HTTP v1 API: শুধু webpush.notification দিলে browser নিজেই render করে
-// Root notification + webpush.notification একসাথে দিলে double/conflict হয় — তাই সরানো হয়েছে
+// ✅ FINAL v21 — Mobile Chrome Compatible Payload
+// Root notification + android + webpush (without notification block)
 // =========================================================
 async function sendDigestPush(env, payload, tokens) {
   const result = {
@@ -760,33 +759,47 @@ async function sendDigestPush(env, payload, tokens) {
   for (const token of tokens) {
     const title = String(payload.title || "Ajker News");
     const body = String(payload.body || "নতুন খবর এসেছে");
+    const notifTag = String(payload.tag || Date.now());
 
-    // ✅ FIX: শুধু webpush.notification — root notification/data duplicate সরানো হয়েছে
+    // ✅ Mobile Chrome + Desktop Chrome compatible:
+    // Root notification block (both platforms render)
+    // + android block (Android specific high priority)
+    // + webpush block with headers/fcmOptions (NO notification — prevents duplicate)
     const message = {
       message: {
         token: token,
+
+        notification: {
+          title: title,
+          body: body,
+          ...(payload.image ? { image: String(payload.image) } : {})
+        },
+
         data: {
           title: title,
           body: body,
           image: String(payload.image || ""),
           url: String(payload.url || "https://ajkernews.in/"),
-          notificationId: String(payload.tag || Date.now()),
+          notificationId: notifTag,
           isBreaking: isBreaking ? "1" : "0"
         },
-        webpush: {
+
+        android: {
+          priority: "high",
           notification: {
             title: title,
             body: body,
-            icon: "https://ajkernews.in/logo.png",
-            badge: "https://ajkernews.in/logo.png",
+            icon: "stock_ticker_update",
+            color: "#e53935",
+            tag: notifTag,
             ...(payload.image ? { image: String(payload.image) } : {}),
-            tag: String(payload.tag || Date.now()),
-            renotify: true,
-            requireInteraction: true,
-            data: { url: String(payload.url || "https://ajkernews.in/") }
-          },
+            click_action: "FCM_PLUGIN_ACTIVITY"
+          }
+        },
+
+        webpush: {
           headers: {
-            Urgency: "high",
+            Urgency: isBreaking ? "high" : "normal",
             TTL: String(ttl)
           },
           fcmOptions: {

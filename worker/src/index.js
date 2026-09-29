@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v19: Triple notification block (root + data + webpush) + silent FCM disabled
+// ✅ FINAL v20: Single webpush.notification (no duplicate root notification)
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -731,8 +731,9 @@ async function sendBreakingAlert(env, news) {
 }
 
 // =========================================================
-// ✅ GENERIC PUSH SENDER — TRIPLE NOTIFICATION (root + data + webpush)
-// FCM HTTP v1 API requires root-level notification to avoid "This site has been updated" fallback
+// ✅ GENERIC PUSH SENDER — SINGLE webpush.notification (no duplicate)
+// FCM HTTP v1 API: শুধু webpush.notification দিলে browser নিজেই render করে
+// Root notification + webpush.notification একসাথে দিলে double/conflict হয় — তাই সরানো হয়েছে
 // =========================================================
 async function sendDigestPush(env, payload, tokens) {
   const result = {
@@ -760,18 +761,10 @@ async function sendDigestPush(env, payload, tokens) {
     const title = String(payload.title || "Ajker News");
     const body = String(payload.body || "নতুন খবর এসেছে");
 
+    // ✅ FIX: শুধু webpush.notification — root notification/data duplicate সরানো হয়েছে
     const message = {
       message: {
         token: token,
-
-        // ✅ 1. Root-level notification — FCM SDK auto-display path (REQUIRED!)
-        notification: {
-          title: title,
-          body: body,
-          ...(payload.image ? { image: String(payload.image) } : {})
-        },
-
-        // ✅ 2. Data block — SW fallback path
         data: {
           title: title,
           body: body,
@@ -780,8 +773,6 @@ async function sendDigestPush(env, payload, tokens) {
           notificationId: String(payload.tag || Date.now()),
           isBreaking: isBreaking ? "1" : "0"
         },
-
-        // ✅ 3. Webpush notification — modern browser native path
         webpush: {
           notification: {
             title: title,

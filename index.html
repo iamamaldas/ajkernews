@@ -730,7 +730,6 @@ async function toggleNotification() {
 
   const isCurrentlySubscribed = btn.classList.contains('subscribed');
 
-  // ===== UNSUBSCRIBE =====
   if (isCurrentlySubscribed) {
     if (!confirm('নোটিফিকেশন বন্ধ করতে চান?')) return;
     notificationSetupInProgress = true;
@@ -762,7 +761,6 @@ async function toggleNotification() {
     return;
   }
 
-  // ===== SUBSCRIBE =====
   notificationSetupInProgress = true;
   btn.disabled = true;
   try {
@@ -786,7 +784,7 @@ async function toggleNotification() {
       return;
     }
 
-    // ✅ FIX: root scope এর sw.js use করি (যা FCM + cache দুটোই handle করে)
+    // ✅ FIX: root scope এর sw.js use করি
     const reg = await navigator.serviceWorker.ready;
     console.log('[FCM] Using SW registration:', reg.scope);
 
@@ -996,7 +994,7 @@ function handleNotificationPromptLater() {
 
   await loadNews('top', '', { showLoading: true, keepExisting: false });
 
-  // ✅ FIX: শুধু sw.js root scope এ register করি — FCM এটাতেই handle হবে
+  // ✅ FIX: শুধু sw.js root scope এ register করি
   if ('serviceWorker' in navigator) {
     try {
       const mainReg = await navigator.serviceWorker.register('/sw.js', {

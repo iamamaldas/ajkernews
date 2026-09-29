@@ -352,12 +352,10 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 
   onMessage(messaging, (payload) => {
     console.log('[FCM] Foreground message:', payload);
-
     if (payload.data && Notification.permission === 'granted') {
       const title = payload.data.title || 'Ajker News';
       const body = payload.data.body || '';
       const url = payload.data.url || '/';
-
       const n = new Notification(title, {
         body,
         icon: '/logo.png',
@@ -365,7 +363,6 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
         tag: payload.data.notificationId || 'default',
         data: { url }
       });
-
       n.onclick = () => {
         window.focus();
         if (url) window.open(url, '_blank');
@@ -379,6 +376,9 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 const WORKER_BASE = window.location.origin;
 const API_URL = `${WORKER_BASE}/api/news`;
 const SITE_URL = window.location.origin;
+
+// ✅ FIX: FCM Service Worker এর জন্য আলাদা scope — main sw.js এর সাথে conflict এড়াতে
+const FCM_SW_SCOPE = '/firebase-cloud-messaging-push-scope/';
 
 let currentCategory = 'top';
 let currentSearchQuery = '';
@@ -732,7 +732,11 @@ async function toggleNotification() {
     try {
       let fcmRegistration = window.__fcmRegistration;
       if (!fcmRegistration) {
-        fcmRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { updateViaCache: 'none', scope: '/' });
+        // ✅ FIX: FCM SW কে আলাদা scope এ register করি
+        fcmRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { 
+          updateViaCache: 'none', 
+          scope: FCM_SW_SCOPE 
+        });
         window.__fcmRegistration = fcmRegistration;
       }
       const existingToken = await window.__firebase.getToken(window.__firebase.messaging, {
@@ -764,10 +768,14 @@ async function toggleNotification() {
     if (permission !== 'granted') { alert('নোটিফিকেশন চালু করতে অনুমতি দিন।'); return; }
     let fcmRegistration = window.__fcmRegistration;
     if (!fcmRegistration) {
-      fcmRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { updateViaCache: 'none', scope: '/' });
+      // ✅ FIX: FCM SW কে আলাদা scope এ register করি — main sw.js এর সাথে conflict এড়াতে
+      fcmRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { 
+        updateViaCache: 'none', 
+        scope: FCM_SW_SCOPE 
+      });
       window.__fcmRegistration = fcmRegistration;
     }
-    await navigator.serviceWorker.ready;
+    // ❌ REMOVED: navigator.serviceWorker.ready — এটা / scope এর SW return করে, FCM SW না
     const fcmToken = await window.__firebase.getToken(window.__firebase.messaging, { vapidKey: window.__VAPID_KEY, serviceWorkerRegistration: fcmRegistration });
     if (!fcmToken) throw new Error('FCM token পাওয়া যায়নি');
     const res = await fetch(`${WORKER_BASE}/api/subscribe`, {
@@ -959,12 +967,22 @@ function handleNotificationPromptLater() {
   await loadNews('top', '', { showLoading: true, keepExisting: false });
   if ('serviceWorker' in navigator) {
     try {
-      const fcmReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { updateViaCache: 'none', scope: '/' });
+      // ✅ FIX: FCM SW — আলাদা scope এ register করি
+      const fcmReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { 
+        updateViaCache: 'none', 
+        scope: FCM_SW_SCOPE 
+      });
       window.__fcmRegistration = fcmReg;
+      console.log('[SW] FCM SW registered at', FCM_SW_SCOPE);
     } catch (err) { console.error('[SW] Firebase SW failed:', err); }
     try {
-      const mainReg = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none', scope: '/' });
+      // ✅ Main SW — root scope এ register করি
+      const mainReg = await navigator.serviceWorker.register('/sw.js', { 
+        updateViaCache: 'none', 
+        scope: '/' 
+      });
       mainReg.update().catch((e) => {});
+      console.log('[SW] Main SW registered at /');
     } catch (err) { console.error('[SW] Main SW failed:', err); }
   }
   await checkNotificationStatus();

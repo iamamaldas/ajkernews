@@ -377,9 +377,6 @@ const WORKER_BASE = window.location.origin;
 const API_URL = `${WORKER_BASE}/api/news`;
 const SITE_URL = window.location.origin;
 
-// ✅ FIX: FCM Service Worker এর জন্য আলাদা scope — main sw.js এর সাথে conflict এড়াতে
-const FCM_SW_SCOPE = '/firebase-cloud-messaging-push-scope/';
-
 let currentCategory = 'top';
 let currentSearchQuery = '';
 let currentNews = [];
@@ -722,30 +719,33 @@ let notificationSetupInProgress = false;
 async function toggleNotification() {
   const btn = document.getElementById('notifyBtn');
   if (notificationSetupInProgress) return;
-  if (!('Notification' in window) || !('serviceWorker' in navigator)) { alert('এই ব্রাউজারে নোটিফিকেশন সাপোর্টেড নয়।'); return; }
-  if (!window.__firebase || typeof window.__firebase.getToken !== 'function') { alert('Firebase এখনো ready নয়। একটু পরে আবার চেষ্টা করুন।'); return; }
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+    alert('এই ব্রাউজারে নোটিফিকেশন সাপোর্টেড নয়।');
+    return;
+  }
+  if (!window.__firebase || typeof window.__firebase.getToken !== 'function') {
+    alert('Firebase এখনো ready নয়। একটু পরে আবার চেষ্টা করুন।');
+    return;
+  }
+
   const isCurrentlySubscribed = btn.classList.contains('subscribed');
+
+  // ===== UNSUBSCRIBE =====
   if (isCurrentlySubscribed) {
     if (!confirm('নোটিফিকেশন বন্ধ করতে চান?')) return;
     notificationSetupInProgress = true;
     btn.disabled = true;
     try {
-      let fcmRegistration = window.__fcmRegistration;
-      if (!fcmRegistration) {
-        // ✅ FIX: FCM SW কে আলাদা scope এ register করি
-        fcmRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { 
-          updateViaCache: 'none', 
-          scope: FCM_SW_SCOPE 
-        });
-        window.__fcmRegistration = fcmRegistration;
-      }
+      const reg = await navigator.serviceWorker.ready;
       const existingToken = await window.__firebase.getToken(window.__firebase.messaging, {
         vapidKey: window.__VAPID_KEY,
-        serviceWorkerRegistration: fcmRegistration
+        serviceWorkerRegistration: reg
       }).catch(() => null);
+
       if (existingToken) {
         await fetch(`${WORKER_BASE}/api/unsubscribe`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ endpoint: existingToken, token: existingToken })
         }).catch(() => {});
       }
@@ -753,41 +753,70 @@ async function toggleNotification() {
       btn.classList.remove('subscribed');
       localStorage.setItem('notifSubscribed', '0');
       alert('নোটিফিকেশন বন্ধ করা হয়েছে।');
-    } catch (error) { alert('নোটিফিকেশন বন্ধ করা যায়নি: ' + (error?.message || error)); }
-    finally { notificationSetupInProgress = false; btn.disabled = false; }
+    } catch (error) {
+      alert('নোটিফিকেশন বন্ধ করা যায়নি: ' + (error?.message || error));
+    } finally {
+      notificationSetupInProgress = false;
+      btn.disabled = false;
+    }
     return;
   }
+
+  // ===== SUBSCRIBE =====
   notificationSetupInProgress = true;
   btn.disabled = true;
   try {
     let attempts = 0;
-    while (!window.__firebaseReady && attempts < 20) { await new Promise(r => setTimeout(r, 200)); attempts++; }
-    if (!window.__firebaseReady) { alert('Firebase initialize হয়নি। পেজ reload করুন।'); return; }
-    if (Notification.permission === 'denied') { alert('ব্রাউজার নোটিফিকেশন blocked। ব্রাউজার সেটিংস থেকে চালু করুন।'); return; }
-    const permission = await Notification.requestPermission();
-    if (permission !== 'granted') { alert('নোটিফিকেশন চালু করতে অনুমতি দিন।'); return; }
-    let fcmRegistration = window.__fcmRegistration;
-    if (!fcmRegistration) {
-      // ✅ FIX: FCM SW কে আলাদা scope এ register করি — main sw.js এর সাথে conflict এড়াতে
-      fcmRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { 
-        updateViaCache: 'none', 
-        scope: FCM_SW_SCOPE 
-      });
-      window.__fcmRegistration = fcmRegistration;
+    while (!window.__firebaseReady && attempts < 20) {
+      await new Promise(r => setTimeout(r, 200));
+      attempts++;
     }
-    // ❌ REMOVED: navigator.serviceWorker.ready — এটা / scope এর SW return করে, FCM SW না
-    const fcmToken = await window.__firebase.getToken(window.__firebase.messaging, { vapidKey: window.__VAPID_KEY, serviceWorkerRegistration: fcmRegistration });
+    if (!window.__firebaseReady) {
+      alert('Firebase initialize হয়নি। পেজ reload করুন।');
+      return;
+    }
+    if (Notification.permission === 'denied') {
+      alert('ব্রাউজার নোটিফিকেশন blocked। ব্রাউজার সেটিংস থেকে চালু করুন।');
+      return;
+    }
+
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      alert('নোটিফিকেশন চালু করতে অনুমতি দিন।');
+      return;
+    }
+
+    // ✅ FIX: root scope এর sw.js use করি (যা FCM + cache দুটোই handle করে)
+    const reg = await navigator.serviceWorker.ready;
+    console.log('[FCM] Using SW registration:', reg.scope);
+
+    const fcmToken = await window.__firebase.getToken(window.__firebase.messaging, {
+      vapidKey: window.__VAPID_KEY,
+      serviceWorkerRegistration: reg
+    });
+
     if (!fcmToken) throw new Error('FCM token পাওয়া যায়নি');
+    console.log('[FCM] Token obtained:', fcmToken.slice(0, 30) + '...');
+
     const res = await fetch(`${WORKER_BASE}/api/subscribe`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: fcmToken })
     });
+    console.log('[Subscribe] HTTP', res.status);
+
     if (!res.ok) throw new Error('Subscribe HTTP ' + res.status);
+
     btn.classList.add('subscribed');
     localStorage.setItem('notifSubscribed', '1');
     alert('নোটিফিকেশন চালু হয়েছে! নতুন খবর এলে আমরা জানাব।');
-  } catch (error) { alert('নোটিফিকেশন চালু করা যায়নি: ' + (error?.message || error)); }
-  finally { notificationSetupInProgress = false; btn.disabled = false; }
+  } catch (error) {
+    console.error('[FCM] Subscribe failed:', error);
+    alert('নোটিফিকেশন চালু করা যায়নি: ' + (error?.message || error));
+  } finally {
+    notificationSetupInProgress = false;
+    btn.disabled = false;
+  }
 }
 
 async function checkNotificationStatus() {
@@ -964,27 +993,23 @@ function handleNotificationPromptLater() {
 
 (async function initApp() {
   try { localStorage.removeItem('newsCache:v1'); } catch (e) {}
+
   await loadNews('top', '', { showLoading: true, keepExisting: false });
+
+  // ✅ FIX: শুধু sw.js root scope এ register করি — FCM এটাতেই handle হবে
   if ('serviceWorker' in navigator) {
     try {
-      // ✅ FIX: FCM SW — আলাদা scope এ register করি
-      const fcmReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { 
-        updateViaCache: 'none', 
-        scope: FCM_SW_SCOPE 
+      const mainReg = await navigator.serviceWorker.register('/sw.js', {
+        updateViaCache: 'none',
+        scope: '/'
       });
-      window.__fcmRegistration = fcmReg;
-      console.log('[SW] FCM SW registered at', FCM_SW_SCOPE);
-    } catch (err) { console.error('[SW] Firebase SW failed:', err); }
-    try {
-      // ✅ Main SW — root scope এ register করি
-      const mainReg = await navigator.serviceWorker.register('/sw.js', { 
-        updateViaCache: 'none', 
-        scope: '/' 
-      });
-      mainReg.update().catch((e) => {});
-      console.log('[SW] Main SW registered at /');
-    } catch (err) { console.error('[SW] Main SW failed:', err); }
+      await mainReg.update().catch(() => {});
+      console.log('[SW] Registered at scope:', mainReg.scope);
+    } catch (err) {
+      console.error('[SW] Registration failed:', err);
+    }
   }
+
   await checkNotificationStatus();
   startLiveStream();
 })();

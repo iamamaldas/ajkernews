@@ -61,7 +61,7 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .banner-right-btn:active { transform: scale(0.97); }
 .banner-right-btn svg { width: 15px; height: 15px; flex-shrink: 0; stroke: #111111; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
-/* ===== ✅ NEW: Futuristic New News Banner ===== */
+/* ===== Futuristic New News Banner ===== */
 .new-news-banner { display: none; position: sticky; top: 120px; z-index: 998; margin: 0; padding: 0; cursor: pointer; animation: slideDown 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
 .new-news-banner.show { display: block; }
 .new-news-inner { position: relative; display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: linear-gradient(135deg, #ff1744 0%, #d50000 50%, #b71c1c 100%); color: #fff; box-shadow: 0 6px 24px rgba(229, 57, 53, 0.45), 0 2px 8px rgba(0,0,0,0.15); overflow: hidden; }
@@ -377,8 +377,16 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   window.__VAPID_KEY = "BPIJghMstrMW--U1O0rRUbDVm1epdMAOaR6WZ3mRE03C2bD33IYL_02NDKYk8us6WnRFGHQ7wPnvhEKCXeuzmlA";
   window.__firebaseReady = true;
 
+  // ✅ FIX: notification পেলোড থাকলে ব্রাউজার নিজেই দেখাবে — ডুপ্লিকেট এড়াতে কিছু করব না
   onMessage(messaging, (payload) => {
     console.log('[FCM] Foreground message:', payload);
+    
+    if (payload.notification) {
+      console.log('[FCM] Notification payload detected. Browser will handle it.');
+      return;
+    }
+
+    // শুধু data-only পেলোড হলে নিজে দেখাব
     if (payload.data && Notification.permission === 'granted') {
       const title = payload.data.title || 'Ajker News';
       const body = payload.data.body || '';
@@ -491,35 +499,29 @@ function getCategoryLabel(category) {
 
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; });
 
-// ✅ FIX: installApp() ফাংশন আপডেট করা হয়েছে — সরাসরি ইনস্টল প্রম্পট দেখাবে, কোনো অতিরিক্ত অ্যালার্ট ছাড়াই।
+// ✅ FINAL: কোনো গাইড বা অ্যালার্ট নেই
+// ব্রাউজার সাপোর্ট করলে সরাসরি নেটিভ ইনস্টল প্রম্পট, নাহলে কিছুই না
 async function installApp() {
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
-  if (isStandalone) { 
-    alert('অ্যাপ ইতিমধ্যেই ইনস্টল করা আছে!'); 
-    return; 
+  
+  // অ্যাপ ইতিমধ্যেই ইনস্টল থাকলে কিছুই করবে না
+  if (isStandalone) return;
+
+  // ✅ ব্রাউজার নেটিভ ইনস্টল প্রম্পট সাপোর্ট করলে সরাসরি দেখাবে
+  if (deferredPrompt) {
+    try {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      console.log('[Install] User choice:', outcome);
+      deferredPrompt = null;
+    } catch (err) {
+      console.log('[Install] Prompt error:', err);
+    }
+    return;
   }
 
-  if (deferredPrompt) {
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      console.log('User accepted the install prompt');
-    } else {
-      console.log('User dismissed the install prompt');
-    }
-    deferredPrompt = null;
-  } else {
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    const isAndroid = /Android/.test(navigator.userAgent);
-    
-    if (isIOS) {
-      alert('অ্যাপ ইনস্টল করতে:\n১. Share (শেয়ার) বাটনে ক্লিক করুন।\n২. "Add to Home Screen" নির্বাচন করুন।');
-    } else if (isAndroid) {
-      alert('অ্যাপ ইনস্টল করতে:\n১. ব্রাউজারের উপরে ডানদিকে ৩টি ডট (⋮) মেনুতে ক্লিক করুন।\n২. "Install app" বা "Add to Home Screen" নির্বাচন করুন।');
-    } else {
-      alert('অ্যাপ ইনস্টল করতে:\n১. ব্রাউজারের অ্যাড্রেস বারের ডানদিকে ইনস্টল আইকনে ক্লিক করুন।\n২. অথবা মেনু (⋮) থেকে "Install" নির্বাচন করুন।');
-    }
-  }
+  // ❌ সাপোর্ট না করলে কোনো গাইড বা অ্যালার্ট দেখাবে না
+  console.log('[Install] Native prompt not available on this browser.');
 }
 
 function showSkeleton(container, count = 3) {

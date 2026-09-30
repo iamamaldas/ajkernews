@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v25: Balanced notifications (6/day max) — user-friendly
+// ✅ FINAL v26: Balanced notifications (6/day max) + Double Notification Fix
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -20,13 +20,13 @@ const NOTIFICATION_CONFIG = {
   TTL_SECONDS: 259200,
   QUIET_START_HOUR: 23,
   QUIET_END_HOUR: 7,
-  BREAKING_SCORE_THRESHOLD: 55,       // ✅ 40 → 55 (শুধু truly important)
+  BREAKING_SCORE_THRESHOLD: 55,
   BREAKING_TTL_SECONDS: 259200,
   REGULAR_TTL_SECONDS: 172800,
   MAX_BATCH_SIZE: 500,
   DIGEST_NEWS_COUNT: 3,
-  DIGEST_MIN_NEWS: 2,                 // ✅ minimum 2 fresh news for digest
-  MAX_BREAKING_PER_DAY: 2,            // ✅ max 2 breaking per day
+  DIGEST_MIN_NEWS: 2,
+  MAX_BREAKING_PER_DAY: 2,
   PRIME_HOURS: [8, 13, 18, 21],
 };
 
@@ -456,12 +456,11 @@ export default {
     console.log(`[CRON] ${cron} started | IST Hour: ${istHour}`);
 
     try {
-      // ✅ Digest crons (4 per day — main notifications)
       const DIGEST_CRONS = {
-        "45 2 * * *":  8,   // 08:15 IST
-        "45 7 * * *":  13,  // 13:15 IST
-        "45 12 * * *": 18,  // 18:15 IST
-        "45 15 * * *": 21   // 21:15 IST
+        "45 2 * * *":  8,
+        "45 7 * * *":  13,
+        "45 12 * * *": 18,
+        "45 15 * * *": 21
       };
 
       if (DIGEST_CRONS[cron] !== undefined) {
@@ -470,7 +469,6 @@ export default {
         return;
       }
 
-      // ✅ News fetch cron (silent — no push, unless high-score breaking)
       if (cron === "0 */2 * * *") {
         let result;
         try {
@@ -481,8 +479,6 @@ export default {
           return;
         }
 
-        // ✅ Breaking news push — only for HIGH SCORE news (score >= 55)
-        // Max 2 breaking per day, quiet hours এ skip
         if (result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length && !isQuietHours()) {
           try {
             const placeholders = result.newNewsIds.map(() => "?").join(",");
@@ -496,7 +492,6 @@ export default {
             ).bind(...result.newNewsIds, NOTIFICATION_CONFIG.BREAKING_SCORE_THRESHOLD).first();
 
             if (breakingCandidate) {
-              // Check daily breaking limit
               const todayStart = new Date();
               todayStart.setUTCHours(0, 0, 0, 0);
               const todayCount = await env.DB.prepare(
@@ -526,7 +521,6 @@ export default {
           }
         }
 
-        // Fast index recent URLs
         try {
           const recent = await env.DB.prepare(
             `SELECT id FROM news WHERE status = 'published' AND created_at >= datetime('now', '-6 hours') ORDER BY created_at DESC LIMIT 50`
@@ -540,7 +534,6 @@ export default {
           console.error("[FAST-INDEX] Failed:", error?.message || String(error));
         }
 
-        // Cleanups
         try { await cleanOldCandidates(env.DB); } catch (e) {}
         try { await cleanRejectedNews(env.DB); } catch (e) {}
         try {
@@ -554,7 +547,6 @@ export default {
           console.warn("[CLEAN] Cleanup failed:", error?.message || String(error));
         }
 
-        // Enforce news limit + sitemap ping (every 6 hours UTC)
         const currentUtcHour = new Date().getUTCHours();
         if ([0, 6, 12, 18].includes(currentUtcHour)) {
           try {
@@ -680,7 +672,6 @@ async function sendDigest(env, istHour) {
   const tokens = (subs.results || []).map(s => s.token).filter(Boolean);
   if (!tokens.length) return;
 
-  // 24h window
   const recentNews = await env.DB.prepare(
     `SELECT id, headline, summary, image_url, score, category, created_at FROM news
      WHERE status = 'published' AND created_at >= datetime('now', '-24 hours')
@@ -700,8 +691,6 @@ async function sendDigest(env, istHour) {
     .filter(n => !sentIds.has(n.id))
     .slice(0, NOTIFICATION_CONFIG.DIGEST_NEWS_COUNT);
 
-  // ✅ FIX: Skip digest if fewer than DIGEST_MIN_NEWS fresh news
-  // এই step-এ user fatigue এড়ানো হয়
   if (unsentNews.length < NOTIFICATION_CONFIG.DIGEST_MIN_NEWS) {
     console.log(`[DIGEST] Only ${unsentNews.length} fresh news — skipping (need ≥${NOTIFICATION_CONFIG.DIGEST_MIN_NEWS})`);
     return;
@@ -776,6 +765,7 @@ async function sendBreakingAlert(env, news) {
   if (insertStmts.length) try { await env.DB.batch(insertStmts); } catch (e) {}
 }
 
+// ✅ FIX: Double Notification বন্ধ করার জন্য notification অবজেক্ট সরানো হয়েছে
 async function sendDigestPush(env, payload, tokens) {
   const result = {
     accessTokenObtained: false, tokenExchangeError: null,
@@ -809,13 +799,10 @@ async function sendDigestPush(env, payload, tokens) {
     const message = {
       message: {
         token: token,
-
-        notification: {
-          title: title,
-          body: body,
-          ...(image ? { image: image } : {})
-        },
-
+        
+        // ✅ FIX: Double Notification বন্ধ করতে 'notification' অবজেক্ট সরানো হলো।
+        // শুধু 'data' পাঠানো হচ্ছে, যাতে sw.js নিজে থেকে নোটিফিকেশন দেখায়।
+        
         data: {
           title: title,
           body: body,

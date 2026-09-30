@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v24: Cron conflict fix + digest fallback + reliable time-based push
+// ✅ FINAL v25: Balanced notifications (6/day max) — user-friendly
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -20,11 +20,13 @@ const NOTIFICATION_CONFIG = {
   TTL_SECONDS: 259200,
   QUIET_START_HOUR: 23,
   QUIET_END_HOUR: 7,
-  BREAKING_SCORE_THRESHOLD: 40,
+  BREAKING_SCORE_THRESHOLD: 55,       // ✅ 40 → 55 (শুধু truly important)
   BREAKING_TTL_SECONDS: 259200,
   REGULAR_TTL_SECONDS: 172800,
   MAX_BATCH_SIZE: 500,
   DIGEST_NEWS_COUNT: 3,
+  DIGEST_MIN_NEWS: 2,                 // ✅ minimum 2 fresh news for digest
+  MAX_BREAKING_PER_DAY: 2,            // ✅ max 2 breaking per day
   PRIME_HOURS: [8, 13, 18, 21],
 };
 
@@ -379,7 +381,9 @@ export default {
               isQuietHours: isQuietHours(),
               primeHours: NOTIFICATION_CONFIG.PRIME_HOURS,
               breakingThreshold: NOTIFICATION_CONFIG.BREAKING_SCORE_THRESHOLD,
-              digestCount: NOTIFICATION_CONFIG.DIGEST_NEWS_COUNT
+              digestCount: NOTIFICATION_CONFIG.DIGEST_NEWS_COUNT,
+              digestMinNews: NOTIFICATION_CONFIG.DIGEST_MIN_NEWS,
+              maxBreakingPerDay: NOTIFICATION_CONFIG.MAX_BREAKING_PER_DAY
             }
           }, 200, 0);
         } catch (error) {
@@ -452,12 +456,12 @@ export default {
     console.log(`[CRON] ${cron} started | IST Hour: ${istHour}`);
 
     try {
-      // ✅ FIX: Digest cron গুলো (45 past hour — news fetch এর সাথে conflict নেই)
+      // ✅ Digest crons (4 per day — main notifications)
       const DIGEST_CRONS = {
-        "45 2 * * *":  8,   // 08:15 IST → morning digest
-        "45 7 * * *":  13,  // 13:15 IST → noon digest
-        "45 12 * * *": 18,  // 18:15 IST → evening digest
-        "45 15 * * *": 21   // 21:15 IST → night digest
+        "45 2 * * *":  8,   // 08:15 IST
+        "45 7 * * *":  13,  // 13:15 IST
+        "45 12 * * *": 18,  // 18:15 IST
+        "45 15 * * *": 21   // 21:15 IST
       };
 
       if (DIGEST_CRONS[cron] !== undefined) {
@@ -466,7 +470,7 @@ export default {
         return;
       }
 
-      // ✅ FIX: News fetch cron (top of every 2 hours)
+      // ✅ News fetch cron (silent — no push, unless high-score breaking)
       if (cron === "0 */2 * * *") {
         let result;
         try {
@@ -477,51 +481,49 @@ export default {
           return;
         }
 
-        // ✅ Push: নতুন news থাকলে সেরা article, না থাকলে সর্বশেষ unsent
-        if (!isQuietHours()) {
+        // ✅ Breaking news push — only for HIGH SCORE news (score >= 55)
+        // Max 2 breaking per day, quiet hours এ skip
+        if (result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length && !isQuietHours()) {
           try {
-            let articleToSend = null;
+            const placeholders = result.newNewsIds.map(() => "?").join(",");
+            const breakingCandidate = await env.DB.prepare(
+              `SELECT id, headline, summary, image_url, score, category, created_at 
+               FROM news
+               WHERE id IN (${placeholders}) 
+                 AND status = 'published'
+                 AND score >= ?
+               ORDER BY score DESC, created_at DESC LIMIT 1`
+            ).bind(...result.newNewsIds, NOTIFICATION_CONFIG.BREAKING_SCORE_THRESHOLD).first();
 
-            // Priority 1: নতুন published news এর মধ্যে top scored
-            if (result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
-              const placeholders = result.newNewsIds.map(() => "?").join(",");
-              articleToSend = await env.DB.prepare(
-                `SELECT id, headline, summary, image_url, score, category, created_at 
-                 FROM news
-                 WHERE id IN (${placeholders}) AND status = 'published'
-                 ORDER BY score DESC, created_at DESC LIMIT 1`
-              ).bind(...result.newNewsIds).first();
-            }
+            if (breakingCandidate) {
+              // Check daily breaking limit
+              const todayStart = new Date();
+              todayStart.setUTCHours(0, 0, 0, 0);
+              const todayCount = await env.DB.prepare(
+                `SELECT COUNT(DISTINCT news_id) AS c FROM push_log 
+                 WHERE status = 'sent' 
+                   AND title LIKE '🔴 ব্রেকিং%'
+                   AND sent_at >= ?`
+              ).bind(todayStart.toISOString()).first();
 
-            // Priority 2: Fallback — সর্বশেষ unsent published news
-            if (!articleToSend) {
-              articleToSend = await env.DB.prepare(
-                `SELECT n.id, n.headline, n.summary, n.image_url, n.score, n.category, n.created_at
-                 FROM news n
-                 WHERE n.status = 'published'
-                   AND NOT EXISTS (SELECT 1 FROM push_sent ps WHERE ps.news_id = n.id)
-                 ORDER BY n.created_at DESC LIMIT 1`
-              ).first();
-              if (articleToSend) {
-                console.log(`[PUSH-FALLBACK] Using latest unsent: ${articleToSend.headline}`);
+              const sentToday = Number(todayCount?.c || 0);
+
+              if (sentToday < NOTIFICATION_CONFIG.MAX_BREAKING_PER_DAY) {
+                console.log(`[BREAKING] score=${breakingCandidate.score}: ${breakingCandidate.headline}`);
+                ctx.waitUntil(
+                  sendBreakingAlert(env, breakingCandidate).catch(error => {
+                    console.error("[BREAKING] Send error:", error?.message || String(error));
+                  })
+                );
+              } else {
+                console.log(`[BREAKING] Daily limit reached (${sentToday}/${NOTIFICATION_CONFIG.MAX_BREAKING_PER_DAY}) — skipping`);
               }
-            }
-
-            if (articleToSend) {
-              console.log(`[PUSH] Sending: ${articleToSend.headline}`);
-              ctx.waitUntil(
-                sendBreakingAlert(env, articleToSend).catch(error => {
-                  console.error("[PUSH] Send error:", error?.message || String(error));
-                })
-              );
             } else {
-              console.log(`[PUSH] No unsent article found — skipping`);
+              console.log(`[BREAKING] No high-score news (≥${NOTIFICATION_CONFIG.BREAKING_SCORE_THRESHOLD}) this cycle`);
             }
           } catch (e) {
-            console.warn('[PUSH] Article fetch failed:', e?.message);
+            console.warn('[BREAKING] Failed:', e?.message);
           }
-        } else {
-          console.log(`[PUSH] Skipped — quiet hours (IST ${istHour})`);
         }
 
         // Fast index recent URLs
@@ -678,7 +680,7 @@ async function sendDigest(env, istHour) {
   const tokens = (subs.results || []).map(s => s.token).filter(Boolean);
   if (!tokens.length) return;
 
-  // ✅ FIX: 8h → 24h window for reliability
+  // 24h window
   const recentNews = await env.DB.prepare(
     `SELECT id, headline, summary, image_url, score, category, created_at FROM news
      WHERE status = 'published' AND created_at >= datetime('now', '-24 hours')
@@ -694,17 +696,16 @@ async function sendDigest(env, istHour) {
   ).bind(...candidateIds).all();
   const sentIds = new Set((sentRows.results || []).map(r => r.news_id));
 
-  let unsentNews = candidates
+  const unsentNews = candidates
     .filter(n => !sentIds.has(n.id))
     .slice(0, NOTIFICATION_CONFIG.DIGEST_NEWS_COUNT);
 
-  // ✅ FIX: সব already sent হলে fallback top 3
-  if (!unsentNews.length) {
-    console.log('[DIGEST] All recent sent — using fallback top 3');
-    unsentNews = candidates.slice(0, NOTIFICATION_CONFIG.DIGEST_NEWS_COUNT);
+  // ✅ FIX: Skip digest if fewer than DIGEST_MIN_NEWS fresh news
+  // এই step-এ user fatigue এড়ানো হয়
+  if (unsentNews.length < NOTIFICATION_CONFIG.DIGEST_MIN_NEWS) {
+    console.log(`[DIGEST] Only ${unsentNews.length} fresh news — skipping (need ≥${NOTIFICATION_CONFIG.DIGEST_MIN_NEWS})`);
+    return;
   }
-
-  if (!unsentNews.length) return;
 
   const digestType = getDigestType(istHour);
   const label = getDigestLabel(istHour);
@@ -775,9 +776,6 @@ async function sendBreakingAlert(env, news) {
   if (insertStmts.length) try { await env.DB.batch(insertStmts); } catch (e) {}
 }
 
-// =========================================================
-// ✅ FINAL — Mobile Chrome + Desktop Chrome compatible FCM
-// =========================================================
 async function sendDigestPush(env, payload, tokens) {
   const result = {
     accessTokenObtained: false, tokenExchangeError: null,

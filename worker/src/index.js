@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v26: Balanced notifications (6/day max) + Double Notification Fix
+// ✅ FINAL v27: Balanced notifications (6/day max) + Background Notification Support + Double Notification Fix
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -765,7 +765,9 @@ async function sendBreakingAlert(env, news) {
   if (insertStmts.length) try { await env.DB.batch(insertStmts); } catch (e) {}
 }
 
-// ✅ FIX: Double Notification বন্ধ করার জন্য notification অবজেক্ট সরানো হয়েছে
+// ✅ FINAL: notification + data দুটোই পাঠানো হয়
+// - notification: ব্রাউজার বন্ধ থাকলেও FCM নিজে দেখাবে
+// - data: Service Worker প্রসেস করে কাস্টমাইজ করবে
 async function sendDigestPush(env, payload, tokens) {
   const result = {
     accessTokenObtained: false, tokenExchangeError: null,
@@ -799,10 +801,15 @@ async function sendDigestPush(env, payload, tokens) {
     const message = {
       message: {
         token: token,
-        
-        // ✅ FIX: Double Notification বন্ধ করতে 'notification' অবজেক্ট সরানো হলো।
-        // শুধু 'data' পাঠানো হচ্ছে, যাতে sw.js নিজে থেকে নোটিফিকেশন দেখায়।
-        
+
+        // ✅ notification পেলোড — ব্রাউজার বন্ধ থাকলেও FCM নিজেই দেখাবে
+        notification: {
+          title: title,
+          body: body,
+          ...(image ? { image: image } : {})
+        },
+
+        // ✅ data পেলোড — Service Worker প্রসেস করবে
         data: {
           title: title,
           body: body,
@@ -830,8 +837,18 @@ async function sendDigestPush(env, payload, tokens) {
             Urgency: isBreaking ? "high" : "normal",
             TTL: String(ttl)
           },
-          fcmOptions: {
-            link: targetUrl
+          fcmOptions: { link: targetUrl },
+          // ✅ webpush.notification — ব্রাউজার বন্ধ থাকলেও কাজ করে
+          notification: {
+            title: title,
+            body: body,
+            icon: "/logo.png",
+            badge: "/logo.png",
+            ...(image ? { image: image } : {}),
+            tag: notifTag,
+            renotify: true,
+            requireInteraction: true,
+            data: { url: targetUrl }
           }
         }
       }

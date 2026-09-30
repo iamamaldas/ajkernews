@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v27: Balanced notifications (6/day max) + Background Notification Support + Double Notification Fix
+// ✅ FINAL v28: Admin Panel + Balanced notifications + Background Support
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -161,6 +161,172 @@ export default {
 
     try {
       await ensureTablesOnce(env);
+
+      // ============================================
+      // 🔐 ADMIN PANEL
+      // ============================================
+
+      async function sha256(text) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(text);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        return Array.from(new Uint8Array(hashBuffer))
+          .map(b => b.toString(16).padStart(2, '0')).join('');
+      }
+
+      async function getAdminSession(request, env) {
+        const cookieHeader = request.headers.get("Cookie") || "";
+        const cookies = Object.fromEntries(
+          cookieHeader.split(";").map(c => c.trim().split("=").map(decodeURIComponent))
+        );
+        const token = cookies["admin_session"];
+        if (!token) return null;
+        try {
+          return await env.DB.prepare(
+            `SELECT * FROM admin_sessions WHERE token = ? AND expires_at > ? LIMIT 1`
+          ).bind(token, new Date().toISOString()).first() || null;
+        } catch (e) { return null; }
+      }
+
+      function jsonWithCookie(data, status, cookieValue) {
+        const headers = {
+          ...corsHeaders(),
+          "Content-Type": "application/json; charset=UTF-8",
+          "Cache-Control": "no-cache, no-store, must-revalidate"
+        };
+        if (cookieValue) headers["Set-Cookie"] = cookieValue;
+        return new Response(JSON.stringify(data), { status, headers });
+      }
+
+      // ADMIN LOGIN PAGE
+      if (url.pathname === "/admin" && request.method === "GET") {
+        const session = await getAdminSession(request, env);
+        if (session) return Response.redirect(new URL("/admin/dashboard", url).toString(), 302);
+        return new Response(getAdminLoginHTML(), {
+          status: 200,
+          headers: {
+            "Content-Type": "text/html; charset=UTF-8",
+            "Cache-Control": "no-store",
+            "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet"
+          }
+        });
+      }
+
+      // ADMIN DASHBOARD
+      if (url.pathname === "/admin/dashboard" && request.method === "GET") {
+        const session = await getAdminSession(request, env);
+        if (!session) return Response.redirect(new URL("/admin", url).toString(), 302);
+        return new Response(getAdminDashboardHTML(), {
+          status: 200,
+          headers: {
+            "Content-Type": "text/html; charset=UTF-8",
+            "Cache-Control": "no-store",
+            "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet"
+          }
+        });
+      }
+
+      // ADMIN LOGIN API
+      if (url.pathname === "/api/admin/login" && request.method === "POST") {
+        try {
+          const { password } = await request.json();
+          if (!password) return json({ success: false, error: "Password required" }, 400, 0);
+          const passwordHash = await sha256(password);
+          const expectedHash = env.ADMIN_PASSWORD_HASH;
+          if (!expectedHash) return json({ success: false, error: "Admin not configured" }, 500, 0);
+          if (passwordHash !== expectedHash) return json({ success: false, error: "Invalid password" }, 401, 0);
+
+          const token = crypto.randomUUID() + "-" + crypto.randomUUID();
+          const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+          await env.DB.prepare(
+            `INSERT INTO admin_sessions (id, token, ip, user_agent, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)`
+          ).bind(
+            crypto.randomUUID(), token,
+            request.headers.get("CF-Connecting-IP") || "unknown",
+            request.headers.get("User-Agent") || "unknown",
+            expiresAt, new Date().toISOString()
+          ).run();
+
+          const cookie = `admin_session=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${7 * 24 * 60 * 60}`;
+          return jsonWithCookie({ success: true, redirect: "/admin/dashboard" }, 200, cookie);
+        } catch (error) {
+          return json({ success: false, error: error.message }, 500, 0);
+        }
+      }
+
+      // ADMIN LOGOUT
+      if (url.pathname === "/api/admin/logout" && request.method === "POST") {
+        const session = await getAdminSession(request, env);
+        if (session) await env.DB.prepare(`DELETE FROM admin_sessions WHERE token = ?`).bind(session.token).run().catch(() => {});
+        const cookie = `admin_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`;
+        return jsonWithCookie({ success: true }, 200, cookie);
+      }
+
+      // ADMIN LIST NEWS
+      if (url.pathname === "/api/admin/list" && request.method === "GET") {
+        const session = await getAdminSession(request, env);
+        if (!session) return json({ success: false, error: "Unauthorized" }, 401, 0);
+        try {
+          const limit = Math.min(parseInt(url.searchParams.get("limit") || "50", 10), 200);
+          const search = url.searchParams.get("search") || null;
+          let query = `SELECT id, headline, summary, category, status, image_url, created_at FROM news`;
+          const binds = [];
+          if (search) { query += ` WHERE headline LIKE ?`; binds.push(`%${search}%`); }
+          query += ` ORDER BY created_at DESC LIMIT ?`;
+          binds.push(limit);
+          const rows = await env.DB.prepare(query).bind(...binds).all();
+          return json({ success: true, count: (rows.results || []).length, news: rows.results || [] }, 200, 0);
+        } catch (error) { return json({ success: false, error: error.message }, 500, 0); }
+      }
+
+      // ADMIN UPDATE NEWS
+      if (url.pathname === "/api/admin/update" && request.method === "POST") {
+        const session = await getAdminSession(request, env);
+        if (!session) return json({ success: false, error: "Unauthorized" }, 401, 0);
+        try {
+          const { id, updates } = await request.json();
+          if (!id || !updates) return json({ success: false, error: "id and updates required" }, 400, 0);
+          const allowed = ["headline", "summary", "status"];
+          const fields = Object.keys(updates).filter(k => allowed.includes(k));
+          if (!fields.length) return json({ success: false, error: "No valid fields" }, 400, 0);
+          const sql = fields.map(k => `${k} = ?`).join(", ");
+          const vals = fields.map(k => updates[k]);
+          await env.DB.prepare(`UPDATE news SET ${sql} WHERE id = ?`).bind(...vals, id).run();
+          return json({ success: true, message: "Updated", id }, 200, 0);
+        } catch (error) { return json({ success: false, error: error.message }, 500, 0); }
+      }
+
+      // ADMIN LIST COMMENTS
+      if (url.pathname === "/api/admin/comments" && request.method === "GET") {
+        const session = await getAdminSession(request, env);
+        if (!session) return json({ success: false, error: "Unauthorized" }, 401, 0);
+        try {
+          const rows = await env.DB.prepare(
+            `SELECT nc.id, nc.news_id, nc.author_name, nc.comment_text, nc.created_at, n.headline 
+             FROM news_comments nc
+             LEFT JOIN news n ON n.id = nc.news_id
+             ORDER BY nc.created_at DESC LIMIT 50`
+          ).all();
+          return json({ success: true, comments: rows.results || [] }, 200, 0);
+        } catch (error) { return json({ success: false, error: error.message }, 500, 0); }
+      }
+
+      // ADMIN DELETE COMMENT
+      if (url.pathname === "/api/admin/comment-delete" && request.method === "POST") {
+        const session = await getAdminSession(request, env);
+        if (!session) return json({ success: false, error: "Unauthorized" }, 401, 0);
+        try {
+          const { id } = await request.json();
+          if (!id) return json({ success: false, error: "id required" }, 400, 0);
+          await env.DB.prepare(`DELETE FROM news_comments WHERE id = ?`).bind(id).run();
+          return json({ success: true, message: "Deleted" }, 200, 0);
+        } catch (error) { return json({ success: false, error: error.message }, 500, 0); }
+      }
+
+      // ============================================
+      // ✅ PUBLIC ROUTES
+      // ============================================
 
       if (url.pathname === "/sitemap.xml") return await generateSitemap(env);
       if (url.pathname === "/news-sitemap.xml") return await generateNewsSitemap(env);
@@ -543,6 +709,7 @@ export default {
           await env.DB.prepare(`DELETE FROM push_sent WHERE sent_at < datetime('now', '-7 days')`).run();
           await env.DB.prepare(`DELETE FROM push_digest_log WHERE sent_at < datetime('now', '-30 days')`).run();
           await env.DB.prepare(`DELETE FROM live_events WHERE created_at < datetime('now', '-1 day')`).run();
+          await env.DB.prepare(`DELETE FROM admin_sessions WHERE expires_at < datetime('now')`).run();
         } catch (error) {
           console.warn("[CLEAN] Cleanup failed:", error?.message || String(error));
         }
@@ -765,9 +932,6 @@ async function sendBreakingAlert(env, news) {
   if (insertStmts.length) try { await env.DB.batch(insertStmts); } catch (e) {}
 }
 
-// ✅ FINAL: notification + data দুটোই পাঠানো হয়
-// - notification: ব্রাউজার বন্ধ থাকলেও FCM নিজে দেখাবে
-// - data: Service Worker প্রসেস করে কাস্টমাইজ করবে
 async function sendDigestPush(env, payload, tokens) {
   const result = {
     accessTokenObtained: false, tokenExchangeError: null,
@@ -801,15 +965,11 @@ async function sendDigestPush(env, payload, tokens) {
     const message = {
       message: {
         token: token,
-
-        // ✅ notification পেলোড — ব্রাউজার বন্ধ থাকলেও FCM নিজেই দেখাবে
         notification: {
           title: title,
           body: body,
           ...(image ? { image: image } : {})
         },
-
-        // ✅ data পেলোড — Service Worker প্রসেস করবে
         data: {
           title: title,
           body: body,
@@ -818,7 +978,6 @@ async function sendDigestPush(env, payload, tokens) {
           notificationId: notifTag,
           isBreaking: isBreaking ? "1" : "0"
         },
-
         android: {
           priority: "high",
           notification: {
@@ -831,14 +990,12 @@ async function sendDigestPush(env, payload, tokens) {
             click_action: "FCM_PLUGIN_ACTIVITY"
           }
         },
-
         webpush: {
           headers: {
             Urgency: isBreaking ? "high" : "normal",
             TTL: String(ttl)
           },
           fcmOptions: { link: targetUrl },
-          // ✅ webpush.notification — ব্রাউজার বন্ধ থাকলেও কাজ করে
           notification: {
             title: title,
             body: body,
@@ -1767,6 +1924,7 @@ async function ensureTables(env) {
     `CREATE TABLE IF NOT EXISTS push_sent (id TEXT PRIMARY KEY, news_id TEXT, token TEXT, sent_at TEXT, UNIQUE(news_id, token))`,
     `CREATE TABLE IF NOT EXISTS push_digest_log (id TEXT PRIMARY KEY, digest_type TEXT, news_count INTEGER, sent_count INTEGER, sent_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS live_events (id TEXT PRIMARY KEY, event_type TEXT, payload TEXT, created_at TEXT)`,
+    `CREATE TABLE IF NOT EXISTS admin_sessions (id TEXT PRIMARY KEY, token TEXT UNIQUE, ip TEXT, user_agent TEXT, expires_at TEXT, created_at TEXT)`,
     `CREATE INDEX IF NOT EXISTS idx_news_status_published ON news(status, published_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_status_created ON news(status, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_category_published ON news(category, published_at DESC)`,
@@ -1781,7 +1939,8 @@ async function ensureTables(env) {
     `CREATE INDEX IF NOT EXISTS idx_push_sent_news ON push_sent(news_id)`,
     `CREATE INDEX IF NOT EXISTS idx_push_sent_sent_at ON push_sent(sent_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_push_digest_log_sent_at ON push_digest_log(sent_at DESC)`,
-    `CREATE INDEX IF NOT EXISTS idx_live_events_created_at ON live_events(created_at DESC)`
+    `CREATE INDEX IF NOT EXISTS idx_live_events_created_at ON live_events(created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_admin_sessions_token ON admin_sessions(token)`
   ];
 
   for (const sql of queries) {
@@ -2359,6 +2518,10 @@ function generateRobotsTxt(env) {
 
   const text = `User-agent: *
 Allow: /
+Disallow: /admin
+Disallow: /admin/
+Disallow: /api/admin/
+Disallow: /api/admin
 Disallow: /api/
 Disallow: /go/
 
@@ -2446,4 +2609,263 @@ function json(data, status = 200, cacheSeconds = 60) {
       "expires": "0"
     }
   });
+}
+
+// ============================================
+// 🔐 ADMIN HTML FUNCTIONS
+// ============================================
+
+function getAdminLoginHTML() {
+  return `<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Login - Ajker News</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, sans-serif; }
+  body { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .box { background: #fff; border-radius: 20px; padding: 40px 32px; max-width: 400px; width: 100%; box-shadow: 0 20px 60px rgba(0,0,0,0.3); text-align: center; }
+  h1 { font-size: 26px; margin-bottom: 8px; color: #111; }
+  p { font-size: 14px; color: #666; margin-bottom: 28px; }
+  input { width: 100%; padding: 14px 16px; border: 2px solid #e5e5e5; border-radius: 12px; font-size: 15px; outline: none; margin-bottom: 14px; }
+  input:focus { border-color: #667eea; }
+  button { width: 100%; padding: 14px; background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; border: none; border-radius: 12px; font-size: 16px; font-weight: 700; cursor: pointer; }
+  button:active { transform: scale(0.98); }
+  .error { color: #c62828; font-size: 13px; margin-top: 12px; min-height: 18px; }
+</style>
+</head>
+<body>
+<div class="box">
+  <h1>🔐 Admin Login</h1>
+  <p>Ajker News Content Manager</p>
+  <input type="password" id="password" placeholder="Password" onkeypress="if(event.key==='Enter') login()">
+  <button onclick="login()">Login</button>
+  <div class="error" id="error"></div>
+</div>
+<script>
+async function login() {
+  const password = document.getElementById('password').value;
+  const errorEl = document.getElementById('error');
+  errorEl.textContent = '';
+  if (!password) { errorEl.textContent = 'পাসওয়ার্ড দিন'; return; }
+  try {
+    const res = await fetch('/api/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ password })
+    });
+    const data = await res.json();
+    if (data.success) window.location.href = '/admin/dashboard';
+    else errorEl.textContent = data.error || 'ভুল পাসওয়ার্ড';
+  } catch (e) { errorEl.textContent = 'Network error'; }
+}
+</script>
+</body>
+</html>`;
+}
+
+function getAdminDashboardHTML() {
+  return `<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Dashboard - Ajker News</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, sans-serif; }
+  body { background: #f0f2f5; color: #111; min-height: 100vh; }
+  .header { background: #fff; padding: 16px 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
+  .header h1 { font-size: 20px; }
+  .header button { padding: 9px 16px; background: #ffebee; color: #c62828; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; }
+  .container { max-width: 1000px; margin: 0 auto; padding: 16px; }
+  .search { margin-bottom: 16px; }
+  .search input { width: 100%; padding: 12px 16px; border: 1px solid #ddd; border-radius: 10px; font-size: 14px; outline: none; }
+  .news-item { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); display: flex; gap: 14px; margin-bottom: 12px; }
+  .news-item img { width: 100px; height: 70px; object-fit: cover; border-radius: 8px; background: #f0f0f0; flex-shrink: 0; }
+  .news-item .content { flex: 1; min-width: 0; }
+  .news-item h3 { font-size: 15px; font-weight: 700; margin-bottom: 6px; line-height: 1.4; }
+  .news-item .meta { font-size: 12px; color: #888; margin-bottom: 10px; }
+  .news-item .actions { display: flex; gap: 8px; }
+  .news-item .actions button { padding: 7px 14px; border: none; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; }
+  .btn-edit { background: #e3f2fd; color: #1976d2; }
+  .btn-hide { background: #f5f5f5; color: #666; }
+  .section-title { font-size: 18px; font-weight: 800; margin: 24px 0 12px; }
+  .comment-item { background: #fff; border-radius: 12px; padding: 14px 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .comment-item .info { flex: 1; min-width: 0; }
+  .comment-item .author { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+  .comment-item .text { font-size: 13px; color: #555; margin-bottom: 4px; }
+  .comment-item .on { font-size: 11px; color: #999; }
+  .comment-item .btn-delete { padding: 8px 14px; background: #ffebee; color: #c62828; border: none; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; flex-shrink: 0; }
+  .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 2000; align-items: center; justify-content: center; padding: 16px; }
+  .modal.active { display: flex; }
+  .modal-box { background: #fff; border-radius: 16px; padding: 24px; max-width: 520px; width: 100%; max-height: 90vh; overflow-y: auto; }
+  .modal-box h2 { font-size: 18px; margin-bottom: 16px; }
+  .modal-box label { display: block; font-size: 13px; font-weight: 700; margin-bottom: 6px; color: #555; margin-top: 12px; }
+  .modal-box textarea { width: 100%; padding: 10px 12px; border: 1.5px solid #ddd; border-radius: 8px; font-size: 14px; outline: none; font-family: inherit; height: 100px; resize: vertical; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
+  .modal-actions button { flex: 1; padding: 12px; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .btn-save { background: #111; color: #fff; }
+  .btn-cancel { background: #f2f2f2; color: #333; }
+  .toast { position: fixed; left: 50%; bottom: 30px; transform: translateX(-50%); background: #111; color: #fff; padding: 12px 20px; border-radius: 10px; font-size: 14px; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: 3000; }
+  .toast.show { opacity: 1; }
+  .toast.success { background: #2e7d32; }
+  .toast.error { background: #c62828; }
+  .empty { text-align: center; padding: 40px; color: #888; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>📰 Admin Panel</h1>
+  <button onclick="logout()">🚪 Logout</button>
+</div>
+<div class="container">
+  <div class="search">
+    <input type="text" id="searchInput" placeholder="🔍 Search headline..." onkeypress="if(event.key==='Enter') searchNow()">
+  </div>
+  <div class="section-title">📰 News Posts</div>
+  <div id="newsList"><div class="empty">Loading...</div></div>
+  <div class="section-title">💬 Recent Comments</div>
+  <div id="commentsList"><div class="empty">Loading...</div></div>
+</div>
+<div id="editModal" class="modal">
+  <div class="modal-box">
+    <h2>✏️ Edit News</h2>
+    <input type="hidden" id="editId">
+    <label>Headline</label>
+    <textarea id="editHeadline"></textarea>
+    <label>Summary</label>
+    <textarea id="editSummary"></textarea>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeEdit()">Cancel</button>
+      <button class="btn-save" onclick="saveEdit()">Save</button>
+    </div>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+<script>
+function toast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + (type || '');
+  setTimeout(() => t.className = 'toast ' + (type || ''), 2500);
+}
+function esc(v) {
+  if (v == null) return '';
+  return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+}
+async function loadNews(search) {
+  const list = document.getElementById('newsList');
+  list.innerHTML = '<div class="empty">Loading...</div>';
+  try {
+    let url = '/api/admin/list?limit=50';
+    if (search) url += '&search=' + encodeURIComponent(search);
+    const res = await fetch(url, { credentials: 'same-origin' });
+    if (res.status === 401) { location.href = '/admin'; return; }
+    const data = await res.json();
+    const news = data.news || [];
+    if (!news.length) { list.innerHTML = '<div class="empty">No news found</div>'; return; }
+    list.innerHTML = news.map(n => \`
+      <div class="news-item">
+        <img src="\${esc(n.image_url || '/logo.png')}" onerror="this.src='/logo.png'" alt="">
+        <div class="content">
+          <h3>\${esc(n.headline || 'Untitled')}</h3>
+          <div class="meta">\${esc(n.category || 'general')} • \${esc(n.status || '')} • \${esc((n.created_at||'').slice(0,16).replace('T',' '))}</div>
+          <div class="actions">
+            <button class="btn-edit" onclick='openEdit(\${JSON.stringify(n).replace(/'/g,"&#39;")})'>✏️ Edit</button>
+            <button class="btn-hide" onclick="hideNews('\${n.id}')">🙈 Hide</button>
+          </div>
+        </div>
+      </div>\`).join('');
+  } catch (e) { list.innerHTML = '<div class="empty">Network error</div>'; }
+}
+async function loadComments() {
+  const list = document.getElementById('commentsList');
+  list.innerHTML = '<div class="empty">Loading...</div>';
+  try {
+    const res = await fetch('/api/admin/comments', { credentials: 'same-origin' });
+    if (res.status === 401) { location.href = '/admin'; return; }
+    const data = await res.json();
+    const comments = data.comments || [];
+    if (!comments.length) { list.innerHTML = '<div class="empty">No comments</div>'; return; }
+    list.innerHTML = comments.map(c => \`
+      <div class="comment-item">
+        <div class="info">
+          <div class="author">\${esc(c.author_name || 'Guest')}</div>
+          <div class="text">\${esc(c.comment_text || '')}</div>
+          <div class="on">on: \${esc(c.headline || 'Unknown')}</div>
+        </div>
+        <button class="btn-delete" onclick="deleteComment('\${c.id}')">🗑️ Delete</button>
+      </div>\`).join('');
+  } catch (e) { list.innerHTML = '<div class="empty">Network error</div>'; }
+}
+function openEdit(n) {
+  document.getElementById('editId').value = n.id || '';
+  document.getElementById('editHeadline').value = n.headline || '';
+  document.getElementById('editSummary').value = n.summary || '';
+  document.getElementById('editModal').classList.add('active');
+}
+function closeEdit() { document.getElementById('editModal').classList.remove('active'); }
+async function saveEdit() {
+  const id = document.getElementById('editId').value;
+  const updates = {
+    headline: document.getElementById('editHeadline').value.trim(),
+    summary: document.getElementById('editSummary').value.trim()
+  };
+  try {
+    const res = await fetch('/api/admin/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ id, updates })
+    });
+    const data = await res.json();
+    if (data.success) { toast('✅ Updated', 'success'); closeEdit(); loadNews(); }
+    else toast('❌ ' + (data.error || 'Failed'), 'error');
+  } catch (e) { toast('❌ Network error', 'error'); }
+}
+async function hideNews(id) {
+  if (!confirm('Hide this news?')) return;
+  try {
+    const res = await fetch('/api/admin/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ id, updates: { status: 'rejected' } })
+    });
+    const data = await res.json();
+    if (data.success) { toast('🙈 Hidden', 'success'); loadNews(); }
+    else toast('❌ ' + (data.error || 'Failed'), 'error');
+  } catch (e) { toast('❌ Network error', 'error'); }
+}
+async function deleteComment(id) {
+  if (!confirm('Delete this comment?')) return;
+  try {
+    const res = await fetch('/api/admin/comment-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ id })
+    });
+    const data = await res.json();
+    if (data.success) { toast('🗑️ Deleted', 'success'); loadComments(); }
+    else toast('❌ ' + (data.error || 'Failed'), 'error');
+  } catch (e) { toast('❌ Network error', 'error'); }
+}
+async function logout() {
+  try { await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {}
+  location.href = '/admin';
+}
+function searchNow() {
+  const q = document.getElementById('searchInput').value.trim();
+  loadNews(q);
+}
+loadNews();
+loadComments();
+</script>
+</body>
+</html>`;
 }

@@ -491,20 +491,34 @@ function getCategoryLabel(category) {
 
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; });
 
+// ✅ FIX: installApp() ফাংশন আপডেট করা হয়েছে — সরাসরি ইনস্টল প্রম্পট দেখাবে, কোনো অতিরিক্ত অ্যালার্ট ছাড়াই।
 async function installApp() {
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
-  if (isStandalone) { alert('App already installed!'); return; }
+  if (isStandalone) { 
+    alert('অ্যাপ ইতিমধ্যেই ইনস্টল করা আছে!'); 
+    return; 
+  }
+
   if (deferredPrompt) {
     deferredPrompt.prompt();
-    await deferredPrompt.userChoice;
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      console.log('User accepted the install prompt');
+    } else {
+      console.log('User dismissed the install prompt');
+    }
     deferredPrompt = null;
-    return;
-  }
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-  if (isIOS) {
-    alert('App install করতে: Share বাটনে ক্লিক করুন → "Add to Home Screen" নির্বাচন করুন।');
   } else {
-    alert('App install করতে ব্রাউজার মেনু (⋮) → "Install app" বা "Add to Home Screen" নির্বাচন করুন।');
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isAndroid = /Android/.test(navigator.userAgent);
+    
+    if (isIOS) {
+      alert('অ্যাপ ইনস্টল করতে:\n১. Share (শেয়ার) বাটনে ক্লিক করুন।\n২. "Add to Home Screen" নির্বাচন করুন।');
+    } else if (isAndroid) {
+      alert('অ্যাপ ইনস্টল করতে:\n১. ব্রাউজারের উপরে ডানদিকে ৩টি ডট (⋮) মেনুতে ক্লিক করুন।\n২. "Install app" বা "Add to Home Screen" নির্বাচন করুন।');
+    } else {
+      alert('অ্যাপ ইনস্টল করতে:\n১. ব্রাউজারের অ্যাড্রেস বারের ডানদিকে ইনস্টল আইকনে ক্লিক করুন।\n২. অথবা মেনু (⋮) থেকে "Install" নির্বাচন করুন।');
+    }
   }
 }
 

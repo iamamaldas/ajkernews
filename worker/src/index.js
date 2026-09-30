@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v23: FCM notification fix + cron timing fix
+// ✅ FINAL v24: Cron conflict fix + digest fallback + reliable time-based push
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -25,7 +25,7 @@ const NOTIFICATION_CONFIG = {
   REGULAR_TTL_SECONDS: 172800,
   MAX_BATCH_SIZE: 500,
   DIGEST_NEWS_COUNT: 3,
-  PRIME_HOURS: [8, 13, 17, 21],  // ✅ FIX: 18 → 17
+  PRIME_HOURS: [8, 13, 18, 21],
 };
 
 let tablesReadyPromise = null;
@@ -78,7 +78,7 @@ function isBreakingNews(news) {
 function getDigestLabel(hour) {
   if (hour === 8) return "🌅 সকালের সেরা খবর";
   if (hour === 13) return "☀️ দুপুরের আপডেট";
-  if (hour === 17) return "🌇 বিকেলের সেরা খবর";  // ✅ FIX: 18 → 17
+  if (hour === 18) return "🌇 বিকেলের সেরা খবর";
   if (hour === 21) return "🌙 রাতের আপডেট";
   return "📰 আজকের খবর";
 }
@@ -86,7 +86,7 @@ function getDigestLabel(hour) {
 function getDigestType(hour) {
   if (hour === 8) return "morning";
   if (hour === 13) return "noon";
-  if (hour === 17) return "evening";  // ✅ FIX: 18 → 17
+  if (hour === 18) return "evening";
   if (hour === 21) return "night";
   return "general";
 }
@@ -448,30 +448,25 @@ export default {
 
   async scheduled(event, env, ctx) {
     const cron = event.cron;
-    const startTime = Date.now();
     const istHour = getISTHour();
     console.log(`[CRON] ${cron} started | IST Hour: ${istHour}`);
 
     try {
-      // ✅ FIX: Cron → IST hour mapping
-      // Cron UTC → IST hour:
-      //   30 2 * * *  → 08:00 IST
-      //   30 7 * * *  → 13:00 IST
-      //   0 12 * * *  → 17:30 IST
-      //   30 15 * * * → 21:00 IST
-      const PRIME_CRONS = {
-        "30 2 * * *":  8,
-        "30 7 * * *":  13,
-        "0 12 * * *":  17,
-        "30 15 * * *": 21
+      // ✅ FIX: Digest cron গুলো (45 past hour — news fetch এর সাথে conflict নেই)
+      const DIGEST_CRONS = {
+        "45 2 * * *":  8,   // 08:15 IST → morning digest
+        "45 7 * * *":  13,  // 13:15 IST → noon digest
+        "45 12 * * *": 18,  // 18:15 IST → evening digest
+        "45 15 * * *": 21   // 21:15 IST → night digest
       };
 
-      if (PRIME_CRONS[cron] !== undefined) {
-        console.log(`[DIGEST] Prime time hit: cron=${cron} IST=${istHour}`);
-        await sendDigest(env, PRIME_CRONS[cron]);
+      if (DIGEST_CRONS[cron] !== undefined) {
+        console.log(`[DIGEST] Cron=${cron} → IST hour=${DIGEST_CRONS[cron]}`);
+        await sendDigest(env, DIGEST_CRONS[cron]);
         return;
       }
 
+      // ✅ FIX: News fetch cron (top of every 2 hours)
       if (cron === "0 */2 * * *") {
         let result;
         try {
@@ -482,27 +477,54 @@ export default {
           return;
         }
 
-        if (result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
-          const placeholders = result.newNewsIds.map(() => "?").join(",");
-          const topArticle = await env.DB.prepare(
-            `SELECT id, headline, summary, image_url, score, category, created_at 
-             FROM news
-             WHERE id IN (${placeholders}) AND status = 'published'
-             ORDER BY score DESC, created_at DESC LIMIT 1`
-          ).bind(...result.newNewsIds).first();
+        // ✅ Push: নতুন news থাকলে সেরা article, না থাকলে সর্বশেষ unsent
+        if (!isQuietHours()) {
+          try {
+            let articleToSend = null;
 
-          if (topArticle && !isQuietHours()) {
-            console.log(`[PUSH] Sending notification: ${topArticle.headline}`);
-            ctx.waitUntil(
-              sendBreakingAlert(env, topArticle).catch(error => {
-                console.error("[PUSH] Send error:", error?.message || String(error));
-              })
-            );
-          } else if (isQuietHours()) {
-            console.log(`[PUSH] Skipped — quiet hours (IST ${istHour})`);
+            // Priority 1: নতুন published news এর মধ্যে top scored
+            if (result.published > 0 && Array.isArray(result.newNewsIds) && result.newNewsIds.length) {
+              const placeholders = result.newNewsIds.map(() => "?").join(",");
+              articleToSend = await env.DB.prepare(
+                `SELECT id, headline, summary, image_url, score, category, created_at 
+                 FROM news
+                 WHERE id IN (${placeholders}) AND status = 'published'
+                 ORDER BY score DESC, created_at DESC LIMIT 1`
+              ).bind(...result.newNewsIds).first();
+            }
+
+            // Priority 2: Fallback — সর্বশেষ unsent published news
+            if (!articleToSend) {
+              articleToSend = await env.DB.prepare(
+                `SELECT n.id, n.headline, n.summary, n.image_url, n.score, n.category, n.created_at
+                 FROM news n
+                 WHERE n.status = 'published'
+                   AND NOT EXISTS (SELECT 1 FROM push_sent ps WHERE ps.news_id = n.id)
+                 ORDER BY n.created_at DESC LIMIT 1`
+              ).first();
+              if (articleToSend) {
+                console.log(`[PUSH-FALLBACK] Using latest unsent: ${articleToSend.headline}`);
+              }
+            }
+
+            if (articleToSend) {
+              console.log(`[PUSH] Sending: ${articleToSend.headline}`);
+              ctx.waitUntil(
+                sendBreakingAlert(env, articleToSend).catch(error => {
+                  console.error("[PUSH] Send error:", error?.message || String(error));
+                })
+              );
+            } else {
+              console.log(`[PUSH] No unsent article found — skipping`);
+            }
+          } catch (e) {
+            console.warn('[PUSH] Article fetch failed:', e?.message);
           }
+        } else {
+          console.log(`[PUSH] Skipped — quiet hours (IST ${istHour})`);
         }
 
+        // Fast index recent URLs
         try {
           const recent = await env.DB.prepare(
             `SELECT id FROM news WHERE status = 'published' AND created_at >= datetime('now', '-6 hours') ORDER BY created_at DESC LIMIT 50`
@@ -516,6 +538,7 @@ export default {
           console.error("[FAST-INDEX] Failed:", error?.message || String(error));
         }
 
+        // Cleanups
         try { await cleanOldCandidates(env.DB); } catch (e) {}
         try { await cleanRejectedNews(env.DB); } catch (e) {}
         try {
@@ -529,6 +552,7 @@ export default {
           console.warn("[CLEAN] Cleanup failed:", error?.message || String(error));
         }
 
+        // Enforce news limit + sitemap ping (every 6 hours UTC)
         const currentUtcHour = new Date().getUTCHours();
         if ([0, 6, 12, 18].includes(currentUtcHour)) {
           try {
@@ -556,6 +580,8 @@ export default {
 
         return;
       }
+
+      console.log(`[CRON] Unknown cron: ${cron} — no action`);
     } catch (error) {
       console.error(`[CRON] Fatal:`, error?.message || error?.stack || String(error));
     }
@@ -652,9 +678,10 @@ async function sendDigest(env, istHour) {
   const tokens = (subs.results || []).map(s => s.token).filter(Boolean);
   if (!tokens.length) return;
 
+  // ✅ FIX: 8h → 24h window for reliability
   const recentNews = await env.DB.prepare(
     `SELECT id, headline, summary, image_url, score, category, created_at FROM news
-     WHERE status = 'published' AND created_at >= datetime('now', '-8 hours')
+     WHERE status = 'published' AND created_at >= datetime('now', '-24 hours')
      ORDER BY score DESC, created_at DESC LIMIT 20`
   ).all();
 
@@ -667,9 +694,15 @@ async function sendDigest(env, istHour) {
   ).bind(...candidateIds).all();
   const sentIds = new Set((sentRows.results || []).map(r => r.news_id));
 
-  const unsentNews = candidates
+  let unsentNews = candidates
     .filter(n => !sentIds.has(n.id))
     .slice(0, NOTIFICATION_CONFIG.DIGEST_NEWS_COUNT);
+
+  // ✅ FIX: সব already sent হলে fallback top 3
+  if (!unsentNews.length) {
+    console.log('[DIGEST] All recent sent — using fallback top 3');
+    unsentNews = candidates.slice(0, NOTIFICATION_CONFIG.DIGEST_NEWS_COUNT);
+  }
 
   if (!unsentNews.length) return;
 
@@ -743,8 +776,7 @@ async function sendBreakingAlert(env, news) {
 }
 
 // =========================================================
-// ✅ FINAL v23 — Mobile Chrome + Desktop Chrome compatible FCM
-// Root notification + android + webpush.fcmOptions.link
+// ✅ FINAL — Mobile Chrome + Desktop Chrome compatible FCM
 // =========================================================
 async function sendDigestPush(env, payload, tokens) {
   const result = {
@@ -887,9 +919,6 @@ async function sendDigestPush(env, payload, tokens) {
   return result;
 }
 
-// =========================================================
-// SILENT FCM — DISABLED
-// =========================================================
 async function sendSilentFcmUpdate(env, newsIds) {
   return { disabled: true, reason: "silent-fcm-disabled" };
 }

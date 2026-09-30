@@ -1,5 +1,6 @@
 // sw.js
-// ✅ FINAL v24 — Consolidated Service Worker (cache + FCM) with Double Notification Fix
+// ✅ FINAL v25 — Consolidated Service Worker (cache + FCM)
+// Double Notification Fix + Background Notification Support
 
 const CACHE_VERSION = "ajker-news-v2026-09-30-final";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
@@ -23,7 +24,7 @@ if (firebase.messaging.isSupported()) {
   messaging.onBackgroundMessage((payload) => {
     console.log('[SW-FCM] Background message received:', JSON.stringify(payload));
 
-    // ✅ Live update event handle
+    // Live update event handle (SSE fallback)
     if (payload.data && payload.data.type === 'news_published') {
       return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
         clients.forEach((client) => {
@@ -36,15 +37,15 @@ if (firebase.messaging.isSupported()) {
       });
     }
 
-    // ✅ FIX: Double Notification বন্ধ করার জন্য
-    // যদি FCM Notification payload পাঠায়, ব্রাউজার নিজেই নোটিফিকেশন দেখাবে।
+    // ✅ FIX: Double Notification বন্ধ করার জন্য —
+    // যদি FCM Notification payload পাঠায়, ব্রাউজার নিজেই দেখাবে।
     // তাই এখানে কিছু না করে রিটার্ন করব।
     if (payload.notification) {
       console.log('[SW-FCM] Notification payload detected. Browser will handle it automatically.');
-      return; 
+      return;
     }
 
-    // ✅ যদি শুধুমাত্র Data payload পাঠানো হয়, তবেই নিজে থেকে নোটিফিকেশন দেখাব।
+    // ✅ শুধু Data payload হলে নিজে থেকে দেখাব (fallback)
     const title = payload.data?.title || 'Ajker News';
     const body = payload.data?.body || 'নতুন খবর এসেছে';
     const image = payload.data?.image || undefined;

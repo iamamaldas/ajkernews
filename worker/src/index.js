@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v30: Admin Panel (Published only + ID search + Comment edit) + Notifications
+// ✅ FINAL v31: Admin Panel (All Published + Load More + ID Search + Comment Edit)
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -263,12 +263,12 @@ export default {
         return jsonWithCookie({ success: true }, 200, cookie);
       }
 
-      // ✅ ADMIN LIST NEWS — শুধু Published + Latest + ID Search
+      // ✅ ADMIN LIST NEWS — All Published + Load More + ID Search
       if (url.pathname === "/api/admin/list" && request.method === "GET") {
         const session = await getAdminSession(request, env);
         if (!session) return json({ success: false, error: "Unauthorized" }, 401, 0);
         try {
-          const limit = Math.min(parseInt(url.searchParams.get("limit") || "100", 10), 200);
+          const limit = Math.min(parseInt(url.searchParams.get("limit") || "100", 10), 500);
           const offset = Math.max(parseInt(url.searchParams.get("offset") || "0", 10), 0);
           const newsId = url.searchParams.get("id") || null;
           const search = url.searchParams.get("search") || null;
@@ -2750,6 +2750,7 @@ function getAdminDashboardHTML() {
   .btn-hide { background: #f5f5f5; color: #666; }
   .btn-comments { background: #fff3e0; color: #e65100; }
   .btn-back { background: #e8f5e9; color: #2e7d32; padding: 10px 20px; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; margin-bottom: 16px; }
+  .load-more-btn { padding: 14px 32px; background: #111; color: #fff; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; }
   .section-title { font-size: 18px; font-weight: 800; margin: 24px 0 12px; }
   .comment-item { background: #fff; border-radius: 12px; padding: 14px 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
   .comment-item .info { flex: 1; min-width: 0; }
@@ -2827,6 +2828,10 @@ function getAdminDashboardHTML() {
 let currentMode = 'list';
 let currentNewsId = '';
 let currentSearch = '';
+let currentOffset = 0;
+const PAGE_SIZE = 100;
+let allLoadedNews = [];
+let totalNews = 0;
 
 function toast(msg, type) {
   const t = document.getElementById('toast');
@@ -2840,19 +2845,24 @@ function esc(v) {
   return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
 }
 
-async function loadNews(search) {
+async function loadNews(search, append) {
   currentMode = 'list';
   currentNewsId = '';
   currentSearch = search || '';
   document.getElementById('pageTitle').textContent = '📰 Admin Panel';
 
+  if (!append) {
+    currentOffset = 0;
+    allLoadedNews = [];
+  }
+
   const list = document.getElementById('newsList');
-  list.innerHTML = '<div class="empty">Loading...</div>';
+  if (!append) list.innerHTML = '<div class="empty">Loading...</div>';
 
   try {
-    let url = '/api/admin/list?limit=100';
+    let url = `/api/admin/list?limit=${PAGE_SIZE}&offset=${currentOffset}`;
     if (search) {
-      if (/^[a-f0-9]{32}$/i.test(search)) {
+      if (/^[a-zA-Z0-9]{32}$/.test(search)) {
         url += '&id=' + encodeURIComponent(search);
       } else {
         url += '&search=' + encodeURIComponent(search);
@@ -2863,33 +2873,68 @@ async function loadNews(search) {
     if (res.status === 401) { location.href = '/admin'; return; }
     const data = await res.json();
     const news = data.news || [];
+    totalNews = data.total || 0;
 
-    if (!news.length) {
+    if (!news.length && !append) {
       list.innerHTML = '<div class="empty">No news found</div>';
       return;
     }
 
-    if (news.length === 1 && /^[a-f0-9]{32}$/i.test(search)) {
-      await showComments(news[0].id, news[0].headline);
-      return;
+    if (!append) {
+      allLoadedNews = news;
+    } else {
+      allLoadedNews = [...allLoadedNews, ...news];
     }
 
-    list.innerHTML = news.map(n => \`
+    let html = allLoadedNews.map(n => `
       <div class="news-item">
-        <img src="\${esc(n.image_url || '/logo.png')}" onerror="this.src='/logo.png'" alt="">
+        <img src="${esc(n.image_url || '/logo.png')}" onerror="this.src='/logo.png'" alt="">
         <div class="content">
-          <h3>\${esc(n.headline || 'Untitled')}</h3>
-          <div class="meta">\${esc(n.category || 'general')} • \${esc((n.created_at||'').slice(0,16).replace('T',' '))}</div>
+          <h3>${esc(n.headline || 'Untitled')}</h3>
+          <div class="meta">${esc(n.category || 'general')} • ${esc((n.created_at||'').slice(0,16).replace('T',' '))}</div>
           <div class="actions">
-            <button class="btn-edit" onclick='openEdit(\${JSON.stringify(n).replace(/'/g,"&#39;")})'>✏️ Edit</button>
-            <button class="btn-hide" onclick="hideNews('\${n.id}')">🙈 Hide</button>
-            <button class="btn-comments" onclick="showComments('\${n.id}', '\${esc(n.headline).replace(/'/g,"&#39;")}')">💬 Comments</button>
+            <button class="btn-edit" onclick='openEdit(${JSON.stringify(n).replace(/'/g,"&#39;")})'>✏️ Edit</button>
+            <button class="btn-hide" onclick="hideNews('${n.id}')">🙈 Hide</button>
+            <button class="btn-comments" onclick="showComments('${n.id}', '${esc(n.headline).replace(/'/g,"&#39;")}')">💬 Comments</button>
           </div>
         </div>
-      </div>\`).join('');
+      </div>`).join('');
+
+    if (allLoadedNews.length < totalNews) {
+      html += `
+        <div style="text-align:center;padding:24px 0;">
+          <button class="load-more-btn" onclick="loadMore()">
+            আরও দেখুন (${allLoadedNews.length} / ${totalNews})
+          </button>
+        </div>`;
+    } else if (allLoadedNews.length > 0 && totalNews > 0) {
+      html += `
+        <div style="text-align:center;padding:20px;color:#888;font-size:13px;">
+          ✅ সব ${totalNews}টি Post দেখানো হয়েছে
+        </div>`;
+    }
+
+    list.innerHTML = html;
   } catch (e) {
     list.innerHTML = '<div class="empty">Network error</div>';
   }
+}
+
+function loadMore() {
+  currentOffset += PAGE_SIZE;
+  loadNews(currentSearch, true);
+}
+
+function searchNow() {
+  const q = document.getElementById('searchInput').value.trim();
+  loadNews(q, false);
+}
+
+function resetSearch() {
+  document.getElementById('searchInput').value = '';
+  currentOffset = 0;
+  allLoadedNews = [];
+  loadNews('', false);
 }
 
 async function showComments(newsId, headline) {
@@ -2906,28 +2951,28 @@ async function showComments(newsId, headline) {
     const data = await res.json();
     const comments = data.comments || [];
 
-    let html = \`
+    let html = `
       <div style="margin-bottom:16px;">
-        <button class="btn-back" onclick="resetSearch()">← Back to News List</button>
-        <p style="font-size:13px;color:#888;margin-top:8px;">News: \${esc(headline.slice(0, 80))}</p>
+        <button class="btn-back" onclick="goBackToNewsList()">← Back to News List</button>
+        <p style="font-size:13px;color:#888;margin-top:8px;">News: ${esc(headline.slice(0, 80))}</p>
       </div>
-    \`;
+    `;
 
     if (!comments.length) {
       html += '<div class="empty">No comments found for this news</div>';
     } else {
-      html += comments.map(c => \`
+      html += comments.map(c => `
         <div class="comment-item">
           <div class="info">
-            <div class="author">👤 \${esc(c.author_name || 'Guest')}</div>
-            <div class="text">\${esc(c.comment_text || '')}</div>
-            <div class="meta">\${esc((c.created_at||'').slice(0,16).replace('T',' '))}</div>
+            <div class="author">👤 ${esc(c.author_name || 'Guest')}</div>
+            <div class="text">${esc(c.comment_text || '')}</div>
+            <div class="meta">${esc((c.created_at||'').slice(0,16).replace('T',' '))}</div>
           </div>
           <div class="actions">
-            <button class="btn-edit" onclick='openEditComment(\${JSON.stringify(c).replace(/'/g,"&#39;")})'>✏️ Edit</button>
-            <button class="btn-delete" onclick="deleteComment('\${c.id}', '\${newsId}')">🗑️ Delete</button>
+            <button class="btn-edit" onclick='openEditComment(${JSON.stringify(c).replace(/'/g,"&#39;")})'>✏️ Edit</button>
+            <button class="btn-delete" onclick="deleteComment('${c.id}', '${newsId}')">🗑️ Delete</button>
           </div>
-        </div>\`).join('');
+        </div>`).join('');
     }
 
     list.innerHTML = html;
@@ -2936,15 +2981,12 @@ async function showComments(newsId, headline) {
   }
 }
 
-function searchNow() {
-  const q = document.getElementById('searchInput').value.trim();
-  if (!q) { loadNews(''); return; }
-  loadNews(q);
-}
-
-function resetSearch() {
-  document.getElementById('searchInput').value = '';
-  loadNews('');
+function goBackToNewsList() {
+  currentMode = 'list';
+  currentNewsId = '';
+  currentOffset = 0;
+  allLoadedNews = [];
+  loadNews(currentSearch, false);
 }
 
 function openEdit(n) {
@@ -2975,7 +3017,7 @@ async function saveEdit() {
       if (currentMode === 'comments') {
         showComments(currentNewsId, document.getElementById('pageTitle').textContent);
       } else {
-        loadNews(currentSearch);
+        loadNews(currentSearch, false);
       }
     } else {
       toast('❌ ' + (data.error || 'Failed'), 'error');
@@ -2995,7 +3037,7 @@ async function hideNews(id) {
     const data = await res.json();
     if (data.success) {
       toast('🙈 Hidden', 'success');
-      loadNews(currentSearch);
+      loadNews(currentSearch, false);
     } else {
       toast('❌ ' + (data.error || 'Failed'), 'error');
     }
@@ -3058,7 +3100,7 @@ async function logout() {
   location.href = '/admin';
 }
 
-loadNews('');
+loadNews('', false);
 </script>
 </body>
 </html>`;

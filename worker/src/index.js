@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v31: Admin Panel (All Published + Load More + ID Search + Comment Edit)
+// ✅ FINAL v31.1: Admin Panel (All Published + Load More + ID Search + Comment Edit) — FIXED
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -323,7 +323,7 @@ export default {
         } catch (error) { return json({ success: false, error: error.message }, 500, 0); }
       }
 
-      // ✅ ADMIN LIST COMMENTS — নির্দিষ্ট খবরের কমেন্ট
+      // ✅ ADMIN LIST COMMENTS
       if (url.pathname === "/api/admin/comments" && request.method === "GET") {
         const session = await getAdminSession(request, env);
         if (!session) return json({ success: false, error: "Unauthorized" }, 401, 0);
@@ -2845,6 +2845,10 @@ function esc(v) {
   return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
 }
 
+function isHexId(s) {
+  return /^[a-f0-9]{32}$/i.test(s);
+}
+
 async function loadNews(search, append) {
   currentMode = 'list';
   currentNewsId = '';
@@ -2860,9 +2864,9 @@ async function loadNews(search, append) {
   if (!append) list.innerHTML = '<div class="empty">Loading...</div>';
 
   try {
-    let url = `/api/admin/list?limit=${PAGE_SIZE}&offset=${currentOffset}`;
+    let url = '/api/admin/list?limit=' + PAGE_SIZE + '&offset=' + currentOffset;
     if (search) {
-      if (/^[a-zA-Z0-9]{32}$/.test(search)) {
+      if (isHexId(search)) {
         url += '&id=' + encodeURIComponent(search);
       } else {
         url += '&search=' + encodeURIComponent(search);
@@ -2883,35 +2887,40 @@ async function loadNews(search, append) {
     if (!append) {
       allLoadedNews = news;
     } else {
-      allLoadedNews = [...allLoadedNews, ...news];
+      allLoadedNews = allLoadedNews.concat(news);
     }
 
-    let html = allLoadedNews.map(n => `
+    if (isHexId(search) && allLoadedNews.length === 1) {
+      await showComments(allLoadedNews[0].id, allLoadedNews[0].headline);
+      return;
+    }
+
+    let html = allLoadedNews.map(n => \`
       <div class="news-item">
-        <img src="${esc(n.image_url || '/logo.png')}" onerror="this.src='/logo.png'" alt="">
+        <img src="\${esc(n.image_url || '/logo.png')}" onerror="this.src='/logo.png'" alt="">
         <div class="content">
-          <h3>${esc(n.headline || 'Untitled')}</h3>
-          <div class="meta">${esc(n.category || 'general')} • ${esc((n.created_at||'').slice(0,16).replace('T',' '))}</div>
+          <h3>\${esc(n.headline || 'Untitled')}</h3>
+          <div class="meta">\${esc(n.category || 'general')} • \${esc((n.created_at||'').slice(0,16).replace('T',' '))}</div>
           <div class="actions">
-            <button class="btn-edit" onclick='openEdit(${JSON.stringify(n).replace(/'/g,"&#39;")})'>✏️ Edit</button>
-            <button class="btn-hide" onclick="hideNews('${n.id}')">🙈 Hide</button>
-            <button class="btn-comments" onclick="showComments('${n.id}', '${esc(n.headline).replace(/'/g,"&#39;")}')">💬 Comments</button>
+            <button class="btn-edit" onclick='openEdit(\${JSON.stringify(n).replace(/'/g,"&#39;")})'>✏️ Edit</button>
+            <button class="btn-hide" onclick="hideNews('\${n.id}')">🙈 Hide</button>
+            <button class="btn-comments" onclick="showComments('\${n.id}', '\${esc(n.headline).replace(/'/g,"&#39;")}')">💬 Comments</button>
           </div>
         </div>
-      </div>`).join('');
+      </div>\`).join('');
 
     if (allLoadedNews.length < totalNews) {
-      html += `
+      html += \`
         <div style="text-align:center;padding:24px 0;">
           <button class="load-more-btn" onclick="loadMore()">
-            আরও দেখুন (${allLoadedNews.length} / ${totalNews})
+            আরও দেখুন (\${allLoadedNews.length} / \${totalNews})
           </button>
-        </div>`;
+        </div>\`;
     } else if (allLoadedNews.length > 0 && totalNews > 0) {
-      html += `
+      html += \`
         <div style="text-align:center;padding:20px;color:#888;font-size:13px;">
-          ✅ সব ${totalNews}টি Post দেখানো হয়েছে
-        </div>`;
+          ✅ সব \${totalNews}টি Post দেখানো হয়েছে
+        </div>\`;
     }
 
     list.innerHTML = html;
@@ -2934,6 +2943,9 @@ function resetSearch() {
   document.getElementById('searchInput').value = '';
   currentOffset = 0;
   allLoadedNews = [];
+  totalNews = 0;
+  currentNewsId = '';
+  currentMode = 'list';
   loadNews('', false);
 }
 
@@ -2951,28 +2963,28 @@ async function showComments(newsId, headline) {
     const data = await res.json();
     const comments = data.comments || [];
 
-    let html = `
+    let html = \`
       <div style="margin-bottom:16px;">
         <button class="btn-back" onclick="goBackToNewsList()">← Back to News List</button>
-        <p style="font-size:13px;color:#888;margin-top:8px;">News: ${esc(headline.slice(0, 80))}</p>
+        <p style="font-size:13px;color:#888;margin-top:8px;">News: \${esc((headline || '').slice(0, 80))}</p>
       </div>
-    `;
+    \`;
 
     if (!comments.length) {
       html += '<div class="empty">No comments found for this news</div>';
     } else {
-      html += comments.map(c => `
+      html += comments.map(c => \`
         <div class="comment-item">
           <div class="info">
-            <div class="author">👤 ${esc(c.author_name || 'Guest')}</div>
-            <div class="text">${esc(c.comment_text || '')}</div>
-            <div class="meta">${esc((c.created_at||'').slice(0,16).replace('T',' '))}</div>
+            <div class="author">👤 \${esc(c.author_name || 'Guest')}</div>
+            <div class="text">\${esc(c.comment_text || '')}</div>
+            <div class="meta">\${esc((c.created_at||'').slice(0,16).replace('T',' '))}</div>
           </div>
           <div class="actions">
-            <button class="btn-edit" onclick='openEditComment(${JSON.stringify(c).replace(/'/g,"&#39;")})'>✏️ Edit</button>
-            <button class="btn-delete" onclick="deleteComment('${c.id}', '${newsId}')">🗑️ Delete</button>
+            <button class="btn-edit" onclick='openEditComment(\${JSON.stringify(c).replace(/'/g,"&#39;")})'>✏️ Edit</button>
+            <button class="btn-delete" onclick="deleteComment('\${c.id}', '\${newsId}')">🗑️ Delete</button>
           </div>
-        </div>`).join('');
+        </div>\`).join('');
     }
 
     list.innerHTML = html;
@@ -2986,6 +2998,7 @@ function goBackToNewsList() {
   currentNewsId = '';
   currentOffset = 0;
   allLoadedNews = [];
+  totalNews = 0;
   loadNews(currentSearch, false);
 }
 

@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v28: Admin Panel + Balanced notifications + Background Support
+// ✅ FINAL v30: Admin Panel (Published only + ID search + Comment edit) + Notifications
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -263,20 +263,46 @@ export default {
         return jsonWithCookie({ success: true }, 200, cookie);
       }
 
-      // ADMIN LIST NEWS
+      // ✅ ADMIN LIST NEWS — শুধু Published + Latest + ID Search
       if (url.pathname === "/api/admin/list" && request.method === "GET") {
         const session = await getAdminSession(request, env);
         if (!session) return json({ success: false, error: "Unauthorized" }, 401, 0);
         try {
-          const limit = Math.min(parseInt(url.searchParams.get("limit") || "50", 10), 200);
+          const limit = Math.min(parseInt(url.searchParams.get("limit") || "100", 10), 200);
+          const offset = Math.max(parseInt(url.searchParams.get("offset") || "0", 10), 0);
+          const newsId = url.searchParams.get("id") || null;
           const search = url.searchParams.get("search") || null;
-          let query = `SELECT id, headline, summary, category, status, image_url, created_at FROM news`;
+
+          let query = `SELECT id, headline, summary, category, status, image_url, created_at FROM news WHERE status = 'published'`;
+          let countQuery = `SELECT COUNT(*) AS total FROM news WHERE status = 'published'`;
           const binds = [];
-          if (search) { query += ` WHERE headline LIKE ?`; binds.push(`%${search}%`); }
-          query += ` ORDER BY created_at DESC LIMIT ?`;
-          binds.push(limit);
+          const countBinds = [];
+
+          if (newsId) {
+            query += ` AND id = ?`;
+            countQuery += ` AND id = ?`;
+            binds.push(newsId);
+            countBinds.push(newsId);
+          } else if (search) {
+            query += ` AND headline LIKE ?`;
+            countQuery += ` AND headline LIKE ?`;
+            binds.push(`%${search}%`);
+            countBinds.push(`%${search}%`);
+          }
+
+          query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+          binds.push(limit, offset);
+
           const rows = await env.DB.prepare(query).bind(...binds).all();
-          return json({ success: true, count: (rows.results || []).length, news: rows.results || [] }, 200, 0);
+          const total = await env.DB.prepare(countQuery).bind(...countBinds).first();
+
+          return json({
+            success: true,
+            count: (rows.results || []).length,
+            total: Number(total?.total || 0),
+            offset, limit,
+            news: rows.results || []
+          }, 200, 0);
         } catch (error) { return json({ success: false, error: error.message }, 500, 0); }
       }
 
@@ -297,18 +323,44 @@ export default {
         } catch (error) { return json({ success: false, error: error.message }, 500, 0); }
       }
 
-      // ADMIN LIST COMMENTS
+      // ✅ ADMIN LIST COMMENTS — নির্দিষ্ট খবরের কমেন্ট
       if (url.pathname === "/api/admin/comments" && request.method === "GET") {
         const session = await getAdminSession(request, env);
         if (!session) return json({ success: false, error: "Unauthorized" }, 401, 0);
         try {
-          const rows = await env.DB.prepare(
-            `SELECT nc.id, nc.news_id, nc.author_name, nc.comment_text, nc.created_at, n.headline 
-             FROM news_comments nc
-             LEFT JOIN news n ON n.id = nc.news_id
-             ORDER BY nc.created_at DESC LIMIT 50`
-          ).all();
+          const newsId = url.searchParams.get("newsId") || null;
+
+          let query = `SELECT nc.id, nc.news_id, nc.author_name, nc.comment_text, nc.created_at, n.headline 
+                       FROM news_comments nc
+                       LEFT JOIN news n ON n.id = nc.news_id`;
+          const binds = [];
+
+          if (newsId) {
+            query += ` WHERE nc.news_id = ?`;
+            binds.push(newsId);
+          }
+
+          query += ` ORDER BY nc.created_at DESC LIMIT 100`;
+
+          const rows = await env.DB.prepare(query).bind(...binds).all();
           return json({ success: true, comments: rows.results || [] }, 200, 0);
+        } catch (error) { return json({ success: false, error: error.message }, 500, 0); }
+      }
+
+      // ✅ ADMIN UPDATE COMMENT
+      if (url.pathname === "/api/admin/comment-update" && request.method === "POST") {
+        const session = await getAdminSession(request, env);
+        if (!session) return json({ success: false, error: "Unauthorized" }, 401, 0);
+        try {
+          const { id, updates } = await request.json();
+          if (!id || !updates) return json({ success: false, error: "id and updates required" }, 400, 0);
+          const allowed = ["comment_text", "author_name"];
+          const fields = Object.keys(updates).filter(k => allowed.includes(k));
+          if (!fields.length) return json({ success: false, error: "No valid fields" }, 400, 0);
+          const sql = fields.map(k => `${k} = ?`).join(", ");
+          const vals = fields.map(k => updates[k]);
+          await env.DB.prepare(`UPDATE news_comments SET ${sql} WHERE id = ?`).bind(...vals, id).run();
+          return json({ success: true, message: "Comment updated", id }, 200, 0);
         } catch (error) { return json({ success: false, error: error.message }, 500, 0); }
       }
 
@@ -2682,30 +2734,38 @@ function getAdminDashboardHTML() {
   .header h1 { font-size: 20px; }
   .header button { padding: 9px 16px; background: #ffebee; color: #c62828; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; }
   .container { max-width: 1000px; margin: 0 auto; padding: 16px; }
-  .search { margin-bottom: 16px; }
-  .search input { width: 100%; padding: 12px 16px; border: 1px solid #ddd; border-radius: 10px; font-size: 14px; outline: none; }
+  .search { margin-bottom: 16px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .search input { flex: 1; min-width: 200px; padding: 12px 16px; border: 1px solid #ddd; border-radius: 10px; font-size: 14px; outline: none; }
+  .search input:focus { border-color: #111; }
+  .search button { padding: 12px 24px; background: #111; color: #fff; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .search button.reset { background: #f2f2f2; color: #333; }
   .news-item { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); display: flex; gap: 14px; margin-bottom: 12px; }
   .news-item img { width: 100px; height: 70px; object-fit: cover; border-radius: 8px; background: #f0f0f0; flex-shrink: 0; }
   .news-item .content { flex: 1; min-width: 0; }
   .news-item h3 { font-size: 15px; font-weight: 700; margin-bottom: 6px; line-height: 1.4; }
   .news-item .meta { font-size: 12px; color: #888; margin-bottom: 10px; }
-  .news-item .actions { display: flex; gap: 8px; }
+  .news-item .actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .news-item .actions button { padding: 7px 14px; border: none; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; }
   .btn-edit { background: #e3f2fd; color: #1976d2; }
   .btn-hide { background: #f5f5f5; color: #666; }
+  .btn-comments { background: #fff3e0; color: #e65100; }
+  .btn-back { background: #e8f5e9; color: #2e7d32; padding: 10px 20px; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; margin-bottom: 16px; }
   .section-title { font-size: 18px; font-weight: 800; margin: 24px 0 12px; }
   .comment-item { background: #fff; border-radius: 12px; padding: 14px 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
   .comment-item .info { flex: 1; min-width: 0; }
   .comment-item .author { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
   .comment-item .text { font-size: 13px; color: #555; margin-bottom: 4px; }
-  .comment-item .on { font-size: 11px; color: #999; }
-  .comment-item .btn-delete { padding: 8px 14px; background: #ffebee; color: #c62828; border: none; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; flex-shrink: 0; }
+  .comment-item .meta { font-size: 11px; color: #999; margin-top: 4px; }
+  .comment-item .actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .comment-item .btn-edit { padding: 8px 12px; background: #e3f2fd; color: #1976d2; border: none; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; }
+  .comment-item .btn-delete { padding: 8px 12px; background: #ffebee; color: #c62828; border: none; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; }
   .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 2000; align-items: center; justify-content: center; padding: 16px; }
   .modal.active { display: flex; }
   .modal-box { background: #fff; border-radius: 16px; padding: 24px; max-width: 520px; width: 100%; max-height: 90vh; overflow-y: auto; }
   .modal-box h2 { font-size: 18px; margin-bottom: 16px; }
   .modal-box label { display: block; font-size: 13px; font-weight: 700; margin-bottom: 6px; color: #555; margin-top: 12px; }
-  .modal-box textarea { width: 100%; padding: 10px 12px; border: 1.5px solid #ddd; border-radius: 8px; font-size: 14px; outline: none; font-family: inherit; height: 100px; resize: vertical; }
+  .modal-box textarea, .modal-box input { width: 100%; padding: 10px 12px; border: 1.5px solid #ddd; border-radius: 8px; font-size: 14px; outline: none; font-family: inherit; }
+  .modal-box textarea { height: 100px; resize: vertical; }
   .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
   .modal-actions button { flex: 1; padding: 12px; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; }
   .btn-save { background: #111; color: #fff; }
@@ -2719,18 +2779,18 @@ function getAdminDashboardHTML() {
 </head>
 <body>
 <div class="header">
-  <h1>📰 Admin Panel</h1>
+  <h1 id="pageTitle">📰 Admin Panel</h1>
   <button onclick="logout()">🚪 Logout</button>
 </div>
 <div class="container">
   <div class="search">
-    <input type="text" id="searchInput" placeholder="🔍 Search headline..." onkeypress="if(event.key==='Enter') searchNow()">
+    <input type="text" id="searchInput" placeholder="🔍 Headline বা 32-char ID দিয়ে খুঁজুন..." onkeypress="if(event.key==='Enter') searchNow()">
+    <button onclick="searchNow()">Search</button>
+    <button class="reset" onclick="resetSearch()">Reset</button>
   </div>
-  <div class="section-title">📰 News Posts</div>
   <div id="newsList"><div class="empty">Loading...</div></div>
-  <div class="section-title">💬 Recent Comments</div>
-  <div id="commentsList"><div class="empty">Loading...</div></div>
 </div>
+
 <div id="editModal" class="modal">
   <div class="modal-box">
     <h2>✏️ Edit News</h2>
@@ -2745,63 +2805,148 @@ function getAdminDashboardHTML() {
     </div>
   </div>
 </div>
+
+<div id="editCommentModal" class="modal">
+  <div class="modal-box">
+    <h2>✏️ Edit Comment</h2>
+    <input type="hidden" id="editCommentId">
+    <label>Author</label>
+    <input type="text" id="editCommentAuthor">
+    <label>Comment</label>
+    <textarea id="editCommentText"></textarea>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeEditComment()">Cancel</button>
+      <button class="btn-save" onclick="saveEditComment()">Save</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast"></div>
+
 <script>
+let currentMode = 'list';
+let currentNewsId = '';
+let currentSearch = '';
+
 function toast(msg, type) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.className = 'toast show ' + (type || '');
   setTimeout(() => t.className = 'toast ' + (type || ''), 2500);
 }
+
 function esc(v) {
   if (v == null) return '';
   return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
 }
+
 async function loadNews(search) {
+  currentMode = 'list';
+  currentNewsId = '';
+  currentSearch = search || '';
+  document.getElementById('pageTitle').textContent = '📰 Admin Panel';
+
   const list = document.getElementById('newsList');
   list.innerHTML = '<div class="empty">Loading...</div>';
+
   try {
-    let url = '/api/admin/list?limit=50';
-    if (search) url += '&search=' + encodeURIComponent(search);
+    let url = '/api/admin/list?limit=100';
+    if (search) {
+      if (/^[a-f0-9]{32}$/i.test(search)) {
+        url += '&id=' + encodeURIComponent(search);
+      } else {
+        url += '&search=' + encodeURIComponent(search);
+      }
+    }
+
     const res = await fetch(url, { credentials: 'same-origin' });
     if (res.status === 401) { location.href = '/admin'; return; }
     const data = await res.json();
     const news = data.news || [];
-    if (!news.length) { list.innerHTML = '<div class="empty">No news found</div>'; return; }
+
+    if (!news.length) {
+      list.innerHTML = '<div class="empty">No news found</div>';
+      return;
+    }
+
+    if (news.length === 1 && /^[a-f0-9]{32}$/i.test(search)) {
+      await showComments(news[0].id, news[0].headline);
+      return;
+    }
+
     list.innerHTML = news.map(n => \`
       <div class="news-item">
         <img src="\${esc(n.image_url || '/logo.png')}" onerror="this.src='/logo.png'" alt="">
         <div class="content">
           <h3>\${esc(n.headline || 'Untitled')}</h3>
-          <div class="meta">\${esc(n.category || 'general')} • \${esc(n.status || '')} • \${esc((n.created_at||'').slice(0,16).replace('T',' '))}</div>
+          <div class="meta">\${esc(n.category || 'general')} • \${esc((n.created_at||'').slice(0,16).replace('T',' '))}</div>
           <div class="actions">
             <button class="btn-edit" onclick='openEdit(\${JSON.stringify(n).replace(/'/g,"&#39;")})'>✏️ Edit</button>
             <button class="btn-hide" onclick="hideNews('\${n.id}')">🙈 Hide</button>
+            <button class="btn-comments" onclick="showComments('\${n.id}', '\${esc(n.headline).replace(/'/g,"&#39;")}')">💬 Comments</button>
           </div>
         </div>
       </div>\`).join('');
-  } catch (e) { list.innerHTML = '<div class="empty">Network error</div>'; }
+  } catch (e) {
+    list.innerHTML = '<div class="empty">Network error</div>';
+  }
 }
-async function loadComments() {
-  const list = document.getElementById('commentsList');
-  list.innerHTML = '<div class="empty">Loading...</div>';
+
+async function showComments(newsId, headline) {
+  currentMode = 'comments';
+  currentNewsId = newsId;
+  document.getElementById('pageTitle').textContent = '💬 Comments';
+
+  const list = document.getElementById('newsList');
+  list.innerHTML = '<div class="empty">Loading comments...</div>';
+
   try {
-    const res = await fetch('/api/admin/comments', { credentials: 'same-origin' });
+    const res = await fetch('/api/admin/comments?newsId=' + encodeURIComponent(newsId), { credentials: 'same-origin' });
     if (res.status === 401) { location.href = '/admin'; return; }
     const data = await res.json();
     const comments = data.comments || [];
-    if (!comments.length) { list.innerHTML = '<div class="empty">No comments</div>'; return; }
-    list.innerHTML = comments.map(c => \`
-      <div class="comment-item">
-        <div class="info">
-          <div class="author">\${esc(c.author_name || 'Guest')}</div>
-          <div class="text">\${esc(c.comment_text || '')}</div>
-          <div class="on">on: \${esc(c.headline || 'Unknown')}</div>
-        </div>
-        <button class="btn-delete" onclick="deleteComment('\${c.id}')">🗑️ Delete</button>
-      </div>\`).join('');
-  } catch (e) { list.innerHTML = '<div class="empty">Network error</div>'; }
+
+    let html = \`
+      <div style="margin-bottom:16px;">
+        <button class="btn-back" onclick="resetSearch()">← Back to News List</button>
+        <p style="font-size:13px;color:#888;margin-top:8px;">News: \${esc(headline.slice(0, 80))}</p>
+      </div>
+    \`;
+
+    if (!comments.length) {
+      html += '<div class="empty">No comments found for this news</div>';
+    } else {
+      html += comments.map(c => \`
+        <div class="comment-item">
+          <div class="info">
+            <div class="author">👤 \${esc(c.author_name || 'Guest')}</div>
+            <div class="text">\${esc(c.comment_text || '')}</div>
+            <div class="meta">\${esc((c.created_at||'').slice(0,16).replace('T',' '))}</div>
+          </div>
+          <div class="actions">
+            <button class="btn-edit" onclick='openEditComment(\${JSON.stringify(c).replace(/'/g,"&#39;")})'>✏️ Edit</button>
+            <button class="btn-delete" onclick="deleteComment('\${c.id}', '\${newsId}')">🗑️ Delete</button>
+          </div>
+        </div>\`).join('');
+    }
+
+    list.innerHTML = html;
+  } catch (e) {
+    list.innerHTML = '<div class="empty">Network error</div>';
+  }
 }
+
+function searchNow() {
+  const q = document.getElementById('searchInput').value.trim();
+  if (!q) { loadNews(''); return; }
+  loadNews(q);
+}
+
+function resetSearch() {
+  document.getElementById('searchInput').value = '';
+  loadNews('');
+}
+
 function openEdit(n) {
   document.getElementById('editId').value = n.id || '';
   document.getElementById('editHeadline').value = n.headline || '';
@@ -2809,6 +2954,7 @@ function openEdit(n) {
   document.getElementById('editModal').classList.add('active');
 }
 function closeEdit() { document.getElementById('editModal').classList.remove('active'); }
+
 async function saveEdit() {
   const id = document.getElementById('editId').value;
   const updates = {
@@ -2823,10 +2969,20 @@ async function saveEdit() {
       body: JSON.stringify({ id, updates })
     });
     const data = await res.json();
-    if (data.success) { toast('✅ Updated', 'success'); closeEdit(); loadNews(); }
-    else toast('❌ ' + (data.error || 'Failed'), 'error');
+    if (data.success) {
+      toast('✅ Updated', 'success');
+      closeEdit();
+      if (currentMode === 'comments') {
+        showComments(currentNewsId, document.getElementById('pageTitle').textContent);
+      } else {
+        loadNews(currentSearch);
+      }
+    } else {
+      toast('❌ ' + (data.error || 'Failed'), 'error');
+    }
   } catch (e) { toast('❌ Network error', 'error'); }
 }
+
 async function hideNews(id) {
   if (!confirm('Hide this news?')) return;
   try {
@@ -2837,11 +2993,48 @@ async function hideNews(id) {
       body: JSON.stringify({ id, updates: { status: 'rejected' } })
     });
     const data = await res.json();
-    if (data.success) { toast('🙈 Hidden', 'success'); loadNews(); }
-    else toast('❌ ' + (data.error || 'Failed'), 'error');
+    if (data.success) {
+      toast('🙈 Hidden', 'success');
+      loadNews(currentSearch);
+    } else {
+      toast('❌ ' + (data.error || 'Failed'), 'error');
+    }
   } catch (e) { toast('❌ Network error', 'error'); }
 }
-async function deleteComment(id) {
+
+function openEditComment(c) {
+  document.getElementById('editCommentId').value = c.id || '';
+  document.getElementById('editCommentAuthor').value = c.author_name || '';
+  document.getElementById('editCommentText').value = c.comment_text || '';
+  document.getElementById('editCommentModal').classList.add('active');
+}
+function closeEditComment() { document.getElementById('editCommentModal').classList.remove('active'); }
+
+async function saveEditComment() {
+  const id = document.getElementById('editCommentId').value;
+  const updates = {
+    author_name: document.getElementById('editCommentAuthor').value.trim(),
+    comment_text: document.getElementById('editCommentText').value.trim()
+  };
+  try {
+    const res = await fetch('/api/admin/comment-update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ id, updates })
+    });
+    const data = await res.json();
+    if (data.success) {
+      toast('✅ Comment updated', 'success');
+      closeEditComment();
+      showComments(currentNewsId, document.getElementById('pageTitle').textContent);
+    } else {
+      toast('❌ ' + (data.error || 'Failed'), 'error');
+    }
+  } catch (e) { toast('❌ Network error', 'error'); }
+}
+
+async function deleteComment(id, newsId) {
   if (!confirm('Delete this comment?')) return;
   try {
     const res = await fetch('/api/admin/comment-delete', {
@@ -2851,20 +3044,21 @@ async function deleteComment(id) {
       body: JSON.stringify({ id })
     });
     const data = await res.json();
-    if (data.success) { toast('🗑️ Deleted', 'success'); loadComments(); }
-    else toast('❌ ' + (data.error || 'Failed'), 'error');
+    if (data.success) {
+      toast('🗑️ Deleted', 'success');
+      showComments(newsId, document.getElementById('pageTitle').textContent);
+    } else {
+      toast('❌ ' + (data.error || 'Failed'), 'error');
+    }
   } catch (e) { toast('❌ Network error', 'error'); }
 }
+
 async function logout() {
   try { await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {}
   location.href = '/admin';
 }
-function searchNow() {
-  const q = document.getElementById('searchInput').value.trim();
-  loadNews(q);
-}
-loadNews();
-loadComments();
+
+loadNews('');
 </script>
 </body>
 </html>`;

@@ -1,8 +1,7 @@
 // sw.js
-// ✅ FINAL v25 — Consolidated Service Worker (cache + FCM)
-// Double Notification Fix + Background Notification Support
+// ✅ FINAL v26 — Cache + FCM + Notification Click Fix
 
-const CACHE_VERSION = "ajker-news-v2026-09-30-final";
+const CACHE_VERSION = "ajker-news-v2026-10-01-final";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
 // ===== FCM Setup =====
@@ -24,7 +23,6 @@ if (firebase.messaging.isSupported()) {
   messaging.onBackgroundMessage((payload) => {
     console.log('[SW-FCM] Background message received:', JSON.stringify(payload));
 
-    // Live update event handle (SSE fallback)
     if (payload.data && payload.data.type === 'news_published') {
       return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
         clients.forEach((client) => {
@@ -37,15 +35,12 @@ if (firebase.messaging.isSupported()) {
       });
     }
 
-    // ✅ FIX: Double Notification বন্ধ করার জন্য —
-    // যদি FCM Notification payload পাঠায়, ব্রাউজার নিজেই দেখাবে।
-    // তাই এখানে কিছু না করে রিটার্ন করব।
+    // ✅ Double Notification Fix — FCM notification পেলে ব্রাউজার দেখাবে
     if (payload.notification) {
-      console.log('[SW-FCM] Notification payload detected. Browser will handle it automatically.');
+      console.log('[SW-FCM] Notification payload detected. Browser will handle it.');
       return;
     }
 
-    // ✅ শুধু Data payload হলে নিজে থেকে দেখাব (fallback)
     const title = payload.data?.title || 'Ajker News';
     const body = payload.data?.body || 'নতুন খবর এসেছে';
     const image = payload.data?.image || undefined;
@@ -66,25 +61,31 @@ if (firebase.messaging.isSupported()) {
   });
 }
 
-// ===== Notification Click =====
+// ===== ✅ NOTIFICATION CLICK FIX =====
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const targetUrl = event.notification.data?.url || 'https://ajkernews.in/';
-  const fullUrl = targetUrl.startsWith('http')
-    ? targetUrl
-    : `https://ajkernews.in${targetUrl.startsWith('/') ? targetUrl : '/' + targetUrl}`;
+
+  let targetUrl = event.notification.data?.url || 'https://ajkernews.in/';
+
+  if (targetUrl.startsWith('/')) {
+    targetUrl = 'https://ajkernews.in' + targetUrl;
+  } else if (!targetUrl.startsWith('http')) {
+    targetUrl = 'https://ajkernews.in/' + targetUrl;
+  }
+
+  console.log('[SW-CLICK] Opening URL:', targetUrl);
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
       for (const client of windowClients) {
         if (client.url.startsWith('https://ajkernews.in') && 'focus' in client) {
           return client.focus().then(() => {
-            if ('navigate' in client) return client.navigate(fullUrl);
+            if ('navigate' in client) return client.navigate(targetUrl);
             return client;
           });
         }
       }
-      if (clients.openWindow) return clients.openWindow(fullUrl);
+      if (clients.openWindow) return clients.openWindow(targetUrl);
     })
   );
 });

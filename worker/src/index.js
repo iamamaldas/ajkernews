@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v31.1: Admin Panel (All Published + Load More + ID Search + Comment Edit) — FIXED
+// ✅ FINAL v31.2: Admin Panel (All Published + Load More + ID Search + Comment Edit) — ID Search Fixed
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -2880,7 +2880,7 @@ async function loadNews(search, append) {
     totalNews = data.total || 0;
 
     if (!news.length && !append) {
-      list.innerHTML = '<div class="empty">No news found</div>';
+      list.innerHTML = '<div class="empty">No news found for "' + esc(search || '') + '"</div>';
       return;
     }
 
@@ -2890,16 +2890,12 @@ async function loadNews(search, append) {
       allLoadedNews = allLoadedNews.concat(news);
     }
 
-    if (isHexId(search) && allLoadedNews.length === 1) {
-      await showComments(allLoadedNews[0].id, allLoadedNews[0].headline);
-      return;
-    }
-
     let html = allLoadedNews.map(n => \`
       <div class="news-item">
         <img src="\${esc(n.image_url || '/logo.png')}" onerror="this.src='/logo.png'" alt="">
         <div class="content">
           <h3>\${esc(n.headline || 'Untitled')}</h3>
+          <div class="meta">ID: <code style="background:#f5f5f5;padding:2px 6px;border-radius:4px;font-size:11px;">\${esc(n.id || '')}</code></div>
           <div class="meta">\${esc(n.category || 'general')} • \${esc((n.created_at||'').slice(0,16).replace('T',' '))}</div>
           <div class="actions">
             <button class="btn-edit" onclick='openEdit(\${JSON.stringify(n).replace(/'/g,"&#39;")})'>✏️ Edit</button>
@@ -2909,14 +2905,14 @@ async function loadNews(search, append) {
         </div>
       </div>\`).join('');
 
-    if (allLoadedNews.length < totalNews) {
+    if (!isHexId(search) && allLoadedNews.length < totalNews) {
       html += \`
         <div style="text-align:center;padding:24px 0;">
           <button class="load-more-btn" onclick="loadMore()">
             আরও দেখুন (\${allLoadedNews.length} / \${totalNews})
           </button>
         </div>\`;
-    } else if (allLoadedNews.length > 0 && totalNews > 0) {
+    } else if (!isHexId(search) && allLoadedNews.length > 0 && totalNews > 0) {
       html += \`
         <div style="text-align:center;padding:20px;color:#888;font-size:13px;">
           ✅ সব \${totalNews}টি Post দেখানো হয়েছে

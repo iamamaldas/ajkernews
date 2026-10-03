@@ -1,7 +1,7 @@
 // sw.js
-// ✅ FINAL v26 — Cache + FCM + Notification Click Fix
+// ✅ FINAL v27 — Cache + FCM + Notification Click + Push Event Handler
 
-const CACHE_VERSION = "ajker-news-v2026-10-01-final";
+const CACHE_VERSION = "ajker-news-v2026-10-03-final";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
 // ===== FCM Setup =====
@@ -35,7 +35,6 @@ if (firebase.messaging.isSupported()) {
       });
     }
 
-    // ✅ Double Notification Fix — FCM notification পেলে ব্রাউজার দেখাবে
     if (payload.notification) {
       console.log('[SW-FCM] Notification payload detected. Browser will handle it.');
       return;
@@ -56,10 +55,55 @@ if (firebase.messaging.isSupported()) {
       tag: tag,
       renotify: true,
       requireInteraction: true,
+      silent: false,
       data: { url: url }
     });
   });
 }
+
+// ===== ✅ PUSH EVENT HANDLER (Offline Queue) =====
+self.addEventListener('push', (event) => {
+  console.log('[SW-PUSH] Push event received');
+
+  if (!event.data) {
+    console.log('[SW-PUSH] No data');
+    return;
+  }
+
+  let payload;
+  try {
+    payload = event.data.json();
+  } catch (e) {
+    console.log('[SW-PUSH] Not JSON:', event.data.text());
+    return;
+  }
+
+  console.log('[SW-PUSH] Payload:', JSON.stringify(payload));
+
+  const data = payload.data || payload;
+  if (!data || !data.title) return;
+
+  const title = data.title || 'Ajker News';
+  const body = data.body || 'নতুন খবর এসেছে';
+  const image = data.image || undefined;
+  const url = data.url || 'https://ajkernews.in/';
+  const tag = data.notificationId || 'ajker-' + Date.now();
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: body,
+      icon: '/logo.png',
+      badge: '/logo.png',
+      image: image,
+      vibrate: [200, 100, 200],
+      tag: tag,
+      renotify: true,
+      requireInteraction: true,
+      silent: false,
+      data: { url: url }
+    })
+  );
+});
 
 // ===== ✅ NOTIFICATION CLICK FIX =====
 self.addEventListener('notificationclick', (event) => {

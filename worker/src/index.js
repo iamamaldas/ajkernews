@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v31.2: Admin Panel (All Published + Load More + ID Search + Comment Edit) — ID Search Fixed
+// ✅ FINAL v31.3: Notification Silent Fix (silent: false added)
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -1038,6 +1038,7 @@ async function sendDigestPush(env, payload, tokens) {
             icon: "stock_ticker_update",
             color: "#e53935",
             tag: notifTag,
+            sound: "default",
             ...(image ? { image: image } : {}),
             click_action: "FCM_PLUGIN_ACTIVITY"
           }
@@ -1057,6 +1058,7 @@ async function sendDigestPush(env, payload, tokens) {
             tag: notifTag,
             renotify: true,
             requireInteraction: true,
+            silent: false,
             data: { url: targetUrl }
           }
         }

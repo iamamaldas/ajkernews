@@ -1,7 +1,7 @@
 // sw.js
-// ✅ FINAL v27 — Cache + FCM + Notification Click + Silent Fix
+// ✅ FINAL v26 — Cache + FCM + Notification Click Fix
 
-const CACHE_VERSION = "ajker-news-v2026-10-03-final";
+const CACHE_VERSION = "ajker-news-v2026-10-01-final";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
 // ===== FCM Setup =====
@@ -56,7 +56,6 @@ if (firebase.messaging.isSupported()) {
       tag: tag,
       renotify: true,
       requireInteraction: true,
-      silent: false,          // ✅ Silent বন্ধ — Normal notification
       data: { url: url }
     });
   });

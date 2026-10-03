@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v31.3: Notification Silent Fix (silent: false added)
+// ✅ FINAL v31.4: Notification Urgency Fix (high) + Push Event Handler
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -1045,7 +1045,7 @@ async function sendDigestPush(env, payload, tokens) {
         },
         webpush: {
           headers: {
-            Urgency: isBreaking ? "high" : "normal",
+            Urgency: "high",
             TTL: String(ttl)
           },
           fcmOptions: { link: targetUrl },

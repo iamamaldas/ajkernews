@@ -1,4 +1,6 @@
-// sw.js - FINAL FIXED VERSION
+// sw.js
+// ✅ FINAL v27 — Cache + FCM + Notification Click + Silent Fix
+
 const CACHE_VERSION = "ajker-news-v2026-10-03-final";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
@@ -15,57 +17,57 @@ firebase.initializeApp({
   appId: "1:430988740362:web:ccb5e3cd2eeefc82345cf3"
 });
 
-const messaging = firebase.messaging();
+if (firebase.messaging.isSupported()) {
+  const messaging = firebase.messaging();
 
-// ===== BACKGROUND MESSAGE HANDLER =====
-messaging.onBackgroundMessage((payload) => {
-  console.log('[SW-FCM] Background message received:', JSON.stringify(payload));
+  messaging.onBackgroundMessage((payload) => {
+    console.log('[SW-FCM] Background message received:', JSON.stringify(payload));
 
-  // 1. Silent data message (news_published) - UI তে পাঠান
-  if (payload.data && payload.data.type === 'news_published') {
-    return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      clients.forEach((client) => {
-        client.postMessage({
-          type: 'news_published',
-          count: parseInt(payload.data.count || '0', 10),
-          ids: (payload.data.ids || '').split(',').filter(Boolean)
+    if (payload.data && payload.data.type === 'news_published') {
+      return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+        clients.forEach((client) => {
+          client.postMessage({
+            type: 'news_published',
+            count: parseInt(payload.data.count || '0', 10),
+            ids: (payload.data.ids || '').split(',').filter(Boolean)
+          });
         });
       });
+    }
+
+    // ✅ Double Notification Fix — FCM notification পেলে ব্রাউজার দেখাবে
+    if (payload.notification) {
+      console.log('[SW-FCM] Notification payload detected. Browser will handle it.');
+      return;
+    }
+
+    const title = payload.data?.title || 'Ajker News';
+    const body = payload.data?.body || 'নতুন খবর এসেছে';
+    const image = payload.data?.image || undefined;
+    const url = payload.data?.url || 'https://ajkernews.in/';
+    const tag = payload.data?.notificationId || 'ajker-' + Date.now();
+
+    return self.registration.showNotification(title, {
+      body: body,
+      icon: '/logo.png',
+      badge: '/logo.png',
+      image: image,
+      vibrate: [200, 100, 200],
+      tag: tag,
+      renotify: true,
+      requireInteraction: true,
+      silent: false,          // ✅ Silent বন্ধ — Normal notification
+      data: { url: url }
     });
-  }
-
-  // 2. Notification payload থাকলে ব্রাউজার নিজেই দেখাবে, হ্যান্ডেল করার দরকার নেই
-  if (payload.notification) {
-    console.log('[SW-FCM] Notification payload detected. Browser will handle it.');
-    return;
-  }
-
-  // 3. Data-only message হলে নিজে notification দেখান
-  const title = payload.data?.title || 'Ajker News';
-  const body = payload.data?.body || 'নতুন খবর এসেছে';
-  const image = payload.data?.image || undefined;
-  const url = payload.data?.url || 'https://ajkernews.in/';
-  const tag = payload.data?.notificationId || 'ajker-' + Date.now();
-
-  return self.registration.showNotification(title, {
-    body: body,
-    icon: '/logo.png',
-    badge: '/logo.png',
-    image: image,
-    vibrate: [200, 100, 200],
-    tag: tag,
-    renotify: true,
-    requireInteraction: true,
-    silent: false, // ✅ Silent বন্ধ
-    data: { url: url }
   });
-});
+}
 
-// ===== NOTIFICATION CLICK =====
+// ===== ✅ NOTIFICATION CLICK FIX =====
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   let targetUrl = event.notification.data?.url || 'https://ajkernews.in/';
+
   if (targetUrl.startsWith('/')) {
     targetUrl = 'https://ajkernews.in' + targetUrl;
   } else if (!targetUrl.startsWith('http')) {
@@ -144,6 +146,7 @@ self.addEventListener("fetch", event => {
   event.respondWith(
     caches.match(request).then(cached => {
       if (cached) return cached;
+
       return fetch(request).then(response => {
         if (!response || response.status !== 200 || response.type !== "basic") {
           return response;

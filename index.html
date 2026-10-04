@@ -31,6 +31,10 @@
 { "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in/logo.png" }
 </script>
 
+<!-- ✅ Adsterra Scripts -->
+<script data-cfasync="false" src="https://bicea.org/14/3f58b0818e43e5e2e8f28449d29e9937"></script>
+<script async="async" data-cfasync="false" src="https://bicea.org/21/25ee2c0a822da5cf3429cd2cb222524f"></script>
+
 <style>
 * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-tap-highlight-color: transparent; }
 html { scroll-behavior: smooth; font-size: 16px; -webkit-text-size-adjust: 100%; }
@@ -114,9 +118,23 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .main-content { padding:18px; max-width: min(820px, 95vw); margin: 0 auto; flex: 1 0 auto; width: 100%; }
 #newsContainer { min-height:200px; display:flex; flex-direction:column; gap:16px; }
 
-/* ✅ Inline Native Ad (news feed-এ inject) */
-.inline-native-ad { margin: 8px 0; padding: 16px; background: #fafafa; border-radius: 14px; border: 1px dashed #e0e0e0; }
-.inline-native-ad-label { font-size: 11px; color: #999; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+/* ✅ Adsterra Native Banner Container */
+.native-banner-block {
+  margin: 28px 0 8px;
+  padding: 16px;
+  background: #fafafa;
+  border-radius: 14px;
+  border: 1px dashed #e0e0e0;
+  min-height: 260px;
+}
+.native-banner-label {
+  font-size: 11px;
+  color: #999;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
 
 .news-skeleton { display:block; width:100%; background:#fff; border-radius:16px; overflow:hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.03), 0 4px 16px rgba(0,0,0,0.04); }
 .skeleton-image { width:100%; aspect-ratio:16/9; background:linear-gradient(90deg,#f2f3f5 25%,#e8e9ec 50%,#f2f3f5 75%); background-size:200% 100%; animation:shimmer 1.5s infinite; }
@@ -239,83 +257,16 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   .footer { padding:22px 14px 14px; }
   .footer-links { gap:18px; margin-bottom:12px; }
   .footer-links a { font-size:12.5px; }
-}
-
-/* ============================================ */
-/* 🟢 TOP LONG BANNER */
-/* ============================================ */
-#topLongBanner {
-  display: none;
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 60px;
-  background: #ffffff;
-  z-index: 99998;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  transition: transform 0.4s cubic-bezier(0.34, 1.3, 0.64, 1), opacity 0.3s ease;
-}
-#topLongBanner.show { display: flex; transform: translateY(0); opacity: 1; }
-#topLongBanner a {
-  display: block;
-  width: 100%;
-  height: 100%;
-  text-decoration: none;
-}
-#topLongBanner img {
-  width: 100%;
-  height: 60px;
-  display: block;
-  object-fit: cover;
-}
-
-body.has-top-banner { padding-top: 60px; }
-
-/* ============================================ */
-/* 🟢 POPUNDER LINK — প্রতি পোস্ট কার্ডের পরে */
-/* ============================================ */
-.popunder-link {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 14px;
-  padding: 11px 16px;
-  background: linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%);
-  color: #ffffff;
-  text-decoration: none;
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: -0.1px;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
-}
-.popunder-link:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
-}
-.popunder-link:active {
-  transform: translateY(0) scale(0.98);
-}
-
-@media (max-width: 480px) {
-  #topLongBanner { height: 50px; }
-  #topLongBanner img { height: 50px; }
-  body.has-top-banner { padding-top: 50px; }
+  .native-banner-block { padding: 12px; margin: 20px 0 8px; }
 }
 
 /* ============================================ */
 /* 🛡️ BLOCK ADULT/VULGAR AD OVERLAYS */
 /* ============================================ */
-body > div[style*="position: fixed"][style*="z-index: 9999"]:not(#newNewsBanner):not(#topLongBanner),
-body > div[style*="position:fixed"][style*="z-index:9999"]:not(#newNewsBanner):not(#topLongBanner),
-body > div[style*="position: fixed"][style*="z-index: 99999"]:not(#newNewsBanner):not(#topLongBanner),
-body > div[style*="position:fixed"][style*="z-index:99999"]:not(#newNewsBanner):not(#topLongBanner) {
+body > div[style*="position: fixed"][style*="z-index: 9999"]:not(#newNewsBanner),
+body > div[style*="position:fixed"][style*="z-index:9999"]:not(#newNewsBanner),
+body > div[style*="position: fixed"][style*="z-index: 99999"]:not(#newNewsBanner),
+body > div[style*="position:fixed"][style*="z-index:99999"]:not(#newNewsBanner) {
   display: none !important;
   visibility: hidden !important;
   opacity: 0 !important;
@@ -339,15 +290,6 @@ iframe[src*="bicea.org"] {
 </style>
 </head>
 <body>
-
-<!-- ============================================ -->
-<!-- 🟢 TOP LONG BANNER -->
-<!-- ============================================ -->
-<div id="topLongBanner" role="region" aria-label="Top Sponsor">
-  <a href="javascript:void(0)" onclick="triggerPopunder(); return false;">
-    <img src="https://via.placeholder.com/728x60/0d1117/58a6ff?text=Adsterra+Sponsor+Banner" alt="Sponsor">
-  </a>
-</div>
 
 <div id="copyToast" class="copy-toast" role="status">লিংক কপি হয়েছে</div>
 <div class="header">
@@ -440,6 +382,12 @@ iframe[src*="bicea.org"] {
 <div class="main-content">
   <div id="newsContainer"></div>
   <button id="loadMoreBtn" onclick="loadMoreNews()">আরও খবর দেখুন</button>
+  
+  <!-- ✅ Adsterra Native Banner — page-এর bottom-এ ১টি -->
+  <div class="native-banner-block">
+    <div class="native-banner-label">Sponsored</div>
+    <div id="container-25ee2c0a822da5cf3429cd2cb222524f" style="min-height: 250px; width: 100%;"></div>
+  </div>
 </div>
 
 <footer class="footer">
@@ -511,6 +459,7 @@ let currentOffset = 0;
 const PAGE_SIZE = 15;
 let hasMoreNews = false;
 let deferredPrompt = null;
+let popunderUrlCache = null;
 
 function sortByLatest(newsArray) {
   if (!Array.isArray(newsArray)) return [];
@@ -598,7 +547,6 @@ async function installApp() {
       await deferredPrompt.userChoice;
       deferredPrompt = null;
     } catch (err) {}
-    return;
   }
 }
 
@@ -717,20 +665,8 @@ function buildNewsHtml(news) {
           <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
         </button>
       </div>
-      <a class="popunder-link" href="javascript:void(0)" onclick="event.stopPropagation(); triggerPopunder();">
-        <span>📰</span>
-        <span>আরও খবর পড়ুন →</span>
-      </a>
     </div>
   </article>`;
-}
-
-// ✅ Native Ad HTML (news feed-এ inject)
-function buildInlineNativeAd() {
-  return `<div class="inline-native-ad">
-    <div class="inline-native-ad-label">Sponsored</div>
-    <div id="container-25ee2c0a822da5cf3429cd2cb222524f-inline-${Date.now()}-${Math.random().toString(36).slice(2,8)}" style="min-height:200px;width:100%;"></div>
-  </div>`;
 }
 
 function renderNews(newsList, hasMore = false) {
@@ -743,12 +679,8 @@ function renderNews(newsList, hasMore = false) {
   }
   const limited = newsList.slice(0, visibleCount);
   let html = '';
-  limited.forEach((news, index) => {
+  limited.forEach((news) => {
     html += buildNewsHtml(news);
-    // ✅ প্রতি ৩টি news card-এর পরে inline native ad inject
-    if ((index + 1) % 3 === 0 && index < limited.length - 1) {
-      html += buildInlineNativeAd();
-    }
   });
   container.innerHTML = html;
   requestAnimationFrame(() => {
@@ -756,11 +688,6 @@ function renderNews(newsList, hasMore = false) {
   });
   const loadMoreBtn = document.getElementById('loadMoreBtn');
   if (loadMoreBtn) loadMoreBtn.style.display = hasMore ? 'block' : 'none';
-
-  // Adsterra native banner script reload for inline ads
-  if (typeof window.__refreshAdsterraNativeBanner === 'function') {
-    window.__refreshAdsterraNativeBanner();
-  }
 }
 
 async function loadMoreNews() {
@@ -1121,18 +1048,35 @@ function handleNotificationPromptLater() {
 // ============================================
 // 🟢 POPUNDER CONTROLLER — ২৫ মিনিট কুলডাউন
 // ============================================
-function triggerPopunder() {
+async function getPopunderUrl() {
+  if (popunderUrlCache) return popunderUrlCache;
+  try {
+    const res = await fetch('/api/ads-config');
+    const data = await res.json();
+    if (data.success && data.popunderUrl) {
+      popunderUrlCache = data.popunderUrl;
+      return popunderUrlCache;
+    }
+  } catch (e) {}
+  popunderUrlCache = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
+  return popunderUrlCache;
+}
+
+async function triggerPopunder() {
   const lastTriggered = parseInt(localStorage.getItem('popunder_last') || '0', 10);
   const now = Date.now();
-  const COOLDOWN = 25 * 60 * 1000; // ২৫ মিনিট
+  const COOLDOWN = 25 * 60 * 1000;
 
   if (now - lastTriggered < COOLDOWN) return;
 
   localStorage.setItem('popunder_last', String(now));
 
+  const url = await getPopunderUrl();
+  if (!url) return;
+
   var s = document.createElement('script');
   s.async = true;
-  s.src = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
+  s.src = url;
   s.setAttribute('data-cfasync', 'false');
   document.body.appendChild(s);
 }
@@ -1171,19 +1115,6 @@ window.addEventListener('load', () => {
     } catch (err) {}
   }, NOTIFICATION_PROMPT_DELAY);
 });
-
-// ============================================
-// 🟢 TOP BANNER CONTROLLER
-// ============================================
-(function() {
-  var topBanner = document.getElementById('topLongBanner');
-  function showTopBanner() {
-    if (!topBanner) return;
-    topBanner.classList.add('show');
-    document.body.classList.add('has-top-banner');
-  }
-  setTimeout(showTopBanner, 2000);
-})();
 </script>
 </body>
 </html>

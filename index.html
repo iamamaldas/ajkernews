@@ -32,12 +32,11 @@
 </script>
 
 <!-- ============================================ -->
-<!-- 🟢 ADSTERRA ADS — Lazy Load (Non-Blocking) -->
+<!-- 🟢 ADSTERRA ADS — Social Bar + Native Banner (Lazy Load) -->
 <!-- ============================================ -->
 <script>
 (function() {
   var ADS = {
-    popunder: "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512",
     socialBar: "https://bicea.org/14/3f58b0818e43e5e2e8f28449d29e9937",
     nativeBanner: "https://bicea.org/21/25ee2c0a822da5cf3429cd2cb222524f",
     containerId: "container-25ee2c0a822da5cf3429cd2cb222524f"
@@ -71,7 +70,6 @@
   function loadAll() {
     if (loaded) return;
     loaded = true;
-    try { if (ADS.popunder) inject(ADS.popunder); } catch (e) {}
     try { if (ADS.socialBar) inject(ADS.socialBar); } catch (e) {}
     try { ensureContainer(); if (ADS.nativeBanner) inject(ADS.nativeBanner); } catch (e) {}
   }
@@ -237,68 +235,253 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .notif-prompt-btn.enable { background: #111; color: #fff; }
 .notif-prompt-btn.enable:hover { background: #000; }
 
-@media (min-width: 1400px) {
-  .main-content { max-width: 900px; }
-  .news-card { max-width: 100%; }
+/* ============================================ */
+/* 🟢 ADSTERRA POPUNDER MINI BOX — Futuristic */
+/* ============================================ */
+#adGateOverlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 8, 15, 0.7);
+  z-index: 99999;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  animation: adGateFadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+#adGateOverlay.active { display: flex; }
+
+@keyframes adGateFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes adGateSlideUp {
+  from { opacity: 0; transform: translateY(22px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes adGateShimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes adGatePulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.06); opacity: 0.85; }
+}
+@keyframes adGateOrbit {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
-@media (max-width:480px) {
-  .header { padding:10px 14px; min-height:64px; gap:10px; }
-  .header-left h1 { font-size:20px; font-weight:800; letter-spacing:-0.5px; line-height:1.15; white-space:nowrap; color:#0a0a0a; padding: 2px 1px; }
-  .header-logo { height:28px; }
-  .header-left, .header-home-link { gap:9px; }
-  .header-right { gap:0; }
-  .notif-btn, .search-btn, .hamburger { width:36px !important; height:36px !important; }
-  .search-svg { width:18px !important; height:18px !important; }
-  .hamburger { gap:4px !important; }
-  .hamburger span { width:18px !important; height:2.2px !important; }
-  .notif-btn svg { width:20px !important; height:20px !important; }
-  .trending-banner { padding:10px 14px; min-height:46px; }
-  .trending-banner span { font-size:15px; font-weight:700; letter-spacing:0; }
-  .banner-right-btn { padding:6px 13px; font-size:11.5px; border-radius:20px; gap:5px; }
-  .banner-right-btn svg { width:13px; height:13px; }
-  .new-news-banner { top: 110px; }
-  .new-news-inner { padding: 12px 14px; gap: 10px; }
-  .new-news-pulse { width: 34px; height: 34px; font-size: 16px; }
-  .new-news-title { font-size: 14px; }
-  .new-news-subtitle { font-size: 11px; }
-  .new-news-arrow { width: 20px; height: 20px; }
-  .main-content { padding:12px; }
-  #newsContainer { gap:12px; }
-  .news-card { border-radius:16px; }
-  .news-image-wrapper { aspect-ratio: auto; min-height: 180px; max-height: 320px; }
-  .news-image { aspect-ratio: auto; width:100%; height:auto; min-height: 180px; max-height: 320px; object-fit: contain; background:#f2f3f5; }
-  .news-body { padding:16px 16px 18px; }
-  .news-category { font-size:10.5px; padding:3px 9px; margin-bottom:9px; letter-spacing:0.3px; }
-  .news-title { font-size:17px; line-height:1.38; margin-bottom:10px; letter-spacing:-0.2px; }
-  .news-summary { font-size:14px; line-height:1.65; color:#4a4a4a; }
-  .news-meta { font-size:11.5px; margin-top:12px; }
-  .news-actions { gap:6px; margin-top:12px; padding-top:12px; }
-  .action-btn { padding:6px 10px; font-size:13px; }
-  .action-btn svg { width:17px; height:17px; }
-  .action-count { font-size:11.5px; }
-  .search-modal { padding:80px 14px 20px; }
-  .search-modal-box { padding:18px 18px 22px; border-radius:16px; }
-  .close-search { font-size:25px; top:4px; right:10px; }
-  .search-modal-box .search-submit-btn { padding:9px 22px; font-size:14px; }
-  .search-modal-box input { font-size:16px; padding:12px 14px; }
-  .search-input-wrapper { gap:12px; }
-  .floating-app-btn { right:14px; bottom:18px; width:54px; height:54px; }
-  .floating-app-btn svg { width:20px; height:20px; }
-  .floating-app-btn span { font-size:8.5px; }
-  .modal-content { width:94%; margin:4% auto; padding:16px; max-height:88vh; border-radius:16px; }
-  #modal-body { padding-right:2px; }
-  .notif-prompt-box { padding: 24px 18px 18px; }
-  .notif-prompt-title { font-size: 18px; }
-  .notif-prompt-text { font-size: 13.5px; }
-  .notif-prompt-btn { padding: 12px 14px; font-size: 14px; }
-  .footer { padding:22px 14px 14px; }
-  .footer-links { gap:18px; margin-bottom:12px; }
-  .footer-links a { font-size:12.5px; }
+.ad-gate-box {
+  position: relative;
+  background: linear-gradient(155deg, #0d1117 0%, #161b22 55%, #0d1117 100%);
+  border-radius: 20px;
+  max-width: 340px;
+  width: 100%;
+  padding: 26px 22px 20px;
+  box-shadow:
+    0 0 0 1px rgba(88, 166, 255, 0.18),
+    0 20px 60px rgba(0, 0, 0, 0.7),
+    0 0 60px rgba(56, 139, 253, 0.15);
+  text-align: center;
+  font-family: Inter, -apple-system, sans-serif;
+  overflow: hidden;
+  animation: adGateSlideUp 0.42s cubic-bezier(0.34, 1.2, 0.64, 1);
+  color: #e6edf3;
+}
+.ad-gate-box::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 20px;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(56, 139, 253, 0.6), rgba(56, 139, 253, 0.05) 45%, rgba(88, 166, 255, 0.5));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+.ad-gate-box::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(56, 139, 253, 0.9), rgba(88, 166, 255, 0.7), transparent);
+  background-size: 200% 100%;
+  animation: adGateShimmer 3s linear infinite;
+  pointer-events: none;
+}
+
+.ad-gate-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(88, 166, 255, 0.25);
+  background: rgba(13, 17, 23, 0.85);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  color: #8b949e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 2;
+  padding: 0;
+}
+.ad-gate-close:hover {
+  background: rgba(56, 139, 253, 0.2);
+  color: #58a6ff;
+  border-color: rgba(56, 139, 253, 0.6);
+  transform: rotate(90deg) scale(1.08);
+}
+.ad-gate-close:active { transform: rotate(90deg) scale(0.92); }
+
+.ad-gate-icon-wrap {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ad-gate-icon-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px dashed rgba(56, 139, 253, 0.4);
+  animation: adGateOrbit 12s linear infinite;
+}
+.ad-gate-icon-core {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #1f6feb 0%, #388bfd 50%, #58a6ff 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  box-shadow:
+    0 0 0 5px rgba(56, 139, 253, 0.09),
+    0 6px 20px rgba(56, 139, 253, 0.5);
+  animation: adGatePulse 2.6s ease-in-out infinite;
+  color: #ffffff;
+}
+
+.ad-gate-badge {
+  display: inline-block;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: #58a6ff;
+  background: rgba(56, 139, 253, 0.12);
+  border: 1px solid rgba(56, 139, 253, 0.28);
+  padding: 3px 9px;
+  border-radius: 20px;
+  margin-bottom: 10px;
+}
+
+.ad-gate-title {
+  font-size: 17px;
+  font-weight: 800;
+  color: #f0f6fc;
+  margin: 0 0 8px;
+  letter-spacing: -0.2px;
+  line-height: 1.3;
+}
+.ad-gate-title span {
+  background: linear-gradient(135deg, #58a6ff, #388bfd);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.ad-gate-text {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #8b949e;
+  margin: 0 0 16px;
+}
+.ad-gate-text strong { color: #c9d1d9; font-weight: 700; }
+
+.ad-gate-btn.primary {
+  display: block;
+  width: 100%;
+  padding: 13px 16px;
+  background: linear-gradient(135deg, #1f6feb 0%, #388bfd 60%, #58a6ff 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 12px;
+  font-size: 14.5px;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  text-align: center;
+  box-shadow: 0 6px 20px rgba(56, 139, 253, 0.42), inset 0 1px 0 rgba(255,255,255,0.18);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  letter-spacing: -0.1px;
+  font-family: inherit;
+}
+.ad-gate-btn.primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 26px rgba(56, 139, 253, 0.55), inset 0 1px 0 rgba(255,255,255,0.22);
+}
+.ad-gate-btn.primary:active { transform: translateY(0) scale(0.98); }
+
+.ad-gate-foot {
+  font-size: 10px;
+  color: #6e7681;
+  letter-spacing: 0.3px;
+  margin-top: 12px;
+}
+
+@media (max-width: 480px) {
+  #adGateOverlay { padding: 16px; }
+  .ad-gate-box { max-width: 300px; padding: 24px 18px 18px; border-radius: 18px; }
+  .ad-gate-icon-wrap { width: 58px; height: 58px; margin-bottom: 12px; }
+  .ad-gate-icon-core { width: 44px; height: 44px; font-size: 20px; }
+  .ad-gate-title { font-size: 16px; }
+  .ad-gate-text { font-size: 12.5px; }
+  .ad-gate-btn.primary { padding: 12px 14px; font-size: 14px; }
+  .ad-gate-close { width: 30px; height: 30px; font-size: 17px; top: 6px; right: 8px; }
 }
 </style>
 </head>
 <body>
+
+<!-- ============================================ -->
+<!-- 🟢 ADSTERRA POPUNDER — Mini Gate Box -->
+<!-- ============================================ -->
+<div id="adGateOverlay" role="dialog" aria-modal="true" aria-label="Ad Gate">
+  <div class="ad-gate-box">
+    <button class="ad-gate-close" id="adGateClose" aria-label="Close">&times;</button>
+
+    <div class="ad-gate-icon-wrap">
+      <div class="ad-gate-icon-ring"></div>
+      <div class="ad-gate-icon-core">📰</div>
+    </div>
+
+    <span class="ad-gate-badge">Sponsored</span>
+
+    <h3 class="ad-gate-title">আপনার পড়া <span>চালিয়ে যান</span></h3>
+    <p class="ad-gate-text">
+      আজকের নিউজ সাইট চালু রাখতে বিজ্ঞাপন প্রয়োজন।<br>
+      <strong>× চাপুন</strong> অথবা <strong>বিজ্ঞাপনে ক্লিক করুন</strong>।
+    </p>
+
+    <a class="ad-gate-btn primary" id="adGateAdLink" href="#" target="_blank" rel="noopener noreferrer nofollow">
+      বিজ্ঞাপন দেখুন →
+    </a>
+
+    <p class="ad-gate-foot">Adsterra · Ad-Supported Content</p>
+  </div>
+</div>
+
 <div id="copyToast" class="copy-toast" role="status">লিংক কপি হয়েছে</div>
 <div class="header">
   <div class="header-left">
@@ -1107,11 +1290,56 @@ function handleNotificationPromptLater() {
 window.addEventListener('load', () => {
   setTimeout(async () => {
     try {
-      const eligible = await showNotificationPrompt();
+      const eligible = await shouldShowNotificationPrompt();
       if (eligible) showNotificationPrompt();
     } catch (err) {}
   }, NOTIFICATION_PROMPT_DELAY);
 });
+
+// ============================================
+// 🟢 ADSTERRA POPUNDER MINI BOX CONTROLLER
+// ============================================
+(function() {
+  // ✅ আপনার Adsterra Popunder-এর Direct Link এখানে বসান
+  var AD_DESTINATION_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
+
+  var overlay = document.getElementById('adGateOverlay');
+  var closeBtn = document.getElementById('adGateClose');
+  var adLink = document.getElementById('adGateAdLink');
+
+  if (!overlay) return;
+
+  if (adLink && AD_DESTINATION_URL) {
+    adLink.setAttribute('href', AD_DESTINATION_URL);
+    adLink.addEventListener('click', function() {
+      setTimeout(function() { overlay.classList.remove('active'); }, 200);
+    });
+  }
+
+  if (closeBtn) {
+    closeBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      overlay.classList.remove('active');
+    });
+  }
+
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) overlay.classList.remove('active');
+  });
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') overlay.classList.remove('active');
+  });
+
+  function showGate() {
+    overlay.classList.add('active');
+  }
+  if (document.readyState === 'complete') {
+    setTimeout(showGate, 5000);
+  } else {
+    window.addEventListener('load', function() { setTimeout(showGate, 5000); });
+  }
+})();
 </script>
 </body>
 </html>

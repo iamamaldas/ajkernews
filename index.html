@@ -238,98 +238,189 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 }
 
 /* ============================================ */
-/* 🟢 POPUNDER MINI BOX — Top of Screen */
+/* 🟢 TOP LONG BANNER — Fixed */
+/* ============================================ */
+#topLongBanner {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 60px;
+  background: #ffffff;
+  z-index: 99998;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: transform 0.4s cubic-bezier(0.34, 1.3, 0.64, 1), opacity 0.3s ease;
+}
+#topLongBanner.show { display: flex; transform: translateY(0); opacity: 1; }
+#topLongBanner.hide { transform: translateY(-100%); opacity: 0; }
+#topLongBanner iframe,
+#topLongBanner ins,
+#topLongBanner img {
+  width: 100%;
+  height: 60px;
+  display: block;
+  border: none;
+}
+#topLongBanner .ad-close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  border: none;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  padding: 0;
+}
+#topLongBanner .ad-close:hover { background: rgba(0,0,0,0.85); }
+
+/* ============================================ */
+/* 🟢 BOTTOM LONG BANNER — Fixed */
+/* ============================================ */
+#bottomLongBanner {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 60px;
+  background: #ffffff;
+  z-index: 99998;
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.08);
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: transform 0.4s cubic-bezier(0.34, 1.3, 0.64, 1), opacity 0.3s ease;
+}
+#bottomLongBanner.show { display: flex; transform: translateY(0); opacity: 1; }
+#bottomLongBanner.hide { transform: translateY(100%); opacity: 0; }
+#bottomLongBanner iframe,
+#bottomLongBanner ins,
+#bottomLongBanner img {
+  width: 100%;
+  height: 60px;
+  display: block;
+  border: none;
+}
+#bottomLongBanner .ad-close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  border: none;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  padding: 0;
+}
+#bottomLongBanner .ad-close:hover { background: rgba(0,0,0,0.85); }
+
+body.has-top-banner { padding-top: 60px; }
+body.has-bottom-banner { padding-bottom: 60px; }
+
+/* ============================================ */
+/* 🟢 MOVABLE MINI AD BOX — 200x200 */
 /* ============================================ */
 #popunderMiniBox {
   display: none;
   position: fixed;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%) translateY(-140%);
-  width: calc(100% - 24px);
-  max-width: 420px;
-  background: linear-gradient(135deg, #0d1117 0%, #161b22 55%, #0d1117 100%);
-  border-radius: 14px;
-  padding: 10px 12px;
-  align-items: center;
-  gap: 10px;
+  top: 90px;
+  left: 16px;
+  width: 200px;
+  height: 200px;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 4px;
   z-index: 99999;
   box-shadow:
-    0 0 0 1px rgba(88, 166, 255, 0.22),
-    0 12px 32px rgba(0, 0, 0, 0.55),
-    0 0 40px rgba(56, 139, 253, 0.12);
-  font-family: Inter, -apple-system, sans-serif;
-  color: #e6edf3;
-  transition: transform 0.45s cubic-bezier(0.34, 1.3, 0.64, 1), opacity 0.3s ease;
+    0 0 0 1px rgba(0, 0, 0, 0.1),
+    0 12px 32px rgba(0, 0, 0, 0.4);
+  transition: opacity 0.3s ease;
   opacity: 0;
   pointer-events: none;
+  overflow: visible;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 #popunderMiniBox.show {
-  display: flex;
-  transform: translateX(-50%) translateY(0);
+  display: block;
   opacity: 1;
   pointer-events: auto;
 }
+#popunderMiniBox:active { cursor: grabbing; }
 
-.pub-icon {
-  width: 38px;
-  height: 38px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #1f6feb 0%, #388bfd 50%, #58a6ff 100%);
+#popunderMiniBox .drag-handle {
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 15px;
+  width: 50px;
+  background: rgba(13, 17, 23, 0.9);
+  border-radius: 8px 8px 0 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
-  box-shadow: 0 4px 12px rgba(56, 139, 253, 0.45);
-}
-
-.pub-content { flex: 1; min-width: 0; }
-.pub-title {
-  font-size: 12.5px;
-  font-weight: 800;
-  color: #f0f6fc;
-  letter-spacing: -0.1px;
-  line-height: 1.2;
-}
-.pub-text {
-  font-size: 10.5px;
   color: #8b949e;
-  margin-top: 2px;
-  line-height: 1.3;
+  font-size: 9px;
+  letter-spacing: 1px;
+  pointer-events: none;
+  font-weight: 700;
 }
 
-.pub-btn {
-  flex-shrink: 0;
-  padding: 8px 14px;
-  background: linear-gradient(135deg, #1f6feb 0%, #388bfd 60%, #58a6ff 100%);
-  color: #ffffff;
+.pub-ad-link {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f4f5f7;
   text-decoration: none;
-  border-radius: 10px;
-  font-size: 12px;
-  font-weight: 700;
-  box-shadow: 0 4px 14px rgba(56, 139, 253, 0.45);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-  white-space: nowrap;
-  letter-spacing: -0.1px;
 }
-.pub-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(56, 139, 253, 0.6);
+.pub-ad-link ins,
+.pub-ad-link img,
+.pub-ad-link iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  border: none;
+  object-fit: cover;
 }
-.pub-btn:active { transform: scale(0.96); }
 
 #popunderClose {
   position: absolute;
-  top: -8px;
-  right: -8px;
-  width: 26px;
-  height: 26px;
+  top: -10px;
+  right: -10px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   background: #ffffff;
   color: #0d1117;
   border: 2px solid #0d1117;
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
   display: flex;
@@ -339,6 +430,7 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   padding: 0;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
   transition: transform 0.2s ease, background 0.2s ease;
+  z-index: 2;
 }
 #popunderClose:hover {
   background: #58a6ff;
@@ -348,28 +440,31 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 #popunderClose:active { transform: rotate(90deg) scale(0.9); }
 
 @media (max-width: 480px) {
+  #topLongBanner { height: 50px; }
+  #topLongBanner iframe, #topLongBanner ins, #topLongBanner img { height: 50px; }
+  body.has-top-banner { padding-top: 50px; }
+
+  #bottomLongBanner { height: 50px; }
+  #bottomLongBanner iframe, #bottomLongBanner ins, #bottomLongBanner img { height: 50px; }
+  body.has-bottom-banner { padding-bottom: 50px; }
+
   #popunderMiniBox {
-    top: 8px;
-    width: calc(100% - 16px);
-    max-width: 100%;
-    padding: 9px 10px;
-    gap: 8px;
-    border-radius: 12px;
+    width: 160px;
+    height: 160px;
+    top: 75px;
+    left: 10px;
   }
-  .pub-icon { width: 34px; height: 34px; font-size: 16px; }
-  .pub-title { font-size: 11.5px; }
-  .pub-text { font-size: 9.5px; }
-  .pub-btn { padding: 7px 12px; font-size: 11px; }
-  #popunderClose { width: 24px; height: 24px; font-size: 14px; top: -7px; right: -7px; }
+  #popunderMiniBox .drag-handle { top: -18px; height: 14px; width: 44px; font-size: 8px; }
+  #popunderClose { width: 22px; height: 22px; font-size: 13px; top: -9px; right: -9px; }
 }
 
 /* ============================================ */
 /* 🛡️ BLOCK ADULT/VULGAR AD OVERLAYS */
 /* ============================================ */
-body > div[style*="position: fixed"][style*="z-index: 9999"]:not(#popunderMiniBox):not(#newNewsBanner),
-body > div[style*="position:fixed"][style*="z-index:9999"]:not(#popunderMiniBox):not(#newNewsBanner),
-body > div[style*="position: fixed"][style*="z-index: 99999"]:not(#popunderMiniBox):not(#newNewsBanner),
-body > div[style*="position:fixed"][style*="z-index:99999"]:not(#popunderMiniBox):not(#newNewsBanner) {
+body > div[style*="position: fixed"][style*="z-index: 9999"]:not(#popunderMiniBox):not(#newNewsBanner):not(#topLongBanner):not(#bottomLongBanner),
+body > div[style*="position:fixed"][style*="z-index:9999"]:not(#popunderMiniBox):not(#newNewsBanner):not(#topLongBanner):not(#bottomLongBanner),
+body > div[style*="position: fixed"][style*="z-index: 99999"]:not(#popunderMiniBox):not(#newNewsBanner):not(#topLongBanner):not(#bottomLongBanner),
+body > div[style*="position:fixed"][style*="z-index:99999"]:not(#popunderMiniBox):not(#newNewsBanner):not(#topLongBanner):not(#bottomLongBanner) {
   display: none !important;
   visibility: hidden !important;
   opacity: 0 !important;
@@ -395,16 +490,34 @@ iframe[src*="bicea.org"] {
 <body>
 
 <!-- ============================================ -->
-<!-- 🟢 POPUNDER MINI BOX — Top of Screen -->
+<!-- 🟢 TOP LONG BANNER -->
+<!-- ============================================ -->
+<div id="topLongBanner" role="region" aria-label="Top Sponsor">
+  <button class="ad-close" id="topBannerClose" aria-label="Close">&times;</button>
+  <a href="https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512" target="_blank" rel="noopener noreferrer nofollow" style="display:block;width:100%;height:100%;">
+    <img src="https://via.placeholder.com/728x60/0d1117/58a6ff?text=Adsterra+Sponsor+Banner" alt="Sponsor" style="width:100%;height:100%;object-fit:cover;display:block;">
+  </a>
+</div>
+
+<!-- ============================================ -->
+<!-- 🟢 BOTTOM LONG BANNER -->
+<!-- ============================================ -->
+<div id="bottomLongBanner" role="region" aria-label="Bottom Sponsor">
+  <button class="ad-close" id="bottomBannerClose" aria-label="Close">&times;</button>
+  <a href="https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512" target="_blank" rel="noopener noreferrer nofollow" style="display:block;width:100%;height:100%;">
+    <img src="https://via.placeholder.com/728x60/0d1117/58a6ff?text=Adsterra+Sponsor+Banner" alt="Sponsor" style="width:100%;height:100%;object-fit:cover;display:block;">
+  </a>
+</div>
+
+<!-- ============================================ -->
+<!-- 🟢 MOVABLE MINI AD BOX -->
 <!-- ============================================ -->
 <div id="popunderMiniBox" role="dialog" aria-label="Sponsor">
+  <div class="drag-handle">⋮⋮ DRAG</div>
   <button id="popunderClose" aria-label="Close">&times;</button>
-  <div class="pub-icon">📰</div>
-  <div class="pub-content">
-    <div class="pub-title">Ajker News</div>
-    <div class="pub-text">বিজ্ঞাপন দেখে সাইট চালু রাখুন</div>
-  </div>
-  <a id="popunderAdLink" class="pub-btn" href="#" target="_blank" rel="noopener noreferrer nofollow">দেখুন →</a>
+  <a id="popunderAdLink" class="pub-ad-link" href="#" target="_blank" rel="noopener noreferrer nofollow">
+    <img src="https://via.placeholder.com/200x200/0d1117/58a6ff?text=Ad+200x200" alt="Sponsor" style="width:100%;height:100%;object-fit:cover;display:block;">
+  </a>
 </div>
 
 <div id="copyToast" class="copy-toast" role="status">লিংক কপি হয়েছে</div>
@@ -1218,39 +1331,134 @@ window.addEventListener('load', () => {
 });
 
 // ============================================
-// 🟢 POPUNDER MINI BOX CONTROLLER
+// 🟢 AD CONTROLLERS — Top/Bottom Banner + Movable Mini Box
 // ============================================
 (function() {
-  var AD_DESTINATION_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
 
+  // === Top & Bottom Banner ===
+  var topBanner = document.getElementById('topLongBanner');
+  var bottomBanner = document.getElementById('bottomLongBanner');
+  var topClose = document.getElementById('topBannerClose');
+  var bottomClose = document.getElementById('bottomBannerClose');
+
+  function showTopBanner() {
+    if (!topBanner) return;
+    topBanner.classList.add('show');
+    document.body.classList.add('has-top-banner');
+  }
+  function showBottomBanner() {
+    if (!bottomBanner) return;
+    bottomBanner.classList.add('show');
+    document.body.classList.add('has-bottom-banner');
+  }
+  function hideTopBanner() {
+    if (!topBanner) return;
+    topBanner.classList.remove('show');
+    topBanner.classList.add('hide');
+    document.body.classList.remove('has-top-banner');
+  }
+  function hideBottomBanner() {
+    if (!bottomBanner) return;
+    bottomBanner.classList.remove('show');
+    bottomBanner.classList.add('hide');
+    document.body.classList.remove('has-bottom-banner');
+  }
+
+  if (topClose) topClose.addEventListener('click', hideTopBanner);
+  if (bottomClose) bottomClose.addEventListener('click', hideBottomBanner);
+
+  // === Movable Mini Ad Box ===
   var box = document.getElementById('popunderMiniBox');
   var closeBtn = document.getElementById('popunderClose');
   var adLink = document.getElementById('popunderAdLink');
 
-  if (!box) return;
+  var AD_DESTINATION_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
 
   if (adLink && AD_DESTINATION_URL) {
     adLink.setAttribute('href', AD_DESTINATION_URL);
-    adLink.addEventListener('click', function() {
-      setTimeout(function() { box.classList.remove('show'); }, 300);
-    });
   }
 
   if (closeBtn) {
     closeBtn.addEventListener('click', function(e) {
+      e.preventDefault();
       e.stopPropagation();
       box.classList.remove('show');
     });
   }
 
-  function showBox() {
-    box.classList.add('show');
+  // === Drag Logic (Mouse + Touch) ===
+  var isDragging = false;
+  var startX = 0;
+  var startY = 0;
+  var boxLeft = 0;
+  var boxTop = 0;
+  var hasMoved = false;
+
+  function getPoint(e) {
+    if (e.touches && e.touches.length) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    return { x: e.clientX, y: e.clientY };
   }
-  if (document.readyState === 'complete') {
-    setTimeout(showBox, 5000);
-  } else {
-    window.addEventListener('load', function() { setTimeout(showBox, 5000); });
+
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+  function onDragStart(e) {
+    if (e.target === closeBtn) return;
+    isDragging = true;
+    hasMoved = false;
+    var p = getPoint(e);
+    startX = p.x;
+    startY = p.y;
+    var rect = box.getBoundingClientRect();
+    boxLeft = rect.left;
+    boxTop = rect.top;
+    box.style.transition = 'none';
   }
+
+  function onDragMove(e) {
+    if (!isDragging) return;
+    var p = getPoint(e);
+    var dx = p.x - startX;
+    var dy = p.y - startY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) hasMoved = true;
+    var newLeft = clamp(boxLeft + dx, 4, window.innerWidth - box.offsetWidth - 4);
+    var newTop = clamp(boxTop + dy, 4, window.innerHeight - box.offsetHeight - 4);
+    box.style.left = newLeft + 'px';
+    box.style.top = newTop + 'px';
+    if (e.cancelable) e.preventDefault();
+  }
+
+  function onDragEnd(e) {
+    if (!isDragging) return;
+    isDragging = false;
+    box.style.transition = 'opacity 0.3s ease';
+    if (hasMoved && adLink) {
+      adLink.addEventListener('click', function blockOnce(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        adLink.removeEventListener('click', blockOnce, true);
+      }, true);
+      setTimeout(function() {
+        hasMoved = false;
+      }, 300);
+    }
+  }
+
+  if (box) {
+    box.addEventListener('mousedown', onDragStart);
+    box.addEventListener('touchstart', onDragStart, { passive: true });
+    document.addEventListener('mousemove', onDragMove);
+    document.addEventListener('touchmove', onDragMove, { passive: false });
+    document.addEventListener('mouseup', onDragEnd);
+    document.addEventListener('touchend', onDragEnd);
+  }
+
+  // === Show sequence ===
+  setTimeout(showTopBanner, 2000);
+  setTimeout(showBottomBanner, 4000);
+  setTimeout(function() {
+    if (box) box.classList.add('show');
+  }, 6000);
+
 })();
 </script>
 </body>

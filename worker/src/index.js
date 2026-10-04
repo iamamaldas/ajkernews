@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v32.0: Adsterra 3 Ad Units (Popunder + Social Bar + Native Banner) — Full Script Support
+// ✅ FINAL v33.0: Adsterra optimized (Bot-safe + Smart placement)
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -93,21 +93,14 @@ function getDigestType(hour) {
   return "general";
 }
 
-// ✅ UPDATED: 3 Ad Units with Full Script Support
+// ✅ Adsterra Scripts (bot-safe) — escaped
 function getAdsterraScripts() {
   const scripts = [];
 
-  // Popunder — শুধু src URL
-  if (ADS_CONFIG?.popunderUrl && ADS_CONFIG.popunderUrl !== "YOUR_POPUNDER_URL") {
-    scripts.push(`<script async src="${ADS_CONFIG.popunderUrl}" data-cfasync="false"></script>`);
-  }
-
-  // Social Bar — পুরো স্ক্রিপ্ট কোড
   if (ADS_CONFIG?.socialBarScript && !ADS_CONFIG.socialBarScript.includes("YOUR_SOCIAL_BAR_SCRIPT")) {
     scripts.push(ADS_CONFIG.socialBarScript);
   }
 
-  // Native Banner — পুরো স্ক্রিপ্ট কোড
   if (ADS_CONFIG?.nativeBannerScript && !ADS_CONFIG.nativeBannerScript.includes("YOUR_NATIVE_BANNER_SCRIPT")) {
     scripts.push(ADS_CONFIG.nativeBannerScript);
   }
@@ -122,6 +115,20 @@ function getNativeBannerContainer() {
     return "";
   }
   return `<div id="${containerId}" style="margin: 20px 0; min-height: 250px; width: 100%;"></div>`;
+}
+
+// ✅ NEW: Inline Native Banner (news feed-এ inject করার জন্য)
+function getInlineNativeBanner() {
+  const containerId = ADS_CONFIG?.nativeBannerContainerId;
+  if (!containerId || containerId === "YOUR_NATIVE_BANNER_CONTAINER_ID") {
+    return "";
+  }
+  // Different ID for each injection point to avoid conflicts
+  const uniqueId = `${containerId}-inline-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return `<div class="inline-native-ad" style="margin: 24px 0; padding: 16px; background: #fafafa; border-radius: 12px; border: 1px dashed #ddd;">
+    <div style="font-size: 11px; color: #999; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Sponsored</div>
+    <div id="${uniqueId}" style="min-height: 200px; width: 100%;"></div>
+  </div>`;
 }
 
 async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
@@ -349,19 +356,15 @@ export default {
         if (!session) return json({ success: false, error: "Unauthorized" }, 401, 0);
         try {
           const newsId = url.searchParams.get("newsId") || null;
-
           let query = `SELECT nc.id, nc.news_id, nc.author_name, nc.comment_text, nc.created_at, n.headline 
                        FROM news_comments nc
                        LEFT JOIN news n ON n.id = nc.news_id`;
           const binds = [];
-
           if (newsId) {
             query += ` WHERE nc.news_id = ?`;
             binds.push(newsId);
           }
-
           query += ` ORDER BY nc.created_at DESC LIMIT 100`;
-
           const rows = await env.DB.prepare(query).bind(...binds).all();
           return json({ success: true, comments: rows.results || [] }, 200, 0);
         } catch (error) { return json({ success: false, error: error.message }, 500, 0); }
@@ -415,7 +418,7 @@ export default {
       if (url.pathname.startsWith("/news/") && request.method === "GET") {
         const articleId = decodeURIComponent(url.pathname.slice(6).split("/")[0] || "").trim();
         if (!articleId) return Response.redirect("https://ajkernews.in/", 302);
-        return await serveArticlePage(articleId, env);
+        return await serveArticlePage(articleId, env, request);
       }
 
       if (env.INDEXNOW_KEY && url.pathname === `/${env.INDEXNOW_KEY}.txt`) {
@@ -427,10 +430,10 @@ export default {
 
       if (url.pathname === "/" && request.method === "GET" && isBot) {
         const articleId = url.searchParams.get("id");
-        if (articleId) return await serveArticlePage(articleId, env);
+        if (articleId) return await serveArticlePage(articleId, env, request);
         const cat = url.searchParams.get("category");
-        if (cat && cat !== "top" && cat !== "all") return await serveBotCategoryPage(cat, env);
-        return await serveBotHomepage(env);
+        if (cat && cat !== "top" && cat !== "all") return await serveBotCategoryPage(cat, env, request);
+        return await serveBotHomepage(env, request);
       }
 
       if (ANALYTICS_CONFIG.searchConsole && url.pathname === ANALYTICS_CONFIG.searchConsole.filePath) {
@@ -579,29 +582,6 @@ export default {
             sentStats = { total: Number(totalSent?.total || 0), today: Number(todaySent?.total || 0) };
           } catch (e) {}
 
-          let digestStats = { total: 0, today: 0 };
-          try {
-            const totalDigest = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_digest_log`).first();
-            const todayDigest = await env.DB.prepare(
-              `SELECT COUNT(*) AS total FROM push_digest_log WHERE sent_at >= datetime('now', '-1 day')`
-            ).first();
-            digestStats = { total: Number(totalDigest?.total || 0), today: Number(todayDigest?.total || 0) };
-          } catch (e) {}
-
-          let logStats = { total: 0, today: 0, failed: 0 };
-          try {
-            const totalSent = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_log WHERE status = 'sent'`).first();
-            const todaySent = await env.DB.prepare(
-              `SELECT COUNT(*) AS total FROM push_log WHERE status = 'sent' AND sent_at >= datetime('now', '-1 day')`
-            ).first();
-            const totalFailed = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_log WHERE status = 'failed'`).first();
-            logStats = {
-              total: Number(totalSent?.total || 0),
-              today: Number(todaySent?.total || 0),
-              failed: Number(totalFailed?.total || 0)
-            };
-          } catch (e) {}
-
           return json({
             success: true,
             stats: stats.results || [],
@@ -609,19 +589,7 @@ export default {
             push: {
               subscribers: Number(pushSubs?.total || 0),
               hasServiceAccount: hasServiceAccount,
-              sent: sentStats,
-              digests: digestStats,
-              logs: logStats
-            },
-            notificationConfig: {
-              quietHours: `${NOTIFICATION_CONFIG.QUIET_START_HOUR}:00 - ${NOTIFICATION_CONFIG.QUIET_END_HOUR}:00 IST`,
-              currentISTHour: getISTHour(),
-              isQuietHours: isQuietHours(),
-              primeHours: NOTIFICATION_CONFIG.PRIME_HOURS,
-              breakingThreshold: NOTIFICATION_CONFIG.BREAKING_SCORE_THRESHOLD,
-              digestCount: NOTIFICATION_CONFIG.DIGEST_NEWS_COUNT,
-              digestMinNews: NOTIFICATION_CONFIG.DIGEST_MIN_NEWS,
-              maxBreakingPerDay: NOTIFICATION_CONFIG.MAX_BREAKING_PER_DAY
+              sent: sentStats
             }
           }, 200, 0);
         } catch (error) {
@@ -748,11 +716,7 @@ export default {
                     console.error("[BREAKING] Send error:", error?.message || String(error));
                   })
                 );
-              } else {
-                console.log(`[BREAKING] Daily limit reached (${sentToday}/${NOTIFICATION_CONFIG.MAX_BREAKING_PER_DAY}) — skipping`);
               }
-            } else {
-              console.log(`[BREAKING] No high-score news (≥${NOTIFICATION_CONFIG.BREAKING_SCORE_THRESHOLD}) this cycle`);
             }
           } catch (e) {
             console.warn('[BREAKING] Failed:', e?.message);
@@ -931,7 +895,6 @@ async function sendDigest(env, istHour) {
     .slice(0, NOTIFICATION_CONFIG.DIGEST_NEWS_COUNT);
 
   if (unsentNews.length < NOTIFICATION_CONFIG.DIGEST_MIN_NEWS) {
-    console.log(`[DIGEST] Only ${unsentNews.length} fresh news — skipping (need ≥${NOTIFICATION_CONFIG.DIGEST_MIN_NEWS})`);
     return;
   }
 
@@ -1116,7 +1079,6 @@ async function sendDigestPush(env, payload, tokens) {
                      || errData?.error?.status
                      || 'unknown';
         result.errors.push(`${errCode}: ${token.slice(0, 15)}...`);
-        console.error('[FCM] Send failed:', errCode, JSON.stringify(errData).slice(0, 200));
 
         if (errCode === 'UNREGISTERED' || errCode === 'NOT_FOUND') {
           result.unregistered++;
@@ -1140,7 +1102,6 @@ async function sendDigestPush(env, payload, tokens) {
     } catch (e) {
       result.failed++;
       result.errors.push(`Network: ${e.message}`);
-      console.error('[FCM] Network error:', e.message);
     }
   }
 
@@ -1148,12 +1109,7 @@ async function sendDigestPush(env, payload, tokens) {
     try { await env.DB.batch(logStmts); } catch (e) {}
   }
 
-  console.log(`[FCM] Result: sent=${result.sent} failed=${result.failed} unregistered=${result.unregistered}`);
   return result;
-}
-
-async function sendSilentFcmUpdate(env, newsIds) {
-  return { disabled: true, reason: "silent-fcm-disabled" };
 }
 
 async function sendSinglePush(env, news, tokens, isBreaking) {
@@ -1179,7 +1135,6 @@ async function updateNews(env) {
   let batchResult = { batches: [], totalReceived: 0, totalInserted: 0 };
   try {
     batchResult = await runGNewsBatch(env.DB, env.GNEWS_API_KEY);
-    console.log(`[NEWS] GNews batches:`, JSON.stringify(batchResult));
   } catch (error) {
     console.error("[NEWS] GNews batch failed:", error?.message || String(error));
     return {
@@ -1191,12 +1146,7 @@ async function updateNews(env) {
 
   try {
     const candidateCleanup = await cleanOldCandidates(env.DB);
-    if (candidateCleanup.deleted > 0) {
-      console.log(`[NEWS] Cleaned ${candidateCleanup.deleted} old candidates`);
-    }
-  } catch (error) {
-    console.warn("[NEWS] Candidate cleanup failed:", error?.message || String(error));
-  }
+  } catch (error) {}
 
   let candidates = [];
   try {
@@ -1226,9 +1176,7 @@ async function updateNews(env) {
       `SELECT source_title, headline FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT 80`
     ).all();
     existingPublished = publishedResult.results || [];
-  } catch (error) {
-    console.warn("[NEWS] Existing published fetch failed:", error?.message || String(error));
-  }
+  } catch (error) {}
 
   let selected = [];
   try {
@@ -1248,11 +1196,8 @@ async function updateNews(env) {
       const rejectedIds = rejectedCandidates.map(c => String(c.id));
       const placeholders = rejectedIds.map(() => "?").join(",");
       await env.DB.prepare(`UPDATE news SET status = 'rejected' WHERE id IN (${placeholders})`).bind(...rejectedIds).run();
-      console.log(`[NEWS] Marked ${rejectedIds.length} candidates as rejected`);
     }
-  } catch (error) {
-    console.warn("[NEWS] Reject marking failed:", error?.message || String(error));
-  }
+  } catch (error) {}
 
   if (selected.length === 0) {
     return {
@@ -1281,12 +1226,10 @@ async function updateNews(env) {
         processSelectedNews(geminiInput, env.GEMINI_API_KEY),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Gemini total timeout')), 120000))
       ]).catch(err => {
-        console.warn('[NEWS] Gemini timeout:', err.message);
         return [];
       });
 
       usedGemini = Array.isArray(geminiResults) && geminiResults.length > 0;
-      console.log(`[NEWS] Gemini returned ${geminiResults.length}/${selected.length} results`);
     } catch (error) {
       console.error("[NEWS] Gemini failed:", error?.message || String(error));
     }
@@ -1295,7 +1238,6 @@ async function updateNews(env) {
   let publishResult = { published: 0, skipped: 0 };
   try {
     publishResult = await publishSelectedNews(env.DB, selected, geminiResults);
-    console.log(`[NEWS] Published ${publishResult.published} (skipped ${publishResult.skipped || 0})`);
   } catch (error) {
     console.error("[NEWS] Publish failed:", error?.message || String(error));
   }
@@ -1321,17 +1263,13 @@ async function updateNews(env) {
   if (searchUpdates.length) {
     try {
       await env.DB.batch(searchUpdates);
-    } catch (error) {
-      console.error("[SEARCH_TEXT] Batch update failed:", error?.message || String(error));
-    }
+    } catch (error) {}
   }
 
   let cleanupResult = { deleted: 0, total: 0, deletedIds: [] };
   try {
     cleanupResult = await enforceNewsLimit(env.DB);
-  } catch (error) {
-    console.error("[NEWS] Cleanup failed:", error?.message || String(error));
-  }
+  } catch (error) {}
 
   for (const id of cleanupResult.deletedIds || []) {
     try {
@@ -1345,17 +1283,13 @@ async function updateNews(env) {
       await purgeNewsApiCache("https://ajkernews.in");
       for (const id of publishedIds) await purgeArticleCache("https://ajkernews.in", id);
       for (const id of cleanupResult.deletedIds || []) await purgeArticleCache("https://ajkernews.in", id);
-    } catch (error) {
-      console.warn("[CACHE] Purge failed:", error?.message || String(error));
-    }
+    } catch (error) {}
   }
 
   if (publishedIds.length) {
     try {
       await fastIndexNews(env, publishedIds);
-    } catch (error) {
-      console.warn("[FAST-INDEX] Instant failed:", error?.message || String(error));
-    }
+    } catch (error) {}
 
     try {
       const eventPayload = JSON.stringify({
@@ -1371,10 +1305,7 @@ async function updateNews(env) {
         eventPayload,
         new Date().toISOString()
       ).run();
-      console.log(`[LIVE] Broadcast event for ${publishedIds.length} new articles`);
-    } catch (e) {
-      console.warn("[LIVE] Broadcast failed:", e?.message);
-    }
+    } catch (e) {}
   }
 
   return {
@@ -1393,16 +1324,23 @@ async function updateNews(env) {
   };
 }
 
-async function serveBotHomepage(env) {
-  return await serveListingPage(env, "top", null);
+async function serveBotHomepage(env, request) {
+  return await serveListingPage(env, "top", null, request);
 }
 
-async function serveBotCategoryPage(category, env) {
-  return await serveListingPage(env, category, null);
+async function serveBotCategoryPage(category, env, request) {
+  return await serveListingPage(env, category, null, request);
 }
 
-async function serveListingPage(env, category, searchQuery) {
+async function serveListingPage(env, category, searchQuery, request) {
   try {
+    const userAgent = request?.headers.get("User-Agent") || "";
+    const isBot = BOT_REGEX.test(userAgent);
+
+    // ✅ Bot-safe ad scripts
+    const adScripts = isBot ? "" : getAdsterraScripts();
+    const bannerContainer = isBot ? "" : getNativeBannerContainer();
+
     const catLabel = {
       top:'সেরা খবর', trending:'ট্রেন্ডিং', west_bengal:'পশ্চিমবঙ্গ',
       kolkata:'কলকাতা', india:'ভারত', world:'বিশ্ব', business:'ব্যবসা',
@@ -1432,11 +1370,17 @@ async function serveListingPage(env, category, searchQuery) {
     const pageTitle = searchQuery ? `সার্চ: ${searchQuery}` : (catLabel[category] || "সেরা খবর");
 
     let newsHtml = "";
+    let cardIndex = 0;
     for (const item of news) {
       const link = `https://ajkernews.in/news/${encodeURIComponent(item.id)}`;
       const displayDate = item.created_at || item.published_at;
       const publishedDate = displayDate ? new Date(displayDate).toISOString() : new Date().toISOString();
       const cat = catLabel[item.category] || item.category || 'সংবাদ';
+
+      // ✅ প্রতি ৩টি card-এর পরে inline native banner inject (bot-safe)
+      if (!isBot && cardIndex > 0 && cardIndex % 3 === 0) {
+        newsHtml += getInlineNativeBanner();
+      }
 
       newsHtml += `
         <article itemscope itemtype="https://schema.org/NewsArticle" style="margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid #eee;">
@@ -1460,6 +1404,8 @@ async function serveListingPage(env, category, searchQuery) {
           </div>
           <a itemprop="url" href="${escapeHtml(link)}" style="display:inline-block;margin-top:8px;color:#007bff;font-size:14px;text-decoration:none;">পূর্ণ খবর পড়ুন →</a>
         </article>`;
+
+      cardIndex++;
     }
 
     const catNavHtml = categories.map(c => {
@@ -1494,7 +1440,7 @@ async function serveListingPage(env, category, searchQuery) {
 <meta property="og:url" content="${escapeHtml(canonical)}">
 <meta property="og:image" content="https://ajkernews.in/logo.png">
 <script type="application/ld+json">${itemListLd}</script>
-${getAdsterraScripts()}
+${adScripts}
 </head>
 <body style="max-width:820px;margin:0 auto;padding:20px;font-family:Inter,-apple-system,sans-serif;color:#111;">
 <header>
@@ -1503,7 +1449,7 @@ ${getAdsterraScripts()}
   <nav style="margin-bottom:24px;">${catNavHtml}</nav>
 </header>
 <main>${newsHtml}</main>
-${getNativeBannerContainer()}
+${bannerContainer}
 <footer style="margin-top:40px;padding-top:20px;border-top:1px solid #eee;text-align:center;color:#888;font-size:13px;">
   <p>
     <a href="https://ajkernews.in/sitemap.xml" style="color:#007bff;">Sitemap</a> ·
@@ -1529,9 +1475,16 @@ ${getNativeBannerContainer()}
   }
 }
 
-async function serveArticlePage(id, env) {
+async function serveArticlePage(id, env, request) {
   const safeId = String(id || "").trim();
   if (!safeId) return Response.redirect("https://ajkernews.in/", 302);
+
+  const userAgent = request?.headers.get("User-Agent") || "";
+  const isBot = BOT_REGEX.test(userAgent);
+
+  // ✅ Bot-safe ad scripts
+  const adScripts = isBot ? "" : getAdsterraScripts();
+  const bannerContainer = isBot ? "" : getNativeBannerContainer();
 
   const result = await env.DB.prepare(
     `SELECT headline, summary, main_topic, image_url, published_at, created_at, source_name, source_url, category FROM news WHERE id = ? AND status = 'published' LIMIT 1`
@@ -1580,7 +1533,7 @@ async function serveArticlePage(id, env) {
       `SELECT id, headline FROM news WHERE status = 'published' AND id != ? ORDER BY created_at DESC LIMIT 4`
     ).bind(safeId).all();
     recentNews = recent?.results || [];
-  } catch (e) { console.warn('[RECENT]', e?.message); }
+  } catch (e) {}
 
   const catLabel = {
     top:'সেরা খবর', trending:'ট্রেন্ডিং', west_bengal:'পশ্চিমবঙ্গ',
@@ -1629,6 +1582,10 @@ async function serveArticlePage(id, env) {
     </ul>
   </aside>` : "";
 
+  // ✅ Article-এর mid-এ inline banner (bot-safe)
+  const midArticleBanner = isBot ? "" : getInlineNativeBanner();
+  const endArticleBanner = isBot ? "" : getInlineNativeBanner();
+
   const html = `<!DOCTYPE html>
 <html lang="bn">
 <head>
@@ -1650,7 +1607,7 @@ async function serveArticlePage(id, env) {
 <meta name="twitter:card" content="summary_large_image">
 <script type="application/ld+json">${newsArticleLd}</script>
 <script type="application/ld+json">${breadcrumbLd}</script>
-${getAdsterraScripts()}
+${adScripts}
 <style>
   * { margin:0; padding:0; box-sizing:border-box; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
   html { scroll-behavior: smooth; font-size: 16px; -webkit-text-size-adjust: 100%; }
@@ -1730,8 +1687,10 @@ ${getAdsterraScripts()}
     </div>
     <div class="article-body" id="articleBody" itemprop="articleBody">
       <p>${escapeHtml(fullSummary)}</p>
+      ${midArticleBanner}
     </div>
-    ${getNativeBannerContainer()}
+    ${endArticleBanner}
+    ${bannerContainer}
     <div class="article-source-row">
       <a class="article-source-link" href="${escapeHtml(result.source_url || '#')}" rel="noopener noreferrer nofollow" target="_blank">${escapeHtml(sourceDomain)}</a>
       <span class="article-date">${escapeHtml(formattedDate)}</span>
@@ -2020,9 +1979,7 @@ async function ensureTables(env) {
   ];
 
   for (const sql of queries) {
-    try { await env.DB.prepare(sql).run(); } catch (error) {
-      console.error("Table setup error:", error?.message || String(error));
-    }
+    try { await env.DB.prepare(sql).run(); } catch (error) {}
   }
 
   try {
@@ -2037,7 +1994,7 @@ async function ensureTables(env) {
     if (!colNames.includes("indexed_at")) {
       await env.DB.prepare(`ALTER TABLE news ADD COLUMN indexed_at TEXT`).run();
     }
-  } catch (error) { console.error("Column migration failed:", error?.message || String(error)); }
+  } catch (error) {}
 
   try {
     const pushColumns = await env.DB.prepare(`PRAGMA table_info(push_subscriptions)`).all();
@@ -2045,7 +2002,7 @@ async function ensureTables(env) {
     if (!pushColNames.includes("token")) {
       await env.DB.prepare(`ALTER TABLE push_subscriptions ADD COLUMN token TEXT`).run();
     }
-  } catch (error) { console.error("Push subscriptions migration failed:", error?.message || String(error)); }
+  } catch (error) {}
 }
 
 async function ensureTablesOnce(env) {
@@ -2069,6 +2026,10 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
   ).bind(safeId).first();
 
   if (!result) return gonePage();
+
+  const userAgent = requestUserAgentFromContext || "";
+  const isBot = BOT_REGEX.test(userAgent);
+  const adScripts = isBot ? "" : getAdsterraScripts();
 
   const title = cleanText(result.headline) || "Ajker News";
   const description = cleanText(result.summary || "").slice(0, 160);
@@ -2099,7 +2060,7 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="Ajker News">
 <meta name="twitter:card" content="summary_large_image">
-${getAdsterraScripts()}
+${adScripts}
 <style>
   * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, sans-serif; }
   body { background: #f5f5f5; color: #111; padding: 0 0 40px; }

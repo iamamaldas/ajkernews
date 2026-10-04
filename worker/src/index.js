@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v31.4: Notification Urgency Fix (high) + Push Event Handler
+// ✅ FINAL v32.0: Adsterra 3 Ad Units (Popunder + Social Bar + Native Banner) — Full Script Support
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -93,15 +93,35 @@ function getDigestType(hour) {
   return "general";
 }
 
+// ✅ UPDATED: 3 Ad Units with Full Script Support
 function getAdsterraScripts() {
   const scripts = [];
-  if (ADS_CONFIG?.scripts?.socialBar && ADS_CONFIG.scripts.socialBar !== "YOUR_SOCIAL_BAR_URL") {
-    scripts.push(`<script async src="${ADS_CONFIG.scripts.socialBar}" data-cfasync="false"></script>`);
+
+  // Popunder — শুধু src URL
+  if (ADS_CONFIG?.popunderUrl && ADS_CONFIG.popunderUrl !== "YOUR_POPUNDER_URL") {
+    scripts.push(`<script async src="${ADS_CONFIG.popunderUrl}" data-cfasync="false"></script>`);
   }
-  if (ADS_CONFIG?.scripts?.popunder && ADS_CONFIG.scripts.popunder !== "YOUR_POPUNDER_URL") {
-    scripts.push(`<script async src="${ADS_CONFIG.scripts.popunder}" data-cfasync="false"></script>`);
+
+  // Social Bar — পুরো স্ক্রিপ্ট কোড
+  if (ADS_CONFIG?.socialBarScript && !ADS_CONFIG.socialBarScript.includes("YOUR_SOCIAL_BAR_SCRIPT")) {
+    scripts.push(ADS_CONFIG.socialBarScript);
   }
+
+  // Native Banner — পুরো স্ক্রিপ্ট কোড
+  if (ADS_CONFIG?.nativeBannerScript && !ADS_CONFIG.nativeBannerScript.includes("YOUR_NATIVE_BANNER_SCRIPT")) {
+    scripts.push(ADS_CONFIG.nativeBannerScript);
+  }
+
   return scripts.join("\n");
+}
+
+// ✅ Native Banner Container
+function getNativeBannerContainer() {
+  const containerId = ADS_CONFIG?.nativeBannerContainerId;
+  if (!containerId || containerId === "YOUR_NATIVE_BANNER_CONTAINER_ID") {
+    return "";
+  }
+  return `<div id="${containerId}" style="margin: 20px 0; min-height: 250px; width: 100%;"></div>`;
 }
 
 async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
@@ -263,7 +283,7 @@ export default {
         return jsonWithCookie({ success: true }, 200, cookie);
       }
 
-      // ✅ ADMIN LIST NEWS — All Published + Load More + ID Search
+      // ADMIN LIST NEWS
       if (url.pathname === "/api/admin/list" && request.method === "GET") {
         const session = await getAdminSession(request, env);
         if (!session) return json({ success: false, error: "Unauthorized" }, 401, 0);
@@ -323,7 +343,7 @@ export default {
         } catch (error) { return json({ success: false, error: error.message }, 500, 0); }
       }
 
-      // ✅ ADMIN LIST COMMENTS
+      // ADMIN LIST COMMENTS
       if (url.pathname === "/api/admin/comments" && request.method === "GET") {
         const session = await getAdminSession(request, env);
         if (!session) return json({ success: false, error: "Unauthorized" }, 401, 0);
@@ -347,7 +367,7 @@ export default {
         } catch (error) { return json({ success: false, error: error.message }, 500, 0); }
       }
 
-      // ✅ ADMIN UPDATE COMMENT
+      // ADMIN UPDATE COMMENT
       if (url.pathname === "/api/admin/comment-update" && request.method === "POST") {
         const session = await getAdminSession(request, env);
         if (!session) return json({ success: false, error: "Unauthorized" }, 401, 0);
@@ -1483,6 +1503,7 @@ ${getAdsterraScripts()}
   <nav style="margin-bottom:24px;">${catNavHtml}</nav>
 </header>
 <main>${newsHtml}</main>
+${getNativeBannerContainer()}
 <footer style="margin-top:40px;padding-top:20px;border-top:1px solid #eee;text-align:center;color:#888;font-size:13px;">
   <p>
     <a href="https://ajkernews.in/sitemap.xml" style="color:#007bff;">Sitemap</a> ·
@@ -1710,6 +1731,7 @@ ${getAdsterraScripts()}
     <div class="article-body" id="articleBody" itemprop="articleBody">
       <p>${escapeHtml(fullSummary)}</p>
     </div>
+    ${getNativeBannerContainer()}
     <div class="article-source-row">
       <a class="article-source-link" href="${escapeHtml(result.source_url || '#')}" rel="noopener noreferrer nofollow" target="_blank">${escapeHtml(sourceDomain)}</a>
       <span class="article-date">${escapeHtml(formattedDate)}</span>

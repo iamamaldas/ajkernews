@@ -114,6 +114,10 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .main-content { padding:18px; max-width: min(820px, 95vw); margin: 0 auto; flex: 1 0 auto; width: 100%; }
 #newsContainer { min-height:200px; display:flex; flex-direction:column; gap:16px; }
 
+/* ✅ Inline Native Ad (news feed-এ inject) */
+.inline-native-ad { margin: 8px 0; padding: 16px; background: #fafafa; border-radius: 14px; border: 1px dashed #e0e0e0; }
+.inline-native-ad-label { font-size: 11px; color: #999; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+
 .news-skeleton { display:block; width:100%; background:#fff; border-radius:16px; overflow:hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.03), 0 4px 16px rgba(0,0,0,0.04); }
 .skeleton-image { width:100%; aspect-ratio:16/9; background:linear-gradient(90deg,#f2f3f5 25%,#e8e9ec 50%,#f2f3f5 75%); background-size:200% 100%; animation:shimmer 1.5s infinite; }
 .skeleton-body { padding:18px 20px 20px; }
@@ -238,7 +242,7 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 }
 
 /* ============================================ */
-/* 🟢 TOP LONG BANNER — No Close Button */
+/* 🟢 TOP LONG BANNER */
 /* ============================================ */
 #topLongBanner {
   display: none;
@@ -299,135 +303,28 @@ body.has-top-banner { padding-top: 60px; }
   transform: translateY(0) scale(0.98);
 }
 
-/* ============================================ */
-/* 🟢 MOVABLE MINI AD BOX — নিচে বাম দিকে */
-/* ============================================ */
-#popunderMiniBox {
-  display: none;
-  position: fixed;
-  bottom: 80px;
-  left: 16px;
-  width: 180px;
-  height: 120px;
-  background: #ffffff;
-  border-radius: 12px;
-  padding: 4px;
-  z-index: 99999;
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.1),
-    0 12px 32px rgba(0, 0, 0, 0.4);
-  transition: opacity 0.3s ease;
-  opacity: 0;
-  pointer-events: none;
-  overflow: visible;
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
-}
-#popunderMiniBox.show {
-  display: block;
-  opacity: 1;
-  pointer-events: auto;
-}
-#popunderMiniBox:active { cursor: grabbing; }
-
-#popunderMiniBox .drag-handle {
-  position: absolute;
-  top: -20px;
-  left: 50%;
-  transform: translateX(-50%);
-  height: 15px;
-  width: 50px;
-  background: rgba(13, 17, 23, 0.9);
-  border-radius: 8px 8px 0 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #8b949e;
-  font-size: 9px;
-  letter-spacing: 1px;
-  pointer-events: none;
-  font-weight: 700;
-}
-
-.pub-ad-link {
-  display: block;
-  width: 100%;
-  height: 100%;
-  border-radius: 8px;
-  overflow: hidden;
-  background: #f4f5f7;
-  text-decoration: none;
-}
-.pub-ad-link img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  border-radius: 8px;
-  object-fit: cover;
-}
-
-#popunderClose {
-  position: absolute;
-  top: -10px;
-  right: -10px;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: #ffffff;
-  color: #0d1117;
-  border: 2px solid #0d1117;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  padding: 0;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
-  transition: transform 0.2s ease, background 0.2s ease;
-  z-index: 2;
-}
-#popunderClose:hover {
-  background: #58a6ff;
-  color: #ffffff;
-  transform: rotate(90deg) scale(1.1);
-}
-#popunderClose:active { transform: rotate(90deg) scale(0.9); }
-
 @media (max-width: 480px) {
   #topLongBanner { height: 50px; }
   #topLongBanner img { height: 50px; }
   body.has-top-banner { padding-top: 50px; }
-
-  #popunderMiniBox {
-    width: 150px;
-    height: 100px;
-    bottom: 70px;
-    left: 10px;
-  }
-  #popunderMiniBox .drag-handle { top: -18px; height: 14px; width: 44px; font-size: 8px; }
-  #popunderClose { width: 22px; height: 22px; font-size: 13px; top: -9px; right: -9px; }
 }
 
 /* ============================================ */
 /* 🛡️ BLOCK ADULT/VULGAR AD OVERLAYS */
 /* ============================================ */
-body > div[style*="position: fixed"][style*="z-index: 9999"]:not(#popunderMiniBox):not(#newNewsBanner):not(#topLongBanner),
-body > div[style*="position:fixed"][style*="z-index:9999"]:not(#popunderMiniBox):not(#newNewsBanner):not(#topLongBanner),
-body > div[style*="position: fixed"][style*="z-index: 99999"]:not(#popunderMiniBox):not(#newNewsBanner):not(#topLongBanner),
-body > div[style*="position:fixed"][style*="z-index:99999"]:not(#popunderMiniBox):not(#newNewsBanner):not(#topLongBanner) {
+body > div[style*="position: fixed"][style*="z-index: 9999"]:not(#newNewsBanner):not(#topLongBanner),
+body > div[style*="position:fixed"][style*="z-index:9999"]:not(#newNewsBanner):not(#topLongBanner),
+body > div[style*="position: fixed"][style*="z-index: 99999"]:not(#newNewsBanner):not(#topLongBanner),
+body > div[style*="position:fixed"][style*="z-index:99999"]:not(#newNewsBanner):not(#topLongBanner) {
   display: none !important;
   visibility: hidden !important;
   opacity: 0 !important;
   pointer-events: none !important;
 }
 
-div[id*="popunder"]:not(#popunderMiniBox),
+div[id*="popunder"],
 div[class*="popunder"],
-div[id*="ad-overlay"]:not(#popunderMiniBox),
+div[id*="ad-overlay"],
 div[class*="ad-overlay"] {
   display: none !important;
 }
@@ -444,22 +341,11 @@ iframe[src*="bicea.org"] {
 <body>
 
 <!-- ============================================ -->
-<!-- 🟢 TOP LONG BANNER — No Close Button -->
+<!-- 🟢 TOP LONG BANNER -->
 <!-- ============================================ -->
 <div id="topLongBanner" role="region" aria-label="Top Sponsor">
   <a href="javascript:void(0)" onclick="triggerPopunder(); return false;">
     <img src="https://via.placeholder.com/728x60/0d1117/58a6ff?text=Adsterra+Sponsor+Banner" alt="Sponsor">
-  </a>
-</div>
-
-<!-- ============================================ -->
-<!-- 🟢 MOVABLE MINI AD BOX — নিচে বাম দিকে -->
-<!-- ============================================ -->
-<div id="popunderMiniBox" role="dialog" aria-label="Sponsor">
-  <div class="drag-handle">⋮⋮ DRAG</div>
-  <button id="popunderClose" aria-label="Close">&times;</button>
-  <a id="popunderAdLink" class="pub-ad-link" href="#" target="_blank" rel="noopener noreferrer nofollow">
-    <img src="https://via.placeholder.com/180x120/0d1117/58a6ff?text=Ad" alt="Sponsor">
   </a>
 </div>
 
@@ -596,29 +482,17 @@ iframe[src*="bicea.org"] {
   window.__firebaseReady = true;
 
   onMessage(messaging, (payload) => {
-    console.log('[FCM] Foreground message:', payload);
-    
-    if (payload.notification) {
-      console.log('[FCM] Notification payload detected. Browser will handle it.');
-      return;
-    }
-
+    if (payload.notification) return;
     if (payload.data && Notification.permission === 'granted') {
       const title = payload.data.title || 'Ajker News';
       const body = payload.data.body || '';
       const url = payload.data.url || '/';
       const n = new Notification(title, {
-        body,
-        icon: '/logo.png',
-        badge: '/logo.png',
+        body, icon: '/logo.png', badge: '/logo.png',
         tag: payload.data.notificationId || 'default',
         data: { url }
       });
-      n.onclick = () => {
-        window.focus();
-        if (url) window.open(url, '_blank');
-        n.close();
-      };
+      n.onclick = () => { window.focus(); if (url) window.open(url, '_blank'); n.close(); };
     }
   });
 </script>
@@ -718,20 +592,14 @@ window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); defe
 async function installApp() {
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
   if (isStandalone) return;
-
   if (deferredPrompt) {
     try {
       deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      console.log('[Install] User choice:', outcome);
+      await deferredPrompt.userChoice;
       deferredPrompt = null;
-    } catch (err) {
-      console.log('[Install] Prompt error:', err);
-    }
+    } catch (err) {}
     return;
   }
-
-  console.log('[Install] Native prompt not available on this browser.');
 }
 
 function showSkeleton(container, count = 3) {
@@ -752,7 +620,7 @@ async function loadNews(category = 'top', search = '', options = {}) {
   currentSearchQuery = search || '';
   if (showLoading && !keepExisting) showSkeleton(container, 3);
   try { await loadNewsNetwork(category, search); }
-  catch (err) { console.error('loadNews failed:', err); }
+  catch (err) {}
   finally { isLoadingNews = false; }
 }
 
@@ -790,7 +658,6 @@ async function loadNewsNetwork(category, search) {
       updateLoveCounts(normalized);
       return;
     } catch (error) {
-      console.warn(`[loadNewsNetwork] attempt ${attempt}/${MAX_ATTEMPTS} failed:`, error?.message || error);
       if (attempt < MAX_ATTEMPTS) await new Promise(r => setTimeout(r, BASE_DELAY * attempt));
     }
   }
@@ -850,13 +717,20 @@ function buildNewsHtml(news) {
           <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
         </button>
       </div>
-      <!-- ✅ Popunder Link — প্রতি পোস্ট কার্ডের পরে -->
       <a class="popunder-link" href="javascript:void(0)" onclick="event.stopPropagation(); triggerPopunder();">
         <span>📰</span>
         <span>আরও খবর পড়ুন →</span>
       </a>
     </div>
   </article>`;
+}
+
+// ✅ Native Ad HTML (news feed-এ inject)
+function buildInlineNativeAd() {
+  return `<div class="inline-native-ad">
+    <div class="inline-native-ad-label">Sponsored</div>
+    <div id="container-25ee2c0a822da5cf3429cd2cb222524f-inline-${Date.now()}-${Math.random().toString(36).slice(2,8)}" style="min-height:200px;width:100%;"></div>
+  </div>`;
 }
 
 function renderNews(newsList, hasMore = false) {
@@ -869,8 +743,12 @@ function renderNews(newsList, hasMore = false) {
   }
   const limited = newsList.slice(0, visibleCount);
   let html = '';
-  limited.forEach((news) => {
+  limited.forEach((news, index) => {
     html += buildNewsHtml(news);
+    // ✅ প্রতি ৩টি news card-এর পরে inline native ad inject
+    if ((index + 1) % 3 === 0 && index < limited.length - 1) {
+      html += buildInlineNativeAd();
+    }
   });
   container.innerHTML = html;
   requestAnimationFrame(() => {
@@ -879,6 +757,7 @@ function renderNews(newsList, hasMore = false) {
   const loadMoreBtn = document.getElementById('loadMoreBtn');
   if (loadMoreBtn) loadMoreBtn.style.display = hasMore ? 'block' : 'none';
 
+  // Adsterra native banner script reload for inline ads
   if (typeof window.__refreshAdsterraNativeBanner === 'function') {
     window.__refreshAdsterraNativeBanner();
   }
@@ -910,7 +789,7 @@ async function loadMoreNews() {
     hasMoreNews = data.has_more || false;
     renderNews(currentNews, hasMoreNews);
     updateLoveCounts(newNews);
-  } catch (error) { console.error('Load more error:', error); }
+  } catch (error) {}
   loadMoreBtn.disabled = false;
 }
 
@@ -931,7 +810,7 @@ async function toggleLove(id) {
     });
     const data = await response.json();
     updateLoveUI(id, newLoved, Number(data.love_count || 0));
-  } catch (error) { console.error('Love error:', error); }
+  } catch (error) {}
 }
 
 async function shareNews(id, headline, summary) {
@@ -1002,7 +881,6 @@ async function toggleNotification() {
         vapidKey: window.__VAPID_KEY,
         serviceWorkerRegistration: reg
       }).catch(() => null);
-
       if (existingToken) {
         await fetch(`${WORKER_BASE}/api/unsubscribe`, {
           method: 'POST',
@@ -1039,38 +917,27 @@ async function toggleNotification() {
       alert('ব্রাউজার নোটিফিকেশন blocked। ব্রাউজার সেটিংস থেকে চালু করুন।');
       return;
     }
-
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') {
       alert('নোটিফিকেশন চালু করতে অনুমতি দিন।');
       return;
     }
-
     const reg = await navigator.serviceWorker.ready;
-    console.log('[FCM] Using SW registration:', reg.scope);
-
     const fcmToken = await window.__firebase.getToken(window.__firebase.messaging, {
       vapidKey: window.__VAPID_KEY,
       serviceWorkerRegistration: reg
     });
-
     if (!fcmToken) throw new Error('FCM token পাওয়া যায়নি');
-    console.log('[FCM] Token obtained:', fcmToken.slice(0, 30) + '...');
-
     const res = await fetch(`${WORKER_BASE}/api/subscribe`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: fcmToken })
     });
-    console.log('[Subscribe] HTTP', res.status);
-
     if (!res.ok) throw new Error('Subscribe HTTP ' + res.status);
-
     btn.classList.add('subscribed');
     localStorage.setItem('notifSubscribed', '1');
     alert('নোটিফিকেশন চালু হয়েছে! নতুন খবর এলে আমরা জানাব।');
   } catch (error) {
-    console.error('[FCM] Subscribe failed:', error);
     alert('নোটিফিকেশন চালু করা যায়নি: ' + (error?.message || error));
   } finally {
     notificationSetupInProgress = false;
@@ -1107,7 +974,7 @@ async function openCommentModal(id) {
     html += `</div>`;
     body.innerHTML = html;
     modal.style.display = 'block';
-  } catch (error) { console.error('Comment error:', error); }
+  } catch (error) {}
 }
 
 async function submitComment(newsId) {
@@ -1174,7 +1041,7 @@ function startLiveStream() {
   if (liveStream) { try { liveStream.close(); } catch (e) {} }
   try {
     liveStream = new EventSource(`${WORKER_BASE}/api/live`);
-    liveStream.addEventListener('connected', () => { console.log('[SSE] Connected'); });
+    liveStream.addEventListener('connected', () => {});
     liveStream.addEventListener('news_published', (e) => {
       try {
         const data = JSON.parse(e.data || '{}');
@@ -1252,20 +1119,15 @@ function handleNotificationPromptLater() {
 }
 
 // ============================================
-// 🟢 POPUNDER CONTROLLER — ১০ মিনিট কুলডাউন
+// 🟢 POPUNDER CONTROLLER — ২৫ মিনিট কুলডাউন
 // ============================================
-let popunderTriggered = false;
-
 function triggerPopunder() {
-  if (popunderTriggered) return;
-
   const lastTriggered = parseInt(localStorage.getItem('popunder_last') || '0', 10);
   const now = Date.now();
-  const COOLDOWN = 10 * 60 * 1000; // ১০ মিনিট
+  const COOLDOWN = 25 * 60 * 1000; // ২৫ মিনিট
 
   if (now - lastTriggered < COOLDOWN) return;
 
-  popunderTriggered = true;
   localStorage.setItem('popunder_last', String(now));
 
   var s = document.createElement('script');
@@ -1294,10 +1156,7 @@ function openNewsWithPopunder(url) {
         scope: '/'
       });
       await mainReg.update().catch(() => {});
-      console.log('[SW] Registered at scope:', mainReg.scope);
-    } catch (err) {
-      console.error('[SW] Registration failed:', err);
-    }
+    } catch (err) {}
   }
 
   await checkNotificationStatus();
@@ -1314,113 +1173,16 @@ window.addEventListener('load', () => {
 });
 
 // ============================================
-// 🟢 AD CONTROLLERS — Top Banner + Movable Mini Box
+// 🟢 TOP BANNER CONTROLLER
 // ============================================
 (function() {
-
-  // === Top Banner ===
   var topBanner = document.getElementById('topLongBanner');
-
   function showTopBanner() {
     if (!topBanner) return;
     topBanner.classList.add('show');
     document.body.classList.add('has-top-banner');
   }
-
-  // === Movable Mini Ad Box ===
-  var box = document.getElementById('popunderMiniBox');
-  var closeBtn = document.getElementById('popunderClose');
-  var adLink = document.getElementById('popunderAdLink');
-
-  var AD_DESTINATION_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
-
-  if (adLink && AD_DESTINATION_URL) {
-    adLink.setAttribute('href', AD_DESTINATION_URL);
-  }
-
-  if (closeBtn) {
-    closeBtn.addEventListener('click', function(e) {
-      e.preventDefault();
-      e.stopPropagation();
-      box.classList.remove('show');
-    });
-  }
-
-  // === Drag Logic (Mouse + Touch) ===
-  var isDragging = false;
-  var startX = 0;
-  var startY = 0;
-  var boxLeft = 0;
-  var boxTop = 0;
-  var hasMoved = false;
-
-  function getPoint(e) {
-    if (e.touches && e.touches.length) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
-    return { x: e.clientX, y: e.clientY };
-  }
-
-  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
-
-  function onDragStart(e) {
-    if (e.target === closeBtn) return;
-    isDragging = true;
-    hasMoved = false;
-    var p = getPoint(e);
-    startX = p.x;
-    startY = p.y;
-    var rect = box.getBoundingClientRect();
-    boxLeft = rect.left;
-    boxTop = rect.top;
-    box.style.transition = 'none';
-    box.style.bottom = 'auto';
-    box.style.left = boxLeft + 'px';
-    box.style.top = boxTop + 'px';
-  }
-
-  function onDragMove(e) {
-    if (!isDragging) return;
-    var p = getPoint(e);
-    var dx = p.x - startX;
-    var dy = p.y - startY;
-    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) hasMoved = true;
-    var newLeft = clamp(boxLeft + dx, 4, window.innerWidth - box.offsetWidth - 4);
-    var newTop = clamp(boxTop + dy, 4, window.innerHeight - box.offsetHeight - 4);
-    box.style.left = newLeft + 'px';
-    box.style.top = newTop + 'px';
-    if (e.cancelable) e.preventDefault();
-  }
-
-  function onDragEnd(e) {
-    if (!isDragging) return;
-    isDragging = false;
-    box.style.transition = 'opacity 0.3s ease';
-    if (hasMoved && adLink) {
-      adLink.addEventListener('click', function blockOnce(ev) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        adLink.removeEventListener('click', blockOnce, true);
-      }, true);
-      setTimeout(function() {
-        hasMoved = false;
-      }, 300);
-    }
-  }
-
-  if (box) {
-    box.addEventListener('mousedown', onDragStart);
-    box.addEventListener('touchstart', onDragStart, { passive: true });
-    document.addEventListener('mousemove', onDragMove);
-    document.addEventListener('touchmove', onDragMove, { passive: false });
-    document.addEventListener('mouseup', onDragEnd);
-    document.addEventListener('touchend', onDragEnd);
-  }
-
-  // === Show sequence ===
   setTimeout(showTopBanner, 2000);
-  setTimeout(function() {
-    if (box) box.classList.add('show');
-  }, 4000);
-
 })();
 </script>
 </body>

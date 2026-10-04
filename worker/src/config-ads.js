@@ -1,23 +1,24 @@
 // worker/src/config-ads.js
-// 🟢 ADSTERRA — Social Bar + Native Banner + Popunder (HTML থেকে ট্রিগার)
+// 🟢 ADSTERRA — Social Bar + Native Banner + Popunder (HTML থেকে trigger)
 
 export default {
-  // ✅ ১. আপনার আসল Adsterra Publisher ID
+  // ✅ আপনার Adsterra Publisher ID
   publisherId: "6096923",
 
-  // ✅ ২. ads.txt content (Adsterra আর এটি দেয় না)
+  // ✅ ads.txt (Adsterra authorize)
   adsTxtContent: `# Adsterra ads.txt
+adsterra.com, 6096923, DIRECT
 `,
 
-  // ✅ ৩. Popunder — খালি রাখুন (কারণ HTML থেকে ট্রিগার হবে)
+  // ✅ Popunder HTML থেকে trigger হবে, তাই খালি
   popunderUrl: "",
 
-  // ✅ ৪. Social Bar — ঠিক আছে
-  socialBarScript: `<script data-cfasync="false" src="https://bicea.org/14/3f58b0818e43e5e2e8f28449d29e9937"></script>`,
+  // ✅ Social Bar — `<\/script>` escape করা
+  socialBarScript: `<script data-cfasync="false" src="https://bicea.org/14/3f58b0818e43e5e2e8f28449d29e9937"><\/script>`,
 
-  // ✅ ৫. Native Banner — ঠিক আছে
-  nativeBannerScript: `<script async="async" data-cfasync="false" src="https://bicea.org/21/25ee2c0a822da5cf3429cd2cb222524f"></script>`,
+  // ✅ Native Banner — `<\/script>` escape করা
+  nativeBannerScript: `<script async="async" data-cfasync="false" src="https://bicea.org/21/25ee2c0a822da5cf3429cd2cb222524f"><\/script>`,
 
-  // ✅ ৬. Native Banner Container ID — ঠিক আছে
+  // ✅ Native Banner Container ID
   nativeBannerContainerId: "container-25ee2c0a822da5cf3429cd2cb222524f"
 };

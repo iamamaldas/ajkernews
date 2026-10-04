@@ -286,57 +286,7 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 }
 #topLongBanner .ad-close:hover { background: rgba(0,0,0,0.85); }
 
-/* ============================================ */
-/* 🟢 BOTTOM LONG BANNER — Fixed */
-/* ============================================ */
-#bottomLongBanner {
-  display: none;
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  height: 60px;
-  background: #ffffff;
-  z-index: 99998;
-  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.08);
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  transition: transform 0.4s cubic-bezier(0.34, 1.3, 0.64, 1), opacity 0.3s ease;
-}
-#bottomLongBanner.show { display: flex; transform: translateY(0); opacity: 1; }
-#bottomLongBanner.hide { transform: translateY(100%); opacity: 0; }
-#bottomLongBanner iframe,
-#bottomLongBanner ins,
-#bottomLongBanner img {
-  width: 100%;
-  height: 60px;
-  display: block;
-  border: none;
-}
-#bottomLongBanner .ad-close {
-  position: absolute;
-  top: 4px;
-  right: 6px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.6);
-  color: #fff;
-  border: none;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2;
-  padding: 0;
-}
-#bottomLongBanner .ad-close:hover { background: rgba(0,0,0,0.85); }
-
 body.has-top-banner { padding-top: 60px; }
-body.has-bottom-banner { padding-bottom: 60px; }
 
 /* ============================================ */
 /* 🟢 MOVABLE MINI AD BOX — 200x200 */
@@ -444,10 +394,6 @@ body.has-bottom-banner { padding-bottom: 60px; }
   #topLongBanner iframe, #topLongBanner ins, #topLongBanner img { height: 50px; }
   body.has-top-banner { padding-top: 50px; }
 
-  #bottomLongBanner { height: 50px; }
-  #bottomLongBanner iframe, #bottomLongBanner ins, #bottomLongBanner img { height: 50px; }
-  body.has-bottom-banner { padding-bottom: 50px; }
-
   #popunderMiniBox {
     width: 160px;
     height: 160px;
@@ -461,10 +407,10 @@ body.has-bottom-banner { padding-bottom: 60px; }
 /* ============================================ */
 /* 🛡️ BLOCK ADULT/VULGAR AD OVERLAYS */
 /* ============================================ */
-body > div[style*="position: fixed"][style*="z-index: 9999"]:not(#popunderMiniBox):not(#newNewsBanner):not(#topLongBanner):not(#bottomLongBanner),
-body > div[style*="position:fixed"][style*="z-index:9999"]:not(#popunderMiniBox):not(#newNewsBanner):not(#topLongBanner):not(#bottomLongBanner),
-body > div[style*="position: fixed"][style*="z-index: 99999"]:not(#popunderMiniBox):not(#newNewsBanner):not(#topLongBanner):not(#bottomLongBanner),
-body > div[style*="position:fixed"][style*="z-index:99999"]:not(#popunderMiniBox):not(#newNewsBanner):not(#topLongBanner):not(#bottomLongBanner) {
+body > div[style*="position: fixed"][style*="z-index: 9999"]:not(#popunderMiniBox):not(#newNewsBanner):not(#topLongBanner),
+body > div[style*="position:fixed"][style*="z-index:9999"]:not(#popunderMiniBox):not(#newNewsBanner):not(#topLongBanner),
+body > div[style*="position: fixed"][style*="z-index: 99999"]:not(#popunderMiniBox):not(#newNewsBanner):not(#topLongBanner),
+body > div[style*="position:fixed"][style*="z-index:99999"]:not(#popunderMiniBox):not(#newNewsBanner):not(#topLongBanner) {
   display: none !important;
   visibility: hidden !important;
   opacity: 0 !important;
@@ -494,16 +440,6 @@ iframe[src*="bicea.org"] {
 <!-- ============================================ -->
 <div id="topLongBanner" role="region" aria-label="Top Sponsor">
   <button class="ad-close" id="topBannerClose" aria-label="Close">&times;</button>
-  <a href="https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512" target="_blank" rel="noopener noreferrer nofollow" style="display:block;width:100%;height:100%;">
-    <img src="https://via.placeholder.com/728x60/0d1117/58a6ff?text=Adsterra+Sponsor+Banner" alt="Sponsor" style="width:100%;height:100%;object-fit:cover;display:block;">
-  </a>
-</div>
-
-<!-- ============================================ -->
-<!-- 🟢 BOTTOM LONG BANNER -->
-<!-- ============================================ -->
-<div id="bottomLongBanner" role="region" aria-label="Bottom Sponsor">
-  <button class="ad-close" id="bottomBannerClose" aria-label="Close">&times;</button>
   <a href="https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512" target="_blank" rel="noopener noreferrer nofollow" style="display:block;width:100%;height:100%;">
     <img src="https://via.placeholder.com/728x60/0d1117/58a6ff?text=Adsterra+Sponsor+Banner" alt="Sponsor" style="width:100%;height:100%;object-fit:cover;display:block;">
   </a>
@@ -930,6 +866,10 @@ function renderNews(newsList, hasMore = false) {
   });
   const loadMoreBtn = document.getElementById('loadMoreBtn');
   if (loadMoreBtn) loadMoreBtn.style.display = hasMore ? 'block' : 'none';
+
+  if (typeof window.__refreshAdsterraNativeBanner === 'function') {
+    window.__refreshAdsterraNativeBanner();
+  }
 }
 
 async function loadMoreNews() {
@@ -1331,25 +1271,18 @@ window.addEventListener('load', () => {
 });
 
 // ============================================
-// 🟢 AD CONTROLLERS — Top/Bottom Banner + Movable Mini Box
+// 🟢 AD CONTROLLERS — Top Banner + Movable Mini Box
 // ============================================
 (function() {
 
-  // === Top & Bottom Banner ===
+  // === Top Banner ===
   var topBanner = document.getElementById('topLongBanner');
-  var bottomBanner = document.getElementById('bottomLongBanner');
   var topClose = document.getElementById('topBannerClose');
-  var bottomClose = document.getElementById('bottomBannerClose');
 
   function showTopBanner() {
     if (!topBanner) return;
     topBanner.classList.add('show');
     document.body.classList.add('has-top-banner');
-  }
-  function showBottomBanner() {
-    if (!bottomBanner) return;
-    bottomBanner.classList.add('show');
-    document.body.classList.add('has-bottom-banner');
   }
   function hideTopBanner() {
     if (!topBanner) return;
@@ -1357,15 +1290,8 @@ window.addEventListener('load', () => {
     topBanner.classList.add('hide');
     document.body.classList.remove('has-top-banner');
   }
-  function hideBottomBanner() {
-    if (!bottomBanner) return;
-    bottomBanner.classList.remove('show');
-    bottomBanner.classList.add('hide');
-    document.body.classList.remove('has-bottom-banner');
-  }
 
   if (topClose) topClose.addEventListener('click', hideTopBanner);
-  if (bottomClose) bottomClose.addEventListener('click', hideBottomBanner);
 
   // === Movable Mini Ad Box ===
   var box = document.getElementById('popunderMiniBox');
@@ -1454,10 +1380,9 @@ window.addEventListener('load', () => {
 
   // === Show sequence ===
   setTimeout(showTopBanner, 2000);
-  setTimeout(showBottomBanner, 4000);
   setTimeout(function() {
     if (box) box.classList.add('show');
-  }, 6000);
+  }, 4000);
 
 })();
 </script>

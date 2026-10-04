@@ -32,102 +32,62 @@
 </script>
 
 <!-- ============================================ -->
-<!-- 🟢 ADSTERRA ADS — Popunder + Social Bar + Native Banner -->
+<!-- 🟢 ADSTERRA ADS — Lazy Load (Non-Blocking) -->
 <!-- ============================================ -->
 <script>
 (function() {
-  var popunderUrl = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
-  if (popunderUrl && popunderUrl !== "YOUR_POPUNDER_URL") {
-    var s1 = document.createElement('script');
-    s1.async = true;
-    s1.src = popunderUrl;
-    s1.setAttribute('data-cfasync', 'false');
-    document.head.appendChild(s1);
-  }
-
-  var socialBarKey = "3f58b0818e43e5e2e8f28449d29e9937";
-  if (socialBarKey && socialBarKey !== "YOUR_SOCIAL_BAR_KEY") {
-    window.atOptions = window.atOptions || {};
-    window.atOptions['key'] = socialBarKey;
-    window.atOptions['format'] = 'iframe';
-    window.atOptions['height'] = 90;
-    window.atOptions['width'] = 728;
-    window.atOptions['params'] = {};
-    var s2 = document.createElement('script');
-    s2.async = true;
-    s2.setAttribute('data-cfasync', 'false');
-    s2.src = "https://bicea.org/14/" + socialBarKey + "/invoke.js";
-    document.head.appendChild(s2);
-  }
-
-  var nativeBannerKey = "25ee2c0a822da5cf3429cd2cb222524f";
-  if (nativeBannerKey && nativeBannerKey !== "YOUR_NATIVE_BANNER_KEY") {
-    window.atOptions = window.atOptions || {};
-    window.atOptions['key'] = nativeBannerKey;
-    window.atOptions['format'] = 'iframe';
-    window.atOptions['height'] = 250;
-    window.atOptions['width'] = 300;
-    window.atOptions['params'] = {};
-    var s3 = document.createElement('script');
-    s3.async = true;
-    s3.setAttribute('data-cfasync', 'false');
-    s3.src = "https://bicea.org/21/" + nativeBannerKey + "/invoke.js";
-    document.head.appendChild(s3);
-  }
-
-  var nativeBannerContainerId = "container-25ee2c0a822da5cf3429cd2cb222524f";
-  function insertNativeBannerContainer() {
-    if (!nativeBannerContainerId) return false;
-    if (document.getElementById(nativeBannerContainerId)) return true;
-    var container = document.createElement('div');
-    container.id = nativeBannerContainerId;
-    container.style.margin = '20px 0';
-    container.style.minHeight = '250px';
-    container.style.width = '100%';
-    container.style.display = 'block';
-    container.style.clear = 'both';
-    var newsContainer = document.getElementById('newsContainer');
-    var mainContent = document.querySelector('.main-content');
-    if (newsContainer && newsContainer.parentNode) {
-      newsContainer.parentNode.insertBefore(container, newsContainer.nextSibling);
-      return true;
-    } else if (mainContent) {
-      mainContent.appendChild(container);
-      return true;
-    } else {
-      document.body.appendChild(container);
-      return true;
-    }
-  }
-
-  var retryCount = 0;
-  var maxRetries = 15;
-  var retryInterval = null;
-  function tryInsertNativeBanner() {
-    var inserted = insertNativeBannerContainer();
-    if (inserted && retryInterval) clearInterval(retryInterval);
-    retryCount++;
-    if (retryCount >= maxRetries && retryInterval) clearInterval(retryInterval);
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function() {
-      setTimeout(tryInsertNativeBanner, 1500);
-    });
-  } else {
-    setTimeout(tryInsertNativeBanner, 1500);
-  }
-  retryInterval = setInterval(tryInsertNativeBanner, 2000);
-
-  window.__refreshAdsterraNativeBanner = function() {
-    setTimeout(function() {
-      if (!document.getElementById(nativeBannerContainerId)) {
-        insertNativeBannerContainer();
-      }
-    }, 800);
+  var ADS = {
+    popunder: "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512",
+    socialBar: "https://bicea.org/14/3f58b0818e43e5e2e8f28449d29e9937",
+    nativeBanner: "https://bicea.org/21/25ee2c0a822da5cf3429cd2cb222524f",
+    containerId: "container-25ee2c0a822da5cf3429cd2cb222524f"
   };
 
-  console.log('[Adsterra] Init complete. Container ID:', nativeBannerContainerId);
+  var loaded = false;
+
+  function inject(src) {
+    try {
+      var s = document.createElement('script');
+      s.type = 'text/javascript';
+      s.async = true;
+      s.setAttribute('data-cfasync', 'false');
+      s.src = src;
+      (document.body || document.head).appendChild(s);
+    } catch (e) {}
+  }
+
+  function ensureContainer() {
+    try {
+      if (!ADS.containerId) return;
+      if (document.getElementById(ADS.containerId)) return;
+      var div = document.createElement('div');
+      div.id = ADS.containerId;
+      div.style.cssText = 'margin:20px 0;min-height:250px;width:100%;display:block;clear:both;';
+      var target = document.querySelector('.main-content') || document.body;
+      target.appendChild(div);
+    } catch (e) {}
+  }
+
+  function loadAll() {
+    if (loaded) return;
+    loaded = true;
+    try { if (ADS.popunder) inject(ADS.popunder); } catch (e) {}
+    try { if (ADS.socialBar) inject(ADS.socialBar); } catch (e) {}
+    try { ensureContainer(); if (ADS.nativeBanner) inject(ADS.nativeBanner); } catch (e) {}
+  }
+
+  window.__refreshAdsterraNativeBanner = function() {
+    try {
+      ensureContainer();
+      if (ADS.nativeBanner) inject(ADS.nativeBanner);
+    } catch (e) {}
+  };
+
+  if (document.readyState === 'complete') {
+    setTimeout(loadAll, 3000);
+  } else {
+    window.addEventListener('load', function() { setTimeout(loadAll, 3000); });
+  }
 })();
 </script>
 
@@ -1147,7 +1107,7 @@ function handleNotificationPromptLater() {
 window.addEventListener('load', () => {
   setTimeout(async () => {
     try {
-      const eligible = await shouldShowNotificationPrompt();
+      const eligible = await showNotificationPrompt();
       if (eligible) showNotificationPrompt();
     } catch (err) {}
   }, NOTIFICATION_PROMPT_DELAY);

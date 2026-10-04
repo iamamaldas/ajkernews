@@ -118,23 +118,8 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .main-content { padding:18px; max-width: min(820px, 95vw); margin: 0 auto; flex: 1 0 auto; width: 100%; }
 #newsContainer { min-height:200px; display:flex; flex-direction:column; gap:16px; }
 
-/* ✅ Adsterra Native Banner Container */
-.native-banner-block {
-  margin: 28px 0 8px;
-  padding: 16px;
-  background: #fafafa;
-  border-radius: 14px;
-  border: 1px dashed #e0e0e0;
-  min-height: 260px;
-}
-.native-banner-label {
-  font-size: 11px;
-  color: #999;
-  margin-bottom: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  font-weight: 600;
-}
+.native-banner-block { margin: 28px 0 8px; padding: 16px; background: #fafafa; border-radius: 14px; border: 1px dashed #e0e0e0; min-height: 260px; }
+.native-banner-label { font-size: 11px; color: #999; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
 
 .news-skeleton { display:block; width:100%; background:#fff; border-radius:16px; overflow:hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.03), 0 4px 16px rgba(0,0,0,0.04); }
 .skeleton-image { width:100%; aspect-ratio:16/9; background:linear-gradient(90deg,#f2f3f5 25%,#e8e9ec 50%,#f2f3f5 75%); background-size:200% 100%; animation:shimmer 1.5s infinite; }
@@ -260,9 +245,7 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   .native-banner-block { padding: 12px; margin: 20px 0 8px; }
 }
 
-/* ============================================ */
-/* 🛡️ AGGRESSIVE ADULT/PORNO AD BLOCKING */
-/* ============================================ */
+/* 🛡️ ADULT AD BLOCKING (CSS) */
 body > div[style*="position: fixed"][style*="z-index: 9999"]:not(#newNewsBanner),
 body > div[style*="position:fixed"][style*="z-index:9999"]:not(#newNewsBanner),
 body > div[style*="position: fixed"][style*="z-index: 99999"]:not(#newNewsBanner),
@@ -297,22 +280,13 @@ div[id*="videoAd"] {
   pointer-events: none !important;
 }
 
-iframe[src*="adsterra"]:not([data-safe]),
 iframe[src*="profitableratecpm"],
-iframe[src*="highperformanceformat"],
-iframe[src*="bicea.org"]:not([data-safe]),
 iframe[src*="trafficjunky"],
 iframe[src*="exoclick"],
 iframe[src*="juicyads"],
 iframe[src*="plugrush"],
 iframe[src*="adnium"],
 iframe[src*="ero-advertising"],
-iframe[src*="adult"],
-iframe[src*="porn"],
-iframe[src*="xxx"],
-iframe[src*="sex"],
-iframe[src*="tube"],
-iframe[src*="cam"],
 iframe[src*="livejasmin"],
 iframe[src*="chaturbate"],
 iframe[src*="bongacams"],
@@ -329,12 +303,10 @@ iframe[src*="stripchat"] {
 
 img[src*="porn"],
 img[src*="xxx"],
-img[src*="sex"],
 img[src*="adult"],
 img[src*="nude"],
 img[src*="naked"],
-img[src*="erotic"],
-img[src*="cam-girl"] {
+img[src*="erotic"] {
   display: none !important;
   visibility: hidden !important;
   width: 0 !important;
@@ -343,10 +315,8 @@ img[src*="cam-girl"] {
 
 a[href*="porn"],
 a[href*="xxx"],
-a[href*="sex"],
 a[href*="adult"],
 a[href*="nude"],
-a[href*="cam"],
 a[href*="livejasmin"],
 a[href*="chaturbate"],
 a[href*="bongacams"],
@@ -365,6 +335,7 @@ a[href*="juicyads"] {
 <body>
 
 <div id="copyToast" class="copy-toast" role="status">লিংক কপি হয়েছে</div>
+
 <div class="header">
   <div class="header-left">
     <a href="/" class="header-home-link">
@@ -483,6 +454,39 @@ a[href*="juicyads"] {
   <span>App</span>
 </button>
 
+<!-- 🛡️ Adult Ad Blocker (JS) -->
+<script>
+(function(){
+  'use strict';
+  var KEY = ['porn','xxx','sex','adult','nude','naked','erotic','cam-girl','camgirl','escort','livejasmin','chaturbate','bongacams','stripchat','trafficjunky','exoclick','juicyads','plugrush','adnium','ero-advertising','hentai','onlyfans','bang','milf','anal','hardcore','softcore','fuck','cock','pussy','dick','boobs','tits','cum'];
+  var SAFE = ['bicea.org','adsterra.com','profitableratecpm.com','highperformanceformat.com','afders.org','ajkernews.in','gstatic.com','googleapis.com','cloudflare.com','firebase.com','google.com'];
+  function isSafe(u){ if(!u) return false; try { var h = new URL(u, location.origin).hostname.toLowerCase(); return SAFE.some(function(s){ return h.indexOf(s) !== -1; }); } catch(e){ return false; } }
+  function isAdult(s){ if(!s) return false; var l = String(s).toLowerCase(); return KEY.some(function(k){ return l.indexOf(k) !== -1; }); }
+  function block(el){ try { el.style.cssText = 'display:none!important;visibility:hidden!important;width:0!important;height:0!important;position:absolute!important;left:-99999px!important;pointer-events:none!important;'; el.setAttribute('data-blocked','1'); if(el.parentNode) setTimeout(function(){ try { el.parentNode.removeChild(el); } catch(e){} }, 100); } catch(e){} }
+  function should(el){
+    if(!el || !el.tagName) return false;
+    if(el.id === 'newNewsBanner' || el.id === 'copyToast' || el.id === 'searchModal' || el.id === 'sidebar' || el.id === 'modal' || el.id === 'notifPromptModal' || el.id === 'overlay' || el.id === 'newsContainer' || el.id === 'loadMoreBtn') return false;
+    if(el.id && el.id.indexOf('container-') === 0) return false;
+    if(el.classList && (el.classList.contains('native-banner-block') || el.classList.contains('news-card') || el.classList.contains('inline-native-ad'))) return false;
+    var t = el.tagName.toLowerCase();
+    if(t === 'iframe'){ var s = el.src || el.getAttribute('src') || el.getAttribute('data-src') || ''; if(isSafe(s)) return false; if(isAdult(s)) return true; var w = parseInt(el.width||0,10), h = parseInt(el.height||0,10); if((w > 400 || h > 300) && s && !isSafe(s)) return true; }
+    if(t === 'img'){ var s = el.src || el.getAttribute('src') || el.getAttribute('data-src') || ''; if(isSafe(s)) return false; if(isAdult(s)) return true; }
+    if(t === 'a'){ var h = el.href || el.getAttribute('href') || ''; if(isSafe(h)) return false; if(isAdult(h)) return true; }
+    var idc = (el.id||'') + ' ' + (el.className||''); if(isAdult(idc)) return true;
+    var st = el.getAttribute && el.getAttribute('style') || '';
+    if(st && (st.indexOf('position: fixed') !== -1 || st.indexOf('position:fixed') !== -1)){ if(/z-index:\s*\d{5,}/i.test(st)) return true; }
+    return false;
+  }
+  function scan(){ try { document.querySelectorAll('iframe,img,a,div[style*="position"],ins,embed,object').forEach(function(el){ if(el.getAttribute('data-blocked') === '1') return; if(should(el)) block(el); }); } catch(e){} }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', scan); else scan();
+  try { new MutationObserver(function(ms){ ms.forEach(function(m){ m.addedNodes.forEach(function(n){ if(n.nodeType === 1){ if(should(n)) block(n); else { try { n.querySelectorAll && n.querySelectorAll('iframe,img,a,ins,embed,object').forEach(function(c){ if(should(c)) block(c); }); } catch(e){} } } }); }); }).observe(document.documentElement, { childList: true, subtree: true }); } catch(e){}
+  setInterval(scan, 2000);
+  var orig = window.open;
+  window.open = function(u){ if(u && isAdult(u) && !isSafe(u)) { try { console.warn('[AdBlock] Blocked adult popup'); } catch(e){} return null; } return orig.apply(this, arguments); };
+  try { console.log('[AdBlock] Adult content blocker active'); } catch(e){}
+})();
+</script>
+
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
   import { getMessaging, getToken, onMessage, deleteToken } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging.js";
@@ -517,195 +521,6 @@ a[href*="juicyads"] {
       n.onclick = () => { window.focus(); if (url) window.open(url, '_blank'); n.close(); };
     }
   });
-</script>
-
-<script>
-/* ============================================ */
-/* 🛡️ ADULT AD BLOCKER — Advanced JS Protection  */
-/* ============================================ */
-(function() {
-  'use strict';
-
-  var ADULT_KEYWORDS = [
-    'porn', 'xxx', 'sex', 'adult', 'nude', 'naked', 'erotic',
-    'cam-girl', 'camgirl', 'escort', 'dating', 'hookup',
-    'livejasmin', 'chaturbate', 'bongacams', 'stripchat',
-    'trafficjunky', 'exoclick', 'juicyads', 'plugrush',
-    'adnium', 'ero-advertising', 'bang', 'milf', 'anal',
-    'teen-sex', 'hardcore', 'softcore', 'hentai', 'onlyfans',
-    'fuck', 'cock', 'pussy', 'dick', 'boobs', 'tits', 'cum'
-  ];
-
-  var SAFE_DOMAINS = [
-    'bicea.org', 'adsterra.com', 'profitableratecpm.com',
-    'highperformanceformat.com', 'afders.org',
-    'ajkernews.in', 'gstatic.com', 'googleapis.com',
-    'cloudflare.com', 'firebase.com', 'google.com'
-  ];
-
-  function isSafeDomain(url) {
-    if (!url) return false;
-    try {
-      var hostname = new URL(url, window.location.origin).hostname.toLowerCase();
-      return SAFE_DOMAINS.some(function(safe) { return hostname.indexOf(safe) !== -1; });
-    } catch (e) { return false; }
-  }
-
-  function isAdultContent(str) {
-    if (!str) return false;
-    var lower = String(str).toLowerCase();
-    return ADULT_KEYWORDS.some(function(kw) { return lower.indexOf(kw) !== -1; });
-  }
-
-  function shouldBlockElement(el) {
-    if (!el || !el.tagName) return false;
-
-    // Skip safe elements
-    if (el.id === 'newNewsBanner' || el.id === 'copyToast' ||
-        el.id === 'searchModal' || el.id === 'sidebar' ||
-        el.id === 'modal' || el.id === 'notifPromptModal' ||
-        el.id === 'overlay' || el.id === 'newsContainer' ||
-        el.id === 'loadMoreBtn' || el.id === 'topLongBanner') {
-      return false;
-    }
-    if (el.id && el.id.indexOf('container-') === 0) return false;
-    if (el.classList && (el.classList.contains('native-banner-block') ||
-        el.classList.contains('news-card') ||
-        el.classList.contains('inline-native-ad'))) {
-      return false;
-    }
-
-    var tag = el.tagName.toLowerCase();
-
-    // Check iframes
-    if (tag === 'iframe') {
-      var src = el.src || el.getAttribute('src') || el.getAttribute('data-src') || '';
-      if (isSafeDomain(src)) return false;
-      if (isAdultContent(src)) return true;
-      // Block any iframe not from safe domain
-      if (src && !isSafeDomain(src)) {
-        // Check if it's an ad iframe with suspicious size
-        var w = parseInt(el.width || el.style.width || '0', 10);
-        var h = parseInt(el.height || el.style.height || '0', 10);
-        if (w > 0 && h > 0 && (w > 400 || h > 300)) {
-          // Large iframe not from safe domain — likely adult ad
-          return true;
-        }
-      }
-    }
-
-    // Check images
-    if (tag === 'img') {
-      var imgSrc = el.src || el.getAttribute('src') || el.getAttribute('data-src') || '';
-      if (isSafeDomain(imgSrc)) return false;
-      if (isAdultContent(imgSrc)) return true;
-    }
-
-    // Check links
-    if (tag === 'a') {
-      var href = el.href || el.getAttribute('href') || '';
-      if (isSafeDomain(href)) return false;
-      if (isAdultContent(href)) return true;
-    }
-
-    // Check element id/class for adult keywords
-    var idClass = (el.id || '') + ' ' + (el.className || '');
-    if (isAdultContent(idClass)) return true;
-
-    // Check for suspicious overlay patterns
-    var style = el.getAttribute && el.getAttribute('style') || '';
-    if (style) {
-      var hasFixed = style.indexOf('position: fixed') !== -1 || style.indexOf('position:fixed') !== -1;
-      var hasHighZ = /z-index:\s*(\d{5,})/i.test(style) || /z-index:(\d{5,})/i.test(style);
-      if (hasFixed && hasHighZ) {
-        // High z-index fixed overlay — likely adult ad
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  function blockElement(el) {
-    if (!el || !el.style) return;
-    try {
-      el.style.setProperty('display', 'none', 'important');
-      el.style.setProperty('visibility', 'hidden', 'important');
-      el.style.setProperty('opacity', '0', 'important');
-      el.style.setProperty('pointer-events', 'none', 'important');
-      el.style.setProperty('width', '0', 'important');
-      el.style.setProperty('height', '0', 'important');
-      el.style.setProperty('position', 'absolute', 'important');
-      el.style.setProperty('left', '-99999px', 'important');
-      el.setAttribute('data-adult-blocked', '1');
-      // Try removing
-      if (el.parentNode) {
-        setTimeout(function() { try { el.parentNode && el.parentNode.removeChild(el); } catch (e) {} }, 100);
-      }
-    } catch (e) {}
-  }
-
-  function scanDocument() {
-    try {
-      var els = document.querySelectorAll('iframe, img, a, div[style*="position"], ins, embed, object');
-      els.forEach(function(el) {
-        if (el.getAttribute('data-adult-blocked') === '1') return;
-        if (shouldBlockElement(el)) {
-          blockElement(el);
-        }
-      });
-    } catch (e) {}
-  }
-
-  // Initial scan
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', scanDocument);
-  } else {
-    scanDocument();
-  }
-
-  // MutationObserver for dynamic content
-  try {
-    var observer = new MutationObserver(function(mutations) {
-      mutations.forEach(function(mutation) {
-        mutation.addedNodes.forEach(function(node) {
-          if (node.nodeType === 1) {
-            if (shouldBlockElement(node)) {
-              blockElement(node);
-            } else {
-              // Check children
-              try {
-                node.querySelectorAll && node.querySelectorAll('iframe, img, a, ins, embed, object').forEach(function(child) {
-                  if (shouldBlockElement(child)) blockElement(child);
-                });
-              } catch (e) {}
-            }
-          }
-        });
-      });
-    });
-
-    observer.observe(document.documentElement, {
-      childList: true,
-      subtree: true
-    });
-  } catch (e) {}
-
-  // Periodic rescan (for stubborn ads)
-  setInterval(scanDocument, 2000);
-
-  // Override window.open to block adult popups
-  var originalOpen = window.open;
-  window.open = function(url, name, features) {
-    if (url && isAdultContent(url) && !isSafeDomain(url)) {
-      console.warn('[AdBlock] Blocked adult popup:', url);
-      return null;
-    }
-    return originalOpen.apply(this, arguments);
-  };
-
-  console.log('[AdBlock] Adult content blocker active');
-})();
 </script>
 
 <script>
@@ -914,17 +729,17 @@ function buildNewsHtml(news) {
       ${summary ? `<p class="news-summary" onclick="openNewsWithPopunder('${articleUrl}')">${escapeHtml(summary)}</p>` : ''}
       <div class="news-meta">
         <a href="${articleUrl}" class="news-source-link" onclick="event.stopPropagation();">${escapeHtml(source)}</a>
-        <div>${escapeHtml(formattedTime)}</div>
+        <div onclick="event.stopPropagation();">${escapeHtml(formattedTime)}</div>
       </div>
-      <div class="news-actions">
-        <button class="action-btn" onclick="event.stopPropagation(); openCommentModal('${news.id}')">
+      <div class="news-actions" onclick="event.stopPropagation();">
+        <button class="action-btn" type="button" onclick="event.stopPropagation(); openCommentModal('${news.id}')">
           <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
         </button>
-        <button class="action-btn love-btn${loved ? ' loved' : ''}" data-love-button="${escapeHtml(news.id)}" onclick="event.stopPropagation(); toggleLove('${news.id}')">
+        <button class="action-btn love-btn${loved ? ' loved' : ''}" type="button" data-love-button="${escapeHtml(news.id)}" onclick="event.stopPropagation(); toggleLove('${news.id}')">
           <svg viewBox="0 0 24 24" fill="${fill}" stroke="#e74c3c" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
           <span class="action-count" data-love-count="${escapeHtml(news.id)}">${loveCount}</span>
         </button>
-        <button class="action-btn" onclick="event.stopPropagation(); shareNews('${news.id}', '${safeHeadline}', '${safeSummary}')">
+        <button class="action-btn" type="button" onclick="event.stopPropagation(); shareNews('${news.id}', '${safeHeadline}', '${safeSummary}')">
           <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
         </button>
       </div>
@@ -950,13 +765,23 @@ function renderNews(newsList, hasMore = false) {
     container.querySelectorAll('.news-card').forEach(c => c.classList.add('visible'));
   });
   const loadMoreBtn = document.getElementById('loadMoreBtn');
-  if (loadMoreBtn) loadMoreBtn.style.display = hasMore ? 'block' : 'none';
+  if (loadMoreBtn) {
+    loadMoreBtn.style.display = hasMore ? 'block' : 'none';
+    loadMoreBtn.disabled = false;
+    loadMoreBtn.textContent = 'আরও খবর দেখুন';
+  }
 }
 
 async function loadMoreNews() {
   if (isLoadingNews || !hasMoreNews) return;
   const loadMoreBtn = document.getElementById('loadMoreBtn');
+  if (!loadMoreBtn) return;
+
+  isLoadingNews = true;
   loadMoreBtn.disabled = true;
+  const originalText = loadMoreBtn.textContent;
+  loadMoreBtn.textContent = 'লোড হচ্ছে...';
+
   try {
     currentOffset += PAGE_SIZE;
     const params = new URLSearchParams();
@@ -965,22 +790,60 @@ async function loadMoreNews() {
     params.set('offset', String(currentOffset));
     if (currentSearchQuery) params.set('q', currentSearchQuery);
     params.set('_t', String(Date.now()));
+
     const url = API_URL + '?' + params.toString();
-    const response = await fetch(url, { headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' }, cache: 'no-store' });
+    const response = await fetch(url, {
+      headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' },
+      cache: 'no-store'
+    });
     const data = await response.json();
-    if (!data.news || data.news.length === 0) {
+
+    if (!data || !data.news || data.news.length === 0) {
       hasMoreNews = false;
       loadMoreBtn.style.display = 'none';
       return;
     }
+
     const newNews = data.news.map(normalizeNews).filter(Boolean);
-    currentNews = [...currentNews, ...sortByLatest(newNews)];
+    const sorted = sortByLatest(newNews);
+
+    // ✅ Append new cards (no re-render — scroll position preserved)
+    const container = document.getElementById('newsContainer');
+    const newHtml = sorted.map(news => buildNewsHtml(news)).join('');
+    container.insertAdjacentHTML('beforeend', newHtml);
+
+    // ✅ Update state
+    currentNews = [...currentNews, ...sorted];
     visibleCount = currentNews.length;
     hasMoreNews = data.has_more || false;
-    renderNews(currentNews, hasMoreNews);
-    updateLoveCounts(newNews);
-  } catch (error) {}
-  loadMoreBtn.disabled = false;
+
+    // ✅ Animate only new cards
+    requestAnimationFrame(() => {
+      const allCards = container.querySelectorAll('.news-card');
+      const startIdx = Math.max(0, allCards.length - sorted.length);
+      for (let i = startIdx; i < allCards.length; i++) {
+        allCards[i].classList.add('visible');
+      }
+    });
+
+    // ✅ Update love counts for new items only
+    updateLoveCounts(sorted);
+
+    // ✅ Hide button if no more news
+    if (!hasMoreNews) {
+      loadMoreBtn.style.display = 'none';
+    } else {
+      loadMoreBtn.style.display = 'block';
+    }
+
+  } catch (error) {
+    console.error('Load more error:', error);
+    currentOffset -= PAGE_SIZE; // rollback on error
+  } finally {
+    isLoadingNews = false;
+    loadMoreBtn.disabled = false;
+    loadMoreBtn.textContent = originalText;
+  }
 }
 
 async function toggleLove(id) {

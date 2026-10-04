@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v34.0: Adsterra optimized (Bot-safe + Native Banner)
+// ✅ FINAL v35.0: Adult ad blocker + Native Banner
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -93,7 +93,7 @@ function getDigestType(hour) {
   return "general";
 }
 
-// ✅ Adsterra Scripts (bot-safe) — escaped
+// ✅ Adsterra Scripts (bot-safe)
 function getAdsterraScripts() {
   const scripts = [];
   if (ADS_CONFIG?.socialBarScript && !ADS_CONFIG.socialBarScript.includes("YOUR_SOCIAL_BAR_SCRIPT")) {
@@ -105,16 +105,50 @@ function getAdsterraScripts() {
   return scripts.join("\n");
 }
 
-// ✅ Native Banner Container (fixed ID — Adsterra compatible)
+// ✅ Native Banner Container
 function getNativeBannerContainer() {
   const containerId = ADS_CONFIG?.nativeBannerContainerId;
   if (!containerId || containerId === "YOUR_NATIVE_BANNER_CONTAINER_ID") {
     return "";
   }
-  return `<div style="margin: 24px 0; padding: 16px; background: #fafafa; border-radius: 12px; border: 1px dashed #ddd;">
-    <div style="font-size: 11px; color: #999; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Sponsored</div>
+  return `<div class="native-banner-block" style="margin: 28px 0 8px; padding: 16px; background: #fafafa; border-radius: 14px; border: 1px dashed #e0e0e0; min-height: 260px;">
+    <div style="font-size: 11px; color: #999; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Sponsored</div>
     <div id="${containerId}" style="min-height: 250px; width: 100%;"></div>
   </div>`;
+}
+
+// ✅ Adult Ad Blocker Script (inline)
+function getAdultBlockerScript() {
+  return `<script>
+(function(){
+  var KEY = ['porn','xxx','sex','adult','nude','naked','erotic','cam-girl','camgirl','escort','livejasmin','chaturbate','bongacams','stripchat','trafficjunky','exoclick','juicyads','plugrush','adnium','ero-advertising','hentai','onlyfans','bang','milf','anal','hardcore','softcore','fuck','cock','pussy','dick','boobs','tits','cum'];
+  var SAFE = ['bicea.org','adsterra.com','profitableratecpm.com','highperformanceformat.com','afders.org','ajkernews.in','gstatic.com','googleapis.com','cloudflare.com','firebase.com','google.com'];
+  function isSafe(u){ if(!u) return false; try { var h = new URL(u, location.origin).hostname.toLowerCase(); return SAFE.some(function(s){ return h.indexOf(s) !== -1; }); } catch(e){ return false; } }
+  function isAdult(s){ if(!s) return false; var l = String(s).toLowerCase(); return KEY.some(function(k){ return l.indexOf(k) !== -1; }); }
+  function block(el){ try { el.style.cssText = 'display:none!important;visibility:hidden!important;width:0!important;height:0!important;position:absolute!important;left:-99999px!important;pointer-events:none!important;'; el.setAttribute('data-blocked','1'); if(el.parentNode) setTimeout(function(){ try { el.parentNode.removeChild(el); } catch(e){} }, 100); } catch(e){} }
+  function should(el){
+    if(!el || !el.tagName) return false;
+    if(el.id === 'newNewsBanner' || el.id === 'copyToast' || el.id === 'searchModal' || el.id === 'sidebar' || el.id === 'modal' || el.id === 'notifPromptModal' || el.id === 'overlay' || el.id === 'newsContainer' || el.id === 'loadMoreBtn') return false;
+    if(el.id && el.id.indexOf('container-') === 0) return false;
+    if(el.classList && (el.classList.contains('native-banner-block') || el.classList.contains('news-card') || el.classList.contains('inline-native-ad'))) return false;
+    var t = el.tagName.toLowerCase();
+    if(t === 'iframe'){ var s = el.src || el.getAttribute('src') || el.getAttribute('data-src') || ''; if(isSafe(s)) return false; if(isAdult(s)) return true; var w = parseInt(el.width||0,10), h = parseInt(el.height||0,10); if((w > 400 || h > 300) && s && !isSafe(s)) return true; }
+    if(t === 'img'){ var s = el.src || el.getAttribute('src') || el.getAttribute('data-src') || ''; if(isSafe(s)) return false; if(isAdult(s)) return true; }
+    if(t === 'a'){ var h = el.href || el.getAttribute('href') || ''; if(isSafe(h)) return false; if(isAdult(h)) return true; }
+    var idc = (el.id||'') + ' ' + (el.className||''); if(isAdult(idc)) return true;
+    var st = el.getAttribute && el.getAttribute('style') || '';
+    if(st && (st.indexOf('position: fixed') !== -1 || st.indexOf('position:fixed') !== -1)){ if(/z-index:\\s*\\d{5,}/i.test(st)) return true; }
+    return false;
+  }
+  function scan(){ try { document.querySelectorAll('iframe,img,a,div[style*="position"],ins,embed,object').forEach(function(el){ if(el.getAttribute('data-blocked') === '1') return; if(should(el)) block(el); }); } catch(e){} }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', scan); else scan();
+  try { new MutationObserver(function(ms){ ms.forEach(function(m){ m.addedNodes.forEach(function(n){ if(n.nodeType === 1){ if(should(n)) block(n); else { try { n.querySelectorAll && n.querySelectorAll('iframe,img,a,ins,embed,object').forEach(function(c){ if(should(c)) block(c); }); } catch(e){} } } }); }); }).observe(document.documentElement, { childList: true, subtree: true }); } catch(e){}
+  setInterval(scan, 2000);
+  var orig = window.open;
+  window.open = function(u){ if(u && isAdult(u) && !isSafe(u)) { try { console.warn('[AdBlock] Blocked adult popup'); } catch(e){} return null; } return orig.apply(this, arguments); };
+  try { console.log('[AdBlock] Adult content blocker active'); } catch(e){}
+})();
+<\/script>`;
 }
 
 async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
@@ -655,6 +689,7 @@ export default {
         let result;
         try {
           result = await updateNews(env);
+          console.log("[CRON-NEWS] Result:", JSON.stringify(result));
         } catch (error) {
           console.error("[CRON-NEWS] updateNews failed:", error?.message || String(error));
           return;
@@ -685,6 +720,7 @@ export default {
               const sentToday = Number(todayCount?.c || 0);
 
               if (sentToday < NOTIFICATION_CONFIG.MAX_BREAKING_PER_DAY) {
+                console.log(`[BREAKING] score=${breakingCandidate.score}: ${breakingCandidate.headline}`);
                 ctx.waitUntil(
                   sendBreakingAlert(env, breakingCandidate).catch(error => {
                     console.error("[BREAKING] Send error:", error?.message || String(error));
@@ -703,9 +739,12 @@ export default {
           ).all();
           const ids = (recent.results || []).map(r => r.id);
           if (ids.length) {
-            await fastIndexNews(env, ids);
+            const indexResult = await fastIndexNews(env, ids);
+            console.log(`[FAST-INDEX] ${ids.length} URLs:`, JSON.stringify(indexResult));
           }
-        } catch (error) {}
+        } catch (error) {
+          console.error("[FAST-INDEX] Failed:", error?.message || String(error));
+        }
 
         try { await cleanOldCandidates(env.DB); } catch (e) {}
         try { await cleanRejectedNews(env.DB); } catch (e) {}
@@ -717,12 +756,15 @@ export default {
           await env.DB.prepare(`DELETE FROM push_digest_log WHERE sent_at < datetime('now', '-30 days')`).run();
           await env.DB.prepare(`DELETE FROM live_events WHERE created_at < datetime('now', '-1 day')`).run();
           await env.DB.prepare(`DELETE FROM admin_sessions WHERE expires_at < datetime('now')`).run();
-        } catch (error) {}
+        } catch (error) {
+          console.warn("[CLEAN] Cleanup failed:", error?.message || String(error));
+        }
 
         const currentUtcHour = new Date().getUTCHours();
         if ([0, 6, 12, 18].includes(currentUtcHour)) {
           try {
             const cleanupResult = await enforceNewsLimit(env.DB);
+            console.log(`[CRON-CLEAN] News: ${cleanupResult.deleted} deleted`);
             if (cleanupResult.deleted > 0) {
               try {
                 await purgeNewsApiCache("https://ajkernews.in");
@@ -731,7 +773,9 @@ export default {
                 }
               } catch (e) {}
             }
-          } catch (error) {}
+          } catch (error) {
+            console.error("[CRON-CLEAN] Failed:", error?.message || String(error));
+          }
 
           try {
             await Promise.allSettled([
@@ -743,6 +787,8 @@ export default {
 
         return;
       }
+
+      console.log(`[CRON] Unknown cron: ${cron} — no action`);
     } catch (error) {
       console.error(`[CRON] Fatal:`, error?.message || error?.stack || String(error));
     }
@@ -801,7 +847,10 @@ async function handleLiveStream(env, request) {
           isClosed = true;
           clearInterval(interval);
           clearInterval(heartbeat);
-          try { send('timeout', { message: 'reconnect' }); controller.close(); } catch (e) {}
+          try {
+            send('timeout', { message: 'reconnect' });
+            controller.close();
+          } catch (e) {}
         }
       }, 5 * 60 * 1000);
 
@@ -855,7 +904,10 @@ async function sendDigest(env, istHour) {
     .filter(n => !sentIds.has(n.id))
     .slice(0, NOTIFICATION_CONFIG.DIGEST_NEWS_COUNT);
 
-  if (unsentNews.length < NOTIFICATION_CONFIG.DIGEST_MIN_NEWS) return;
+  if (unsentNews.length < NOTIFICATION_CONFIG.DIGEST_MIN_NEWS) {
+    console.log(`[DIGEST] Only ${unsentNews.length} fresh news — skipping`);
+    return;
+  }
 
   const digestType = getDigestType(istHour);
   const label = getDigestLabel(istHour);
@@ -938,6 +990,7 @@ async function sendDigestPush(env, payload, tokens) {
     result.accessTokenObtained = true;
   } catch (e) {
     result.tokenExchangeError = e.message;
+    console.error('[FCM] Credentials failed:', e.message);
     return result;
   }
 
@@ -958,22 +1011,48 @@ async function sendDigestPush(env, payload, tokens) {
     const message = {
       message: {
         token: token,
-        notification: { title, body, ...(image ? { image } : {}) },
-        data: { title, body, image, url: targetUrl, notificationId: notifTag, isBreaking: isBreaking ? "1" : "0" },
+        notification: {
+          title: title,
+          body: body,
+          ...(image ? { image: image } : {})
+        },
+        data: {
+          title: title,
+          body: body,
+          image: image,
+          url: targetUrl,
+          notificationId: notifTag,
+          isBreaking: isBreaking ? "1" : "0"
+        },
         android: {
           priority: "high",
           notification: {
-            title, body, icon: "stock_ticker_update", color: "#e53935", tag: notifTag, sound: "default",
-            ...(image ? { image } : {}), click_action: "FCM_PLUGIN_ACTIVITY"
+            title: title,
+            body: body,
+            icon: "stock_ticker_update",
+            color: "#e53935",
+            tag: notifTag,
+            sound: "default",
+            ...(image ? { image: image } : {}),
+            click_action: "FCM_PLUGIN_ACTIVITY"
           }
         },
         webpush: {
-          headers: { Urgency: "high", TTL: String(ttl) },
+          headers: {
+            Urgency: "high",
+            TTL: String(ttl)
+          },
           fcmOptions: { link: targetUrl },
           notification: {
-            title, body, icon: "/logo.png", badge: "/logo.png",
-            ...(image ? { image } : {}),
-            tag: notifTag, renotify: true, requireInteraction: true, silent: false,
+            title: title,
+            body: body,
+            icon: "/logo.png",
+            badge: "/logo.png",
+            ...(image ? { image: image } : {}),
+            tag: notifTag,
+            renotify: true,
+            requireInteraction: true,
+            silent: false,
             data: { url: targetUrl }
           }
         }
@@ -983,7 +1062,10 @@ async function sendDigestPush(env, payload, tokens) {
     try {
       const res = await fetch(fcmUrl, {
         method: "POST",
-        headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
+        },
         body: JSON.stringify(message)
       });
 
@@ -992,12 +1074,21 @@ async function sendDigestPush(env, payload, tokens) {
         logStmts.push(
           env.DB.prepare(
             `INSERT INTO push_log (id, news_id, token, status, title, sent_at) VALUES (?, ?, ?, ?, ?, ?)`
-          ).bind(crypto.randomUUID(), payload.newsIds?.[0] || null, token.slice(0, 30), 'sent', title.slice(0, 100), sentAt)
+          ).bind(
+            crypto.randomUUID(),
+            payload.newsIds?.[0] || null,
+            token.slice(0, 30),
+            'sent',
+            title.slice(0, 100),
+            sentAt
+          )
         );
       } else {
         const errData = await res.json().catch(() => ({}));
         result.failed++;
-        const errCode = errData?.error?.details?.[0]?.errorCode || errData?.error?.status || 'unknown';
+        const errCode = errData?.error?.details?.[0]?.errorCode
+                     || errData?.error?.status
+                     || 'unknown';
         result.errors.push(`${errCode}: ${token.slice(0, 15)}...`);
 
         if (errCode === 'UNREGISTERED' || errCode === 'NOT_FOUND') {
@@ -1008,7 +1099,15 @@ async function sendDigestPush(env, payload, tokens) {
         logStmts.push(
           env.DB.prepare(
             `INSERT INTO push_log (id, news_id, token, status, error, title, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
-          ).bind(crypto.randomUUID(), payload.newsIds?.[0] || null, token.slice(0, 30), 'failed', errCode, title.slice(0, 100), sentAt)
+          ).bind(
+            crypto.randomUUID(),
+            payload.newsIds?.[0] || null,
+            token.slice(0, 30),
+            'failed',
+            errCode,
+            title.slice(0, 100),
+            sentAt
+          )
         );
       }
     } catch (e) {
@@ -1017,7 +1116,10 @@ async function sendDigestPush(env, payload, tokens) {
     }
   }
 
-  if (logStmts.length) { try { await env.DB.batch(logStmts); } catch (e) {} }
+  if (logStmts.length) {
+    try { await env.DB.batch(logStmts); } catch (e) {}
+  }
+
   return result;
 }
 
@@ -1033,6 +1135,7 @@ async function sendSinglePush(env, news, tokens, isBreaking) {
   }, tokens);
 
   await removeInvalidTokens(env, result.invalidTokens, 'PUSH-TEST');
+
   return result;
 }
 
@@ -1043,7 +1146,9 @@ async function updateNews(env) {
   let batchResult = { batches: [], totalReceived: 0, totalInserted: 0 };
   try {
     batchResult = await runGNewsBatch(env.DB, env.GNEWS_API_KEY);
+    console.log(`[NEWS] GNews batches:`, JSON.stringify(batchResult));
   } catch (error) {
+    console.error("[NEWS] GNews batch failed:", error?.message || String(error));
     return {
       success: false, fetched: 0, inserted: 0, candidates: 0, selected: 0,
       published: 0, deleted: 0, gemini: false, newNewsIds: [],
@@ -1051,7 +1156,12 @@ async function updateNews(env) {
     };
   }
 
-  try { await cleanOldCandidates(env.DB); } catch (error) {}
+  try {
+    const candidateCleanup = await cleanOldCandidates(env.DB);
+    if (candidateCleanup.deleted > 0) {
+      console.log(`[NEWS] Cleaned ${candidateCleanup.deleted} old candidates`);
+    }
+  } catch (error) {}
 
   let candidates = [];
   try {
@@ -1101,6 +1211,7 @@ async function updateNews(env) {
       const rejectedIds = rejectedCandidates.map(c => String(c.id));
       const placeholders = rejectedIds.map(() => "?").join(",");
       await env.DB.prepare(`UPDATE news SET status = 'rejected' WHERE id IN (${placeholders})`).bind(...rejectedIds).run();
+      console.log(`[NEWS] Marked ${rejectedIds.length} candidates as rejected`);
     }
   } catch (error) {}
 
@@ -1130,16 +1241,25 @@ async function updateNews(env) {
       geminiResults = await Promise.race([
         processSelectedNews(geminiInput, env.GEMINI_API_KEY),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Gemini total timeout')), 120000))
-      ]).catch(err => []);
+      ]).catch(err => {
+        console.warn('[NEWS] Gemini timeout:', err.message);
+        return [];
+      });
 
       usedGemini = Array.isArray(geminiResults) && geminiResults.length > 0;
-    } catch (error) {}
+      console.log(`[NEWS] Gemini returned ${geminiResults.length}/${selected.length} results`);
+    } catch (error) {
+      console.error("[NEWS] Gemini failed:", error?.message || String(error));
+    }
   }
 
   let publishResult = { published: 0, skipped: 0 };
   try {
     publishResult = await publishSelectedNews(env.DB, selected, geminiResults);
-  } catch (error) {}
+    console.log(`[NEWS] Published ${publishResult.published} (skipped ${publishResult.skipped || 0})`);
+  } catch (error) {
+    console.error("[NEWS] Publish failed:", error?.message || String(error));
+  }
 
   const publishedIds = [];
   for (const article of selected) {
@@ -1160,11 +1280,15 @@ async function updateNews(env) {
   }
 
   if (searchUpdates.length) {
-    try { await env.DB.batch(searchUpdates); } catch (error) {}
+    try {
+      await env.DB.batch(searchUpdates);
+    } catch (error) {}
   }
 
   let cleanupResult = { deleted: 0, total: 0, deletedIds: [] };
-  try { cleanupResult = await enforceNewsLimit(env.DB); } catch (error) {}
+  try {
+    cleanupResult = await enforceNewsLimit(env.DB);
+  } catch (error) {}
 
   for (const id of cleanupResult.deletedIds || []) {
     try {
@@ -1182,13 +1306,24 @@ async function updateNews(env) {
   }
 
   if (publishedIds.length) {
-    try { await fastIndexNews(env, publishedIds); } catch (error) {}
+    try {
+      await fastIndexNews(env, publishedIds);
+    } catch (error) {}
 
     try {
-      const eventPayload = JSON.stringify({ ids: publishedIds, count: publishedIds.length, ts: Date.now() });
+      const eventPayload = JSON.stringify({
+        ids: publishedIds,
+        count: publishedIds.length,
+        ts: Date.now()
+      });
       await env.DB.prepare(
         `INSERT INTO live_events (id, event_type, payload, created_at) VALUES (?, ?, ?, ?)`
-      ).bind(crypto.randomUUID(), 'news_published', eventPayload, new Date().toISOString()).run();
+      ).bind(
+        crypto.randomUUID(),
+        'news_published',
+        eventPayload,
+        new Date().toISOString()
+      ).run();
     } catch (e) {}
   }
 
@@ -1223,6 +1358,7 @@ async function serveListingPage(env, category, searchQuery, request) {
 
     const adScripts = isBot ? "" : getAdsterraScripts();
     const bannerContainer = isBot ? "" : getNativeBannerContainer();
+    const adultBlocker = isBot ? "" : getAdultBlockerScript();
 
     const catLabel = {
       top:'সেরা খবর', trending:'ট্রেন্ডিং', west_bengal:'পশ্চিমবঙ্গ',
@@ -1318,6 +1454,7 @@ async function serveListingPage(env, category, searchQuery, request) {
 ${adScripts}
 </head>
 <body style="max-width:820px;margin:0 auto;padding:20px;font-family:Inter,-apple-system,sans-serif;color:#111;">
+${adultBlocker}
 <header>
   <h1 style="font-size:28px;margin:0 0 6px;"><a href="/" style="color:#111;text-decoration:none;">Ajker News</a></h1>
   <p style="color:#666;font-size:15px;margin:0 0 16px;">${escapeHtml(pageTitle)}</p>
@@ -1345,6 +1482,7 @@ ${bannerContainer}
       }
     });
   } catch (error) {
+    console.error("Listing page error:", error?.message || String(error));
     return new Response("Error loading content", { status: 500 });
   }
 }
@@ -1358,6 +1496,7 @@ async function serveArticlePage(id, env, request) {
 
   const adScripts = isBot ? "" : getAdsterraScripts();
   const bannerContainer = isBot ? "" : getNativeBannerContainer();
+  const adultBlocker = isBot ? "" : getAdultBlockerScript();
 
   const result = await env.DB.prepare(
     `SELECT headline, summary, main_topic, image_url, published_at, created_at, source_name, source_url, category FROM news WHERE id = ? AND status = 'published' LIMIT 1`
@@ -1383,7 +1522,11 @@ async function serveArticlePage(id, env, request) {
   let formattedDate = "";
   try {
     const d = new Date(displayDate);
-    formattedDate = d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }) + ' • ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
+    formattedDate = d.toLocaleDateString('en-US', {
+      day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata'
+    }) + ' • ' + d.toLocaleTimeString('en-US', {
+      hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata'
+    });
   } catch (e) { formattedDate = displayDate; }
 
   let sourceDomain = "";
@@ -1530,6 +1673,7 @@ ${adScripts}
 </style>
 </head>
 <body>
+${adultBlocker}
 <div class="header">
   <div class="header-left">
     <a href="https://ajkernews.in/" class="back-btn" aria-label="Back to home">
@@ -1839,9 +1983,15 @@ async function ensureTables(env) {
 }
 
 async function ensureTablesOnce(env) {
-  if (!tablesReadyPromise) tablesReadyPromise = ensureTables(env);
-  try { await tablesReadyPromise; }
-  catch (error) { tablesReadyPromise = null; throw error; }
+  if (!tablesReadyPromise) {
+    tablesReadyPromise = ensureTables(env);
+  }
+  try {
+    await tablesReadyPromise;
+  } catch (error) {
+    tablesReadyPromise = null;
+    throw error;
+  }
 }
 
 async function serveSharePage(id, env, requestUserAgentFromContext = "", requestUrl = null) {
@@ -1857,6 +2007,7 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
   const userAgent = requestUserAgentFromContext || "";
   const isBot = BOT_REGEX.test(userAgent);
   const adScripts = isBot ? "" : getAdsterraScripts();
+  const adultBlocker = isBot ? "" : getAdultBlockerScript();
 
   const title = cleanText(result.headline) || "Ajker News";
   const description = cleanText(result.summary || "").slice(0, 160);
@@ -1914,6 +2065,7 @@ ${adScripts}
 </style>
 </head>
 <body>
+${adultBlocker}
 <div class="header">
   <img src="https://ajkernews.in/logo.png" alt="Ajker News">
   <h1>Ajker News</h1>
@@ -2018,8 +2170,9 @@ async function handlePushClick(request, env) {
     const body = await request.json();
     const { newsId, deviceId, source } = body;
     if (!newsId) return json({ success: false, error: "newsId required" }, 400, 0);
-    await env.DB.prepare(`INSERT INTO push_clicks (id, news_id, device_id, source, created_at) VALUES (?, ?, ?, ?, ?)`)
-      .bind(crypto.randomUUID(), newsId, deviceId || "anonymous", source || "unknown", new Date().toISOString()).run();
+    await env.DB.prepare(
+      `INSERT INTO push_clicks (id, news_id, device_id, source, created_at) VALUES (?, ?, ?, ?, ?)`
+    ).bind(crypto.randomUUID(), newsId, deviceId || "anonymous", source || "unknown", new Date().toISOString()).run();
     return json({ success: true }, 200, 0);
   } catch (error) { return json({ success: false, error: "Click tracking failed" }, 500, 0); }
 }
@@ -2030,7 +2183,13 @@ async function handlePushStats(env) {
     const today = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_clicks WHERE created_at >= datetime('now', '-1 day')`).first();
     const last7days = await env.DB.prepare(`SELECT COUNT(*) AS total FROM push_clicks WHERE created_at >= datetime('now', '-7 days')`).first();
     const topNews = await env.DB.prepare(`SELECT news_id, COUNT(*) AS clicks FROM push_clicks GROUP BY news_id ORDER BY clicks DESC LIMIT 10`).all();
-    return json({ success: true, total: Number(total?.total || 0), today: Number(today?.total || 0), last7days: Number(last7days?.total || 0), topNews: topNews.results || [] }, 200, 0);
+    return json({
+      success: true,
+      total: Number(total?.total || 0),
+      today: Number(today?.total || 0),
+      last7days: Number(last7days?.total || 0),
+      topNews: topNews.results || []
+    }, 200, 0);
   } catch (error) { return json({ success: false, error: error.message }, 500, 0); }
 }
 
@@ -2046,7 +2205,12 @@ async function handlePushLogs(env, url) {
     const result = await env.DB.prepare(query).bind(...binds).all();
     const totalSent = await env.DB.prepare(`SELECT COUNT(*) AS c FROM push_log WHERE status = 'sent'`).first();
     const totalFailed = await env.DB.prepare(`SELECT COUNT(*) AS c FROM push_log WHERE status = 'failed'`).first();
-    return json({ success: true, totalSent: Number(totalSent?.c || 0), totalFailed: Number(totalFailed?.c || 0), logs: result.results || [] }, 200, 0);
+    return json({
+      success: true,
+      totalSent: Number(totalSent?.c || 0),
+      totalFailed: Number(totalFailed?.c || 0),
+      logs: result.results || []
+    }, 200, 0);
   } catch (error) { return json({ success: false, error: error.message }, 500, 0); }
 }
 
@@ -2097,15 +2261,21 @@ async function handleGetNewsInternal(url, env) {
       { sql: null }
     ];
     for (const win of windows) {
-      const whereClause = win.sql ? `news.status = 'published' AND news.created_at >= ${win.sql}` : `news.status = 'published'`;
+      const whereClause = win.sql 
+        ? `news.status = 'published' AND news.created_at >= ${win.sql}`
+        : `news.status = 'published'`;
       const result = await env.DB.prepare(
         `SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id 
-         WHERE ${whereClause} GROUP BY news.id ORDER BY news.created_at DESC, news.score DESC LIMIT ? OFFSET ?`
+         WHERE ${whereClause}
+         GROUP BY news.id 
+         ORDER BY news.created_at DESC, news.score DESC 
+         LIMIT ? OFFSET ?`
       ).bind(limit + 1, offset).all();
       const rawNews = result?.results || [];
       if (rawNews.length > 0) {
         const hasMore = rawNews.length > limit;
-        return json({ success: true, count: rawNews.slice(0, limit).length, offset, limit, has_more: hasMore, news: rawNews.slice(0, limit) }, 200, 0);
+        const news = rawNews.slice(0, limit);
+        return json({ success: true, count: news.length, offset, limit, has_more: hasMore, news }, 200, 0);
       }
     }
   }
@@ -2118,29 +2288,40 @@ async function handleGetNewsInternal(url, env) {
       { sql: null }
     ];
     for (const win of windows) {
-      const whereClause = win.sql ? `news.status = 'published' AND news.created_at >= ${win.sql}` : `news.status = 'published'`;
+      const whereClause = win.sql 
+        ? `news.status = 'published' AND news.created_at >= ${win.sql}`
+        : `news.status = 'published'`;
       const result = await env.DB.prepare(
-        `SELECT ${selectFields},
+        `SELECT 
+           ${selectFields},
            (COUNT(DISTINCT nl.id) * 5) AS love_score,
            (SELECT COUNT(*) FROM news_comments nc WHERE nc.news_id = news.id) AS comment_count,
            (SELECT COUNT(*) FROM push_clicks pc WHERE pc.news_id = news.id) AS click_count
-         FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id 
-         WHERE ${whereClause} GROUP BY news.id 
-         ORDER BY ((COUNT(DISTINCT nl.id) * 5) +
+         FROM news 
+         LEFT JOIN news_loves nl ON nl.news_id = news.id 
+         WHERE ${whereClause}
+         GROUP BY news.id 
+         ORDER BY (
+           (COUNT(DISTINCT nl.id) * 5) +
            ((SELECT COUNT(*) FROM news_comments nc WHERE nc.news_id = news.id) * 4) +
            ((SELECT COUNT(*) FROM push_clicks pc WHERE pc.news_id = news.id) * 3) +
            (news.score * 1) +
-           CASE WHEN (julianday('now') - julianday(news.created_at)) * 24 < 6 THEN 20
-                WHEN (julianday('now') - julianday(news.created_at)) * 24 < 12 THEN 15
-                WHEN (julianday('now') - julianday(news.created_at)) * 24 < 24 THEN 10
-                WHEN (julianday('now') - julianday(news.created_at)) * 24 < 48 THEN 5
-                WHEN (julianday('now') - julianday(news.created_at)) * 24 < 72 THEN 2
-                ELSE 0 END) DESC LIMIT ? OFFSET ?`
+           CASE 
+             WHEN (julianday('now') - julianday(news.created_at)) * 24 < 6 THEN 20
+             WHEN (julianday('now') - julianday(news.created_at)) * 24 < 12 THEN 15
+             WHEN (julianday('now') - julianday(news.created_at)) * 24 < 24 THEN 10
+             WHEN (julianday('now') - julianday(news.created_at)) * 24 < 48 THEN 5
+             WHEN (julianday('now') - julianday(news.created_at)) * 24 < 72 THEN 2
+             ELSE 0
+           END
+         ) DESC 
+         LIMIT ? OFFSET ?`
       ).bind(limit + 1, offset).all();
       const rawNews = result?.results || [];
       if (rawNews.length > 0) {
         const hasMore = rawNews.length > limit;
-        return json({ success: true, count: rawNews.slice(0, limit).length, offset, limit, has_more: hasMore, news: rawNews.slice(0, limit) }, 200, 0);
+        const news = rawNews.slice(0, limit);
+        return json({ success: true, count: news.length, offset, limit, has_more: hasMore, news }, 200, 0);
       }
     }
   }
@@ -2148,22 +2329,28 @@ async function handleGetNewsInternal(url, env) {
   if (category === "all") {
     const result = await env.DB.prepare(
       `SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id 
-       WHERE news.status = 'published' GROUP BY news.id 
-       ORDER BY news.created_at DESC, news.published_at DESC LIMIT ? OFFSET ?`
+       WHERE news.status = 'published' 
+       GROUP BY news.id 
+       ORDER BY news.created_at DESC, news.published_at DESC 
+       LIMIT ? OFFSET ?`
     ).bind(limit + 1, offset).all();
     const rawNews = result?.results || [];
     const hasMore = rawNews.length > limit;
-    return json({ success: true, count: rawNews.slice(0, limit).length, offset, limit, has_more: hasMore, news: rawNews.slice(0, limit) }, 200, 0);
+    const news = rawNews.slice(0, limit);
+    return json({ success: true, count: news.length, offset, limit, has_more: hasMore, news }, 200, 0);
   }
 
   const result = await env.DB.prepare(
     `SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id 
-     WHERE news.status = 'published' AND news.category = ? GROUP BY news.id 
-     ORDER BY news.created_at DESC, news.published_at DESC LIMIT ? OFFSET ?`
+     WHERE news.status = 'published' AND news.category = ? 
+     GROUP BY news.id 
+     ORDER BY news.created_at DESC, news.published_at DESC 
+     LIMIT ? OFFSET ?`
   ).bind(category, limit + 1, offset).all();
   const rawNews = result?.results || [];
   const hasMore = rawNews.length > limit;
-  return json({ success: true, count: rawNews.slice(0, limit).length, offset, limit, has_more: hasMore, news: rawNews.slice(0, limit) }, 200, 0);
+  const news = rawNews.slice(0, limit);
+  return json({ success: true, count: news.length, offset, limit, has_more: hasMore, news }, 200, 0);
 }
 
 async function handleSubscribe(request, env) {
@@ -2174,7 +2361,9 @@ async function handleSubscribe(request, env) {
     const endpoint = body?.endpoint || `fcm:${token.slice(0, 32)}`;
     const keys = JSON.stringify(body?.keys || {});
     const now = new Date().toISOString();
-    const existing = await env.DB.prepare(`SELECT id FROM push_subscriptions WHERE token = ? OR endpoint = ? LIMIT 1`).bind(token, endpoint).first();
+    const existing = await env.DB.prepare(
+      `SELECT id FROM push_subscriptions WHERE token = ? OR endpoint = ? LIMIT 1`
+    ).bind(token, endpoint).first();
     if (existing) {
       await env.DB.prepare(`UPDATE push_subscriptions SET token = ?, keys_json = ?, created_at = ? WHERE id = ?`).bind(token, keys, now, existing.id).run();
       return json({ success: true, message: "Updated" }, 200, 0);
@@ -2191,8 +2380,11 @@ async function handleUnsubscribe(request, env) {
     const id = token || endpoint;
     if (!id) return json({ error: "Missing token/endpoint" }, 400, 0);
     const result = await env.DB.prepare(`DELETE FROM push_subscriptions WHERE token = ? OR endpoint = ?`).bind(id, id).run();
-    if (result.meta?.changes > 0) return json({ success: true, message: "Unsubscribed" }, 200, 0);
-    return json({ success: false, message: "Not found" }, 404, 0);
+    if (result.meta?.changes > 0) {
+      return json({ success: true, message: "Unsubscribed" }, 200, 0);
+    } else {
+      return json({ success: false, message: "Not found" }, 404, 0);
+    }
   } catch (error) { return json({ success: false, error: "Unsubscribe error" }, 500, 0); }
 }
 
@@ -2247,9 +2439,14 @@ async function generateSitemap(env) {
       xml += `\n  <url><loc>${baseUrl}/news/${encodeURIComponent(item.id)}</loc><lastmod>${lastmod}</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>`;
     }
     xml += `\n</urlset>`;
-    return new Response(xml, { status: 200, headers: { "Content-Type": "application/xml; charset=UTF-8", "Cache-Control": "public, max-age=300, s-maxage=600", ...corsHeaders() } });
+    return new Response(xml, {
+      status: 200,
+      headers: { "Content-Type": "application/xml; charset=UTF-8", "Cache-Control": "public, max-age=300, s-maxage=600", ...corsHeaders() }
+    });
   } catch (error) {
-    return new Response(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://ajkernews.in/</loc></url></urlset>`, { status: 200, headers: { "Content-Type": "application/xml; charset=UTF-8" } });
+    return new Response(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://ajkernews.in/</loc></url></urlset>`, {
+      status: 200, headers: { "Content-Type": "application/xml; charset=UTF-8" }
+    });
   }
 }
 
@@ -2268,14 +2465,21 @@ async function generateNewsSitemap(env) {
       xml += `\n  <url><loc>${base}/news/${encodeURIComponent(n.id)}</loc><lastmod>${publishedAt}</lastmod><news:news><news:publication><news:name>Ajker News</news:name><news:language>bn</news:language></news:publication><news:publication_date>${publishedAt}</news:publication_date><news:title>${escapeHtml(safeTitle)}</news:title>${keywords ? `<news:keywords>${escapeHtml(keywords)}</news:keywords>` : ""}<news:genres>Blog</news:genres></news:news></url>`;
     }
     xml += `\n</urlset>`;
-    return new Response(xml, { status: 200, headers: { "Content-Type": "application/xml; charset=UTF-8", "Cache-Control": "public, max-age=300, s-maxage=600", ...corsHeaders() } });
+    return new Response(xml, {
+      status: 200,
+      headers: { "Content-Type": "application/xml; charset=UTF-8", "Cache-Control": "public, max-age=300, s-maxage=600", ...corsHeaders() }
+    });
   } catch (error) {
-    return new Response(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9"></urlset>`, { status: 200, headers: { "Content-Type": "application/xml; charset=UTF-8" } });
+    return new Response(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9"></urlset>`, {
+      status: 200, headers: { "Content-Type": "application/xml; charset=UTF-8" }
+    });
   }
 }
 
 function generateRobotsTxt(env) {
-  const indexNowLine = (env && env.INDEXNOW_KEY) ? `# IndexNow\nIndexNow: https://ajkernews.in/${env.INDEXNOW_KEY}.txt\n\n` : "";
+  const indexNowLine = (env && env.INDEXNOW_KEY)
+    ? `# IndexNow\nIndexNow: https://ajkernews.in/${env.INDEXNOW_KEY}.txt\n\n`
+    : "";
   const text = `User-agent: *
 Allow: /
 Disallow: /admin
@@ -2311,7 +2515,13 @@ Allow: /
 ${indexNowLine}Sitemap: https://ajkernews.in/sitemap.xml
 Sitemap: https://ajkernews.in/news-sitemap.xml
 `;
-  return new Response(text, { status: 200, headers: { "Content-Type": "text/plain; charset=UTF-8", "Cache-Control": "public, max-age=3600, s-maxage=3600" } });
+  return new Response(text, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/plain; charset=UTF-8",
+      "Cache-Control": "public, max-age=3600, s-maxage=3600"
+    }
+  });
 }
 
 async function generateRSS(env) {
@@ -2338,7 +2548,9 @@ async function generateRSS(env) {
 ${items}
 </channel>
 </rss>`;
-  return new Response(xml, { headers: { "Content-Type": "application/rss+xml; charset=UTF-8", "Cache-Control": "public, max-age=300, s-maxage=600" } });
+  return new Response(xml, {
+    headers: { "Content-Type": "application/rss+xml; charset=UTF-8", "Cache-Control": "public, max-age=300, s-maxage=600" }
+  });
 }
 
 function corsHeaders() {
@@ -2403,7 +2615,12 @@ async function login() {
   errorEl.textContent = '';
   if (!password) { errorEl.textContent = 'পাসওয়ার্ড দিন'; return; }
   try {
-    const res = await fetch('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ password }) });
+    const res = await fetch('/api/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ password })
+    });
     const data = await res.json();
     if (data.success) window.location.href = '/admin/dashboard';
     else errorEl.textContent = data.error || 'ভুল পাসওয়ার্ড';
@@ -2585,10 +2802,7 @@ async function loadNews(search, append) {
           <button class="load-more-btn" onclick="loadMore()">আরও দেখুন (\${allLoadedNews.length} / \${totalNews})</button>
         </div>\`;
     } else if (!isHexId(search) && allLoadedNews.length > 0 && totalNews > 0) {
-      html += \`
-        <div style="text-align:center;padding:20px;color:#888;font-size:13px;">
-          ✅ সব \${totalNews}টি Post দেখানো হয়েছে
-        </div>\`;
+      html += \`<div style="text-align:center;padding:20px;color:#888;font-size:13px;">✅ সব \${totalNews}টি Post দেখানো হয়েছে</div>\`;
     }
     list.innerHTML = html;
   } catch (e) { list.innerHTML = '<div class="empty">Network error</div>'; }
@@ -2613,12 +2827,7 @@ async function showComments(newsId, headline) {
     if (res.status === 401) { location.href = '/admin'; return; }
     const data = await res.json();
     const comments = data.comments || [];
-    let html = \`
-      <div style="margin-bottom:16px;">
-        <button class="btn-back" onclick="goBackToNewsList()">← Back to News List</button>
-        <p style="font-size:13px;color:#888;margin-top:8px;">News: \${esc((headline || '').slice(0, 80))}</p>
-      </div>
-    \`;
+    let html = \`<div style="margin-bottom:16px;"><button class="btn-back" onclick="goBackToNewsList()">← Back to News List</button><p style="font-size:13px;color:#888;margin-top:8px;">News: \${esc((headline || '').slice(0, 80))}</p></div>\`;
     if (!comments.length) html += '<div class="empty">No comments found</div>';
     else {
       html += comments.map(c => \`
@@ -2654,12 +2863,8 @@ async function saveEdit() {
   try {
     const res = await fetch('/api/admin/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ id, updates }) });
     const data = await res.json();
-    if (data.success) {
-      toast('✅ Updated', 'success');
-      closeEdit();
-      if (currentMode === 'comments') showComments(currentNewsId, document.getElementById('pageTitle').textContent);
-      else loadNews(currentSearch, false);
-    } else toast('❌ ' + (data.error || 'Failed'), 'error');
+    if (data.success) { toast('✅ Updated', 'success'); closeEdit(); if (currentMode === 'comments') showComments(currentNewsId, document.getElementById('pageTitle').textContent); else loadNews(currentSearch, false); }
+    else toast('❌ ' + (data.error || 'Failed'), 'error');
   } catch (e) { toast('❌ Network error', 'error'); }
 }
 

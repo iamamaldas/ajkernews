@@ -132,6 +132,11 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .news-card { display:block; width:100%; background:#ffffff; border-radius:18px; overflow:hidden; text-decoration:none; color:#0a0a0a; box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 6px 24px rgba(0,0,0,0.06); opacity:0; transform: translateY(20px); transition: opacity 0.5s cubic-bezier(0.4,0,0.2,1), transform 0.5s cubic-bezier(0.4,0,0.2,1), box-shadow 0.3s ease; will-change: transform, box-shadow; }
 .news-card.visible { opacity:1; transform: translateY(0); }
 .news-card:hover { box-shadow: 0 2px 4px rgba(0,0,0,0.05), 0 16px 40px rgba(0,0,0,0.1); transform: translateY(-3px); }
+.news-card.new-card { animation: highlightNew 2s ease-out; }
+@keyframes highlightNew {
+  0% { box-shadow: 0 0 0 3px #ffeb3b, 0 6px 24px rgba(0,0,0,0.06); }
+  100% { box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 6px 24px rgba(0,0,0,0.06); }
+}
 .news-image-wrapper { position:relative; width:100%; aspect-ratio:16/9; background:#f2f3f5; overflow:hidden; cursor:pointer; }
 .news-image { display:block; width:100%; aspect-ratio:16/9; object-fit:cover; object-position:center center; transition: transform 0.6s cubic-bezier(0.4,0,0.2,1); }
 .news-card:hover .news-image { transform: scale(1.04); }
@@ -782,6 +787,10 @@ async function loadMoreNews() {
   const originalText = loadMoreBtn.textContent;
   loadMoreBtn.textContent = 'লোড হচ্ছে...';
 
+  // ✅ Count existing cards BEFORE loading new ones
+  const container = document.getElementById('newsContainer');
+  const existingCount = container.querySelectorAll('.news-card').length;
+
   try {
     currentOffset += PAGE_SIZE;
     const params = new URLSearchParams();
@@ -807,8 +816,7 @@ async function loadMoreNews() {
     const newNews = data.news.map(normalizeNews).filter(Boolean);
     const sorted = sortByLatest(newNews);
 
-    // ✅ Append new cards (no re-render — scroll position preserved)
-    const container = document.getElementById('newsContainer');
+    // ✅ Append new cards to container (existing cards stay in place)
     const newHtml = sorted.map(news => buildNewsHtml(news)).join('');
     container.insertAdjacentHTML('beforeend', newHtml);
 
@@ -817,16 +825,23 @@ async function loadMoreNews() {
     visibleCount = currentNews.length;
     hasMoreNews = data.has_more || false;
 
-    // ✅ Animate only new cards
-    requestAnimationFrame(() => {
-      const allCards = container.querySelectorAll('.news-card');
-      const startIdx = Math.max(0, allCards.length - sorted.length);
-      for (let i = startIdx; i < allCards.length; i++) {
-        allCards[i].classList.add('visible');
-      }
-    });
+    // ✅ Mark new cards as visible WITHOUT animation delay (prevents reflow scroll)
+    const allCards = container.querySelectorAll('.news-card');
+    for (let i = existingCount; i < allCards.length; i++) {
+      allCards[i].style.transition = 'none';
+      allCards[i].classList.add('visible');
+      allCards[i].classList.add('new-card');
+      void allCards[i].offsetHeight; // force reflow
+      allCards[i].style.transition = '';
+      // Remove highlight class after animation
+      (function(card) {
+        setTimeout(() => {
+          card.classList.remove('new-card');
+        }, 2500);
+      })(allCards[i]);
+    }
 
-    // ✅ Update love counts for new items only
+    // ✅ Update love counts for new items
     updateLoveCounts(sorted);
 
     // ✅ Hide button if no more news
@@ -836,9 +851,24 @@ async function loadMoreNews() {
       loadMoreBtn.style.display = 'block';
     }
 
+    // ✅ AUTO-SCROLL TO FIRST NEW CARD (16th card)
+    requestAnimationFrame(() => {
+      const allCardsNow = container.querySelectorAll('.news-card');
+      const firstNewCard = allCardsNow[existingCount];
+      if (firstNewCard) {
+        const headerOffset = 130;
+        const cardTop = firstNewCard.getBoundingClientRect().top + window.pageYOffset;
+        const targetScroll = cardTop - headerOffset;
+        window.scrollTo({
+          top: targetScroll,
+          behavior: 'smooth'
+        });
+      }
+    });
+
   } catch (error) {
     console.error('Load more error:', error);
-    currentOffset -= PAGE_SIZE; // rollback on error
+    currentOffset -= PAGE_SIZE;
   } finally {
     isLoadingNews = false;
     loadMoreBtn.disabled = false;

@@ -31,6 +31,144 @@
 { "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in/logo.png" }
 </script>
 
+<!-- ============================================ -->
+<!-- 🟢 ADSTERRA ADS — Popunder + Social Bar + Native Banner -->
+<!-- ============================================ -->
+<script>
+(function() {
+  var ADSTERRA_CONFIG = {
+    popunderUrl: "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512",
+    socialBarScript: `<script data-cfasync="false" src="https://bicea.org/14/3f58b0818e43e5e2e8f28449d29e9937"></script>`,
+    nativeBannerScript: `<script async="async" data-cfasync="false" src="https://bicea.org/21/25ee2c0a822da5cf3429cd2cb222524f"></script>`,
+    nativeBannerContainerId: "container-25ee2c0a822da5cf3429cd2cb222524f"
+  };
+
+  // === ১. Popunder ===
+  function loadPopunder() {
+    if (!ADSTERRA_CONFIG.popunderUrl || ADSTERRA_CONFIG.popunderUrl === "YOUR_POPUNDER_URL") return;
+    if (document.querySelector('script[src*="' + ADSTERRA_CONFIG.popunderUrl.split('/')[2] + '"]')) return;
+    var s = document.createElement('script');
+    s.async = true;
+    s.src = ADSTERRA_CONFIG.popunderUrl;
+    s.setAttribute('data-cfasync', 'false');
+    document.head.appendChild(s);
+    console.log('[Adsterra] Popunder loaded');
+  }
+
+  // === ২. Social Bar ===
+  function loadSocialBar() {
+    if (!ADSTERRA_CONFIG.socialBarScript || ADSTERRA_CONFIG.socialBarScript.includes("YOUR_SOCIAL_BAR_SCRIPT")) return;
+    var tempDiv = document.createElement('div');
+    tempDiv.innerHTML = ADSTERRA_CONFIG.socialBarScript;
+    var scripts = tempDiv.querySelectorAll('script');
+    scripts.forEach(function(oldScript) {
+      var newScript = document.createElement('script');
+      for (var i = 0; i < oldScript.attributes.length; i++) {
+        newScript.setAttribute(oldScript.attributes[i].name, oldScript.attributes[i].value);
+      }
+      newScript.text = oldScript.text;
+      document.head.appendChild(newScript);
+    });
+    console.log('[Adsterra] Social Bar loaded');
+  }
+
+  // === ৩. Native Banner Script ===
+  function loadNativeBannerScript() {
+    if (!ADSTERRA_CONFIG.nativeBannerScript || ADSTERRA_CONFIG.nativeBannerScript.includes("YOUR_NATIVE_BANNER_SCRIPT")) return;
+    if (document.querySelector('script[src*="' + ADSTERRA_CONFIG.nativeBannerContainerId + '"]')) return;
+    var tempDiv = document.createElement('div');
+    tempDiv.innerHTML = ADSTERRA_CONFIG.nativeBannerScript;
+    var scripts = tempDiv.querySelectorAll('script');
+    scripts.forEach(function(oldScript) {
+      var newScript = document.createElement('script');
+      for (var i = 0; i < oldScript.attributes.length; i++) {
+        newScript.setAttribute(oldScript.attributes[i].name, oldScript.attributes[i].value);
+      }
+      newScript.text = oldScript.text;
+      document.head.appendChild(newScript);
+    });
+    console.log('[Adsterra] Native Banner script loaded');
+  }
+
+  // === ৪. Native Banner Container ===
+  function insertNativeBannerContainer() {
+    var containerId = ADSTERRA_CONFIG.nativeBannerContainerId;
+    if (!containerId || containerId === "YOUR_NATIVE_BANNER_CONTAINER_ID") return false;
+    if (document.getElementById(containerId)) return true;
+
+    var container = document.createElement('div');
+    container.id = containerId;
+    container.style.margin = '20px 0';
+    container.style.minHeight = '250px';
+    container.style.width = '100%';
+    container.style.display = 'block';
+    container.style.clear = 'both';
+
+    var newsContainer = document.getElementById('newsContainer');
+    var mainContent = document.querySelector('.main-content');
+    if (newsContainer && newsContainer.parentNode) {
+      newsContainer.parentNode.insertBefore(container, newsContainer.nextSibling);
+      return true;
+    } else if (mainContent) {
+      mainContent.appendChild(container);
+      return true;
+    } else {
+      document.body.appendChild(container);
+      return true;
+    }
+  }
+
+  // === ৫. চেক এবং রিট্রাই ===
+  var retryCount = 0;
+  var maxRetries = 15; // ৩০ সেকেন্ড পর্যন্ত চেষ্টা
+  var retryInterval = null;
+
+  function tryInsertNativeBanner() {
+    var inserted = insertNativeBannerContainer();
+    if (inserted) {
+      loadNativeBannerScript();
+      if (retryInterval) clearInterval(retryInterval);
+    }
+    retryCount++;
+    if (retryCount >= maxRetries && retryInterval) {
+      clearInterval(retryInterval);
+    }
+  }
+
+  // ✅ প্রাথমিক লোড
+  loadPopunder();
+  loadSocialBar();
+
+  // ✅ DOMContentLoaded-এ Native Banner কন্টেইনার চেষ্টা
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() {
+      setTimeout(tryInsertNativeBanner, 1500);
+    });
+  } else {
+    setTimeout(tryInsertNativeBanner, 1500);
+  }
+
+  // ✅ প্রতি ২ সেকেন্ডে রিট্রাই
+  retryInterval = setInterval(tryInsertNativeBanner, 2000);
+
+  // ✅ renderNews() কল হওয়ার পর Native Banner রি-স্ক্যান
+  window.__refreshAdsterraNativeBanner = function() {
+    setTimeout(function() {
+      if (!document.getElementById(ADSTERRA_CONFIG.nativeBannerContainerId)) {
+        insertNativeBannerContainer();
+      }
+      // স্ক্রিপ্ট রি-লোড
+      var existingScript = document.querySelector('script[src*="' + ADSTERRA_CONFIG.nativeBannerContainerId + '"]');
+      if (!existingScript) {
+        loadNativeBannerScript();
+      }
+    }, 800);
+  };
+
+  console.log('[Adsterra] Init complete. Container ID:', ADSTERRA_CONFIG.nativeBannerContainerId);
+})();
+</script>
+
 <style>
 * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-tap-highlight-color: transparent; }
 html { scroll-behavior: smooth; font-size: 16px; -webkit-text-size-adjust: 100%; }
@@ -649,6 +787,11 @@ function renderNews(newsList, hasMore = false) {
   });
   const loadMoreBtn = document.getElementById('loadMoreBtn');
   if (loadMoreBtn) loadMoreBtn.style.display = hasMore ? 'block' : 'none';
+
+  // ✅ Adsterra Native Banner রি-স্ক্যান
+  if (typeof window.__refreshAdsterraNativeBanner === 'function') {
+    window.__refreshAdsterraNativeBanner();
+  }
 }
 
 async function loadMoreNews() {

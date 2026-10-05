@@ -1,7 +1,7 @@
 // sw.js
-// ✅ FINAL v27 — Cache + FCM + Notification Click + Push Event Handler
+// ✅ FINAL v30 — Cache + FCM + Notification Click + Push Event Handler + Offline Queue
 
-const CACHE_VERSION = "ajker-news-v2026-10-03-final";
+const CACHE_VERSION = "ajker-news-v2026-10-05-final6";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
 // ===== FCM Setup =====
@@ -204,8 +204,19 @@ self.addEventListener("fetch", event => {
   );
 });
 
-self.addEventListener("message", event => {
+// ===== ✅ MESSAGE HANDLER (SKIP_WAITING + NETWORK_ONLINE) =====
+self.addEventListener('message', (event) => {
   if (event.data === "SKIP_WAITING") {
     self.skipWaiting();
+  }
+  
+  // ✅ PWA-তে Net ON হলে Notification Token Refresh সিগন্যাল
+  if (event.data && event.data.type === 'NETWORK_ONLINE') {
+    console.log('[SW] Network online — refreshing FCM token');
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      clients.forEach((client) => {
+        client.postMessage({ type: 'REFRESH_FCM_TOKEN' });
+      });
+    });
   }
 });

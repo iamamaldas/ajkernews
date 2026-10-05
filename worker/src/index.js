@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v36.0: SEO Fixed + Indexing Ready + Adult Ad Blocker
+// ✅ FINAL v37.0: SEO + CPU Optimized + Bot Cache + SSE 30s
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -13,7 +13,7 @@ import { cacheNewsApi, purgeNewsApiCache, purgeArticleCache } from "./cache.js";
 import { getFcmCredentials } from "./jwt.js";
 import { cleanText, escapeHtml } from "./utils.js";
 
-const MAX_NEWS = 1000;
+const MAX_NEWS = 5000;
 const API_PAGE_SIZE = 10;
 
 const NOTIFICATION_CONFIG = {
@@ -93,7 +93,6 @@ function getDigestType(hour) {
   return "general";
 }
 
-// ✅ Adsterra Scripts (bot-safe)
 function getAdsterraScripts() {
   const scripts = [];
   if (ADS_CONFIG?.socialBarScript && !ADS_CONFIG.socialBarScript.includes("YOUR_SOCIAL_BAR_SCRIPT")) {
@@ -105,7 +104,6 @@ function getAdsterraScripts() {
   return scripts.join("\n");
 }
 
-// ✅ Native Banner Container
 function getNativeBannerContainer() {
   const containerId = ADS_CONFIG?.nativeBannerContainerId;
   if (!containerId || containerId === "YOUR_NATIVE_BANNER_CONTAINER_ID") {
@@ -117,7 +115,6 @@ function getNativeBannerContainer() {
   </div>`;
 }
 
-// ✅ Adult Ad Blocker Script (inline) — FIXED
 function getAdultBlockerScript() {
   return `<script>
 (function(){
@@ -143,7 +140,7 @@ function getAdultBlockerScript() {
   function scan(){ try { document.querySelectorAll('iframe,img,a,div[style*="position"],ins,embed,object').forEach(function(el){ if(el.getAttribute('data-blocked') === '1') return; if(should(el)) block(el); }); } catch(e){} }
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', scan); else scan();
   try { new MutationObserver(function(ms){ ms.forEach(function(m){ m.addedNodes.forEach(function(n){ if(n.nodeType === 1){ if(should(n)) block(n); else { try { n.querySelectorAll && n.querySelectorAll('iframe,img,a,ins,embed,object').forEach(function(c){ if(should(c)) block(c); }); } catch(e){} } } }); }); }).observe(document.documentElement, { childList: true, subtree: true }); } catch(e){}
-  setInterval(scan, 2000);
+  setInterval(scan, 3000);
   var orig = window.open;
   window.open = function(u){ if(u && isAdult(u) && !isSafe(u)) { try { console.warn('[AdBlock] Blocked adult popup'); } catch(e){} return null; } return orig.apply(this, arguments); };
   try { console.log('[AdBlock] Adult content blocker active'); } catch(e){}
@@ -208,10 +205,6 @@ export default {
 
     try {
       await ensureTablesOnce(env);
-
-      // ============================================
-      // 🔐 ADMIN PANEL
-      // ============================================
 
       async function sha256(text) {
         const encoder = new TextEncoder();
@@ -409,10 +402,6 @@ export default {
           return json({ success: true, message: "Deleted" }, 200, 0);
         } catch (error) { return json({ success: false, error: error.message }, 500, 0); }
       }
-
-      // ============================================
-      // ✅ PUBLIC ROUTES
-      // ============================================
 
       if (url.pathname === "/sitemap.xml") return await generateSitemap(env);
       if (url.pathname === "/news-sitemap.xml") return await generateNewsSitemap(env);
@@ -830,17 +819,18 @@ async function handleLiveStream(env, request) {
 
       await checkForEvents();
 
+      // ✅ SSE Polling ৩০ সেকেন্ড (আগে ৫ সেকেন্ড ছিল) — CPU Time ৬x কমবে
       const interval = setInterval(async () => {
         if (isClosed) { clearInterval(interval); return; }
         await checkForEvents();
-      }, 5000);
+      }, 30000);
 
       const heartbeat = setInterval(() => {
         if (isClosed) { clearInterval(heartbeat); return; }
         try {
           controller.enqueue(encoder.encode(`: heartbeat\n\n`));
         } catch (e) { isClosed = true; }
-      }, 15000);
+      }, 60000);
 
       setTimeout(() => {
         if (!isClosed) {
@@ -1367,26 +1357,25 @@ async function serveListingPage(env, category, searchQuery, request) {
       entertainment:'বিনোদন', crime:'অপরাধ', district:'জেলা', general:'সাধারণ'
     };
 
-    // ✅ প্রতিটি ক্যাটাগরির জন্য আলাদা Description (Duplicate Content ফিক্স)
     const catDescription = {
-      top: 'কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ ও সেরা বাংলা খবর। আজকের গুরুত্বপূর্ণ সংবাদ এক জায়গায়।',
-      trending: 'ট্রেন্ডিং বাংলা খবর - সবচেয়ে বেশি পড়া ও শেয়ার হওয়া সংবাদ। এখনই দেখুন।',
-      all: 'সব বাংলা খবর - রাজনীতি, খেলা, বিনোদন, ব্যবসা, প্রযুক্তি ও আন্তর্জাতিক সংবাদ।',
-      west_bengal: 'পশ্চিমবঙ্গের সর্বশেষ খবর - কলকাতা, জেলা ও ব্লকের সংবাদ।',
-      kolkata: 'কলকাতার সর্বশেষ খবর - স্থানীয়, রাজনীতি, অপরাধ ও সংস্কৃতি।',
-      india: 'ভারতের সর্বশেষ খবর - রাজনীতি, অর্থনীতি, খেলা ও জাতীয় সংবাদ।',
-      world: 'বিশ্বের সর্বশেষ খবর - আন্তর্জাতিক রাজনীতি, অর্থনীতি ও ঘটনা।',
-      business: 'ব্যবসা ও অর্থনীতির সর্বশেষ খবর - শেয়ার বাজার, বাণিজ্য ও কর্পোরেট সংবাদ।',
-      sports: 'খেলার সর্বশেষ খবর - ক্রিকেট, ফুটবল ও অন্যান্য খেলা।',
-      politics: 'রাজনীতির সর্বশেষ খবর - ভারত, পশ্চিমবঙ্গ ও আন্তর্জাতিক রাজনীতি।',
-      technology: 'প্রযুক্তির সর্বশেষ খবর - গ্যাজেট, সফটওয়্যার ও AI আপডেট।',
-      entertainment: 'বিনোদনের সর্বশেষ খবর - সিনেমা, টিভি, সেলিব্রিটি ও সংস্কৃতি।',
-      crime: 'অপরাধের সর্বশেষ খবর - পুলিশ, আদালত ও তদন্তের আপডেট।',
-      district: 'জেলার সর্বশেষ খবর - পশ্চিমবঙ্গের প্রতিটি জেলার সংবাদ।',
-      general: 'সাধারণ বাংলা খবর - দৈনন্দিন জীবনের সব সংবাদ।'
+      top: 'কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ ও সেরা বাংলা খবর।',
+      trending: 'ট্রেন্ডিং বাংলা খবর - সবচেয়ে বেশি পড়া সংবাদ।',
+      all: 'সব বাংলা খবর - রাজনীতি, খেলা, বিনোদন, ব্যবসা।',
+      west_bengal: 'পশ্চিমবঙ্গের সর্বশেষ খবর।',
+      kolkata: 'কলকাতার সর্বশেষ খবর।',
+      india: 'ভারতের সর্বশেষ খবর।',
+      world: 'বিশ্বের সর্বশেষ খবর।',
+      business: 'ব্যবসা ও অর্থনীতির খবর।',
+      sports: 'খেলার সর্বশেষ খবর।',
+      politics: 'রাজনীতির সর্বশেষ খবর।',
+      technology: 'প্রযুক্তির সর্বশেষ খবর।',
+      entertainment: 'বিনোদনের সর্বশেষ খবর।',
+      crime: 'অপরাধের সর্বশেষ খবর।',
+      district: 'জেলার সর্বশেষ খবর।',
+      general: 'সাধারণ বাংলা খবর।'
     };
     const pageDescription = searchQuery 
-      ? `সার্চ "${searchQuery}" এর ফলাফল - Ajker News এ সর্বশেষ বাংলা খবর।` 
+      ? `সার্চ "${searchQuery}" এর ফলাফল - Ajker News।` 
       : (catDescription[category] || catDescription.top);
 
     let sql, binds;
@@ -1459,6 +1448,11 @@ async function serveListingPage(env, category, searchQuery, request) {
 
     const canonical = searchQuery ? `https://ajkernews.in/?q=${encodeURIComponent(searchQuery)}` : (category && category !== "top" ? `https://ajkernews.in/?category=${encodeURIComponent(category)}` : "https://ajkernews.in/");
 
+    // ✅ Bot-দের জন্য Cache-Control ১ ঘণ্টা (CPU Time ১২x কমবে)
+    const cacheControl = isBot 
+      ? "public, s-maxage=3600, stale-while-revalidate=7200"
+      : "public, s-maxage=300, stale-while-revalidate=600, max-age=0, must-revalidate";
+
     const html = `<!DOCTYPE html>
 <html lang="bn">
 <head>
@@ -1499,7 +1493,7 @@ ${bannerContainer}
       status: 200,
       headers: {
         "Content-Type": "text/html; charset=UTF-8",
-        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600, max-age=0, must-revalidate",
+        "Cache-Control": cacheControl,
         "X-Robots-Tag": "index, follow, max-image-preview:large"
       }
     });
@@ -1615,6 +1609,11 @@ async function serveArticlePage(id, env, request) {
       ${recentNews.map(n => `<li><a href="https://ajkernews.in/news/${encodeURIComponent(n.id)}">${escapeHtml(n.headline || "")}</a></li>`).join("")}
     </ul>
   </aside>` : "";
+
+  // ✅ Bot-দের জন্য Cache-Control ১ ঘণ্টা
+  const cacheControl = isBot 
+    ? "public, s-maxage=3600, stale-while-revalidate=7200"
+    : "public, s-maxage=300, stale-while-revalidate=600, max-age=0, must-revalidate";
 
   const html = `<!DOCTYPE html>
 <html lang="bn">
@@ -1948,7 +1947,7 @@ ${adultBlocker}
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=UTF-8",
-      "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600, max-age=0, must-revalidate",
+      "Cache-Control": cacheControl,
       "X-Robots-Tag": "index, follow, max-image-preview:large"
     }
   });

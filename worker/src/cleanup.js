@@ -1,8 +1,8 @@
 // worker/src/cleanup.js
-// ✅ FIXED: deleteNewsById unused সরানো
+// ✅ FINAL v2: 5000 পোস্ট সাপোর্ট
 
-const MAX_TOTAL_NEWS = 1000;
-const MAX_DELETE_PER_RUN = 150;
+const MAX_TOTAL_NEWS = 5000;
+const MAX_DELETE_PER_RUN = 500;
 const CANDIDATE_MAX_AGE_HOURS = 48;
 const REJECTED_MAX_AGE_HOURS = 24;
 
@@ -14,7 +14,7 @@ export async function getNewsCount(db) {
 }
 
 export async function getOldestNews(db, limit = 10) {
-  const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 500);
+  const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 1000);
 
   const result = await db
     .prepare(`

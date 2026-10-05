@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v37.0: SEO + CPU Optimized + Bot Cache + SSE 30s
+// ✅ FINAL v38.0: SEO + 5000 Sitemap + Improved 410 Gone + Bot Cache + SSE 30s
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -164,7 +164,24 @@ async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
   }
 }
 
-function gonePage() {
+// ✅ উন্নত 410 Gone Page (Related News সহ)
+function gonePage(relatedNews = []) {
+  const relatedHtml = relatedNews.length ? `
+    <div style="margin-top: 32px; text-align: left;">
+      <h2 style="font-size: 18px; margin-bottom: 16px; color: #111;">📰 সাম্প্রতিক খবর</h2>
+      <ul style="list-style: none; padding: 0;">
+        ${relatedNews.map(n => `
+          <li style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #eee;">
+            <a href="https://ajkernews.in/news/${encodeURIComponent(n.id)}" 
+               style="color: #007bff; text-decoration: none; font-size: 15px; font-weight: 600;">
+              ${escapeHtml(n.headline || 'সংবাদ')}
+            </a>
+          </li>
+        `).join('')}
+      </ul>
+    </div>
+  ` : '';
+
   const html = `<!DOCTYPE html>
 <html lang="bn">
 <head>
@@ -173,17 +190,22 @@ function gonePage() {
 <title>খবরটি আর নেই - Ajker News</title>
 <meta name="robots" content="noindex, follow">
 <style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family: Inter,-apple-system,BlinkMacSystemFont,sans-serif; max-width: 600px; margin: 80px auto; padding: 20px; text-align: center; color: #111; }
-  h1 { font-size: 32px; margin-bottom: 16px; }
-  p { font-size: 16px; color: #666; line-height: 1.6; margin-bottom: 24px; }
-  a { display: inline-block; background: #007bff; color: #fff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; }
+  * { margin:0; padding:0; box-sizing:border-box; font-family: Inter,-apple-system,BlinkMacSystemFont,sans-serif; }
+  body { max-width: 600px; margin: 40px auto; padding: 20px; color: #111; }
+  h1 { font-size: 28px; margin-bottom: 16px; text-align: center; }
+  p { font-size: 16px; color: #666; line-height: 1.6; margin-bottom: 24px; text-align: center; }
+  .btn { display: block; width: 100%; text-align: center; background: #007bff; color: #fff; padding: 14px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px; margin-bottom: 12px; }
+  .btn-secondary { background: #f2f2f2; color: #333; }
 </style>
 </head>
 <body>
   <h1>📰 খবরটি আর নেই</h1>
-  <p>এই খবরটি আমাদের আর্কাইভ থেকে সরিয়ে নেওয়া হয়েছে। সাম্প্রতিক খবর দেখতে নিচের বাটনে ক্লিক করুন।</p>
-  <a href="https://ajkernews.in/">সর্বশেষ খবর দেখুন</a>
+  <p>এই খবরটি আমাদের আর্কাইভ থেকে সরিয়ে নেওয়া হয়েছে। নিচে সাম্প্রতিক খবর দেখুন।</p>
+  
+  <a href="https://ajkernews.in/" class="btn">🏠 সর্বশেষ খবর দেখুন</a>
+  <a href="javascript:history.back()" class="btn btn-secondary">← পূর্ববর্তী পেজে ফিরে যান</a>
+
+  ${relatedHtml}
 </body>
 </html>`;
   return new Response(html, {
@@ -819,7 +841,6 @@ async function handleLiveStream(env, request) {
 
       await checkForEvents();
 
-      // ✅ SSE Polling ৩০ সেকেন্ড (আগে ৫ সেকেন্ড ছিল) — CPU Time ৬x কমবে
       const interval = setInterval(async () => {
         if (isClosed) { clearInterval(interval); return; }
         await checkForEvents();
@@ -1448,7 +1469,6 @@ async function serveListingPage(env, category, searchQuery, request) {
 
     const canonical = searchQuery ? `https://ajkernews.in/?q=${encodeURIComponent(searchQuery)}` : (category && category !== "top" ? `https://ajkernews.in/?category=${encodeURIComponent(category)}` : "https://ajkernews.in/");
 
-    // ✅ Bot-দের জন্য Cache-Control ১ ঘণ্টা (CPU Time ১২x কমবে)
     const cacheControl = isBot 
       ? "public, s-maxage=3600, stale-while-revalidate=7200"
       : "public, s-maxage=300, stale-while-revalidate=600, max-age=0, must-revalidate";
@@ -1518,7 +1538,17 @@ async function serveArticlePage(id, env, request) {
     `SELECT headline, summary, main_topic, image_url, published_at, created_at, source_name, source_url, category FROM news WHERE id = ? AND status = 'published' LIMIT 1`
   ).bind(safeId).first();
 
-  if (!result) return gonePage();
+  if (!result) {
+    // ✅ Related News আনুন (User Experience-এর জন্য)
+    let relatedNews = [];
+    try {
+      const related = await env.DB.prepare(
+        `SELECT id, headline FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT 5`
+      ).all();
+      relatedNews = related?.results || [];
+    } catch (e) {}
+    return gonePage(relatedNews);
+  }
 
   let loveCount = 0;
   try {
@@ -1610,7 +1640,6 @@ async function serveArticlePage(id, env, request) {
     </ul>
   </aside>` : "";
 
-  // ✅ Bot-দের জন্য Cache-Control ১ ঘণ্টা
   const cacheControl = isBot 
     ? "public, s-maxage=3600, stale-while-revalidate=7200"
     : "public, s-maxage=300, stale-while-revalidate=600, max-age=0, must-revalidate";
@@ -2022,7 +2051,16 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
     `SELECT id, headline, summary, main_topic, image_url, published_at, created_at, source_name, source_url, category FROM news WHERE id = ? AND status = 'published' LIMIT 1`
   ).bind(safeId).first();
 
-  if (!result) return gonePage();
+  if (!result) {
+    let relatedNews = [];
+    try {
+      const related = await env.DB.prepare(
+        `SELECT id, headline FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT 5`
+      ).all();
+      relatedNews = related?.results || [];
+    } catch (e) {}
+    return gonePage(relatedNews);
+  }
 
   const userAgent = requestUserAgentFromContext || "";
   const isBot = BOT_REGEX.test(userAgent);
@@ -2444,9 +2482,10 @@ async function addComment(request, env) {
   } catch (error) { return json({ success: false, error: error?.message || "Comment error" }, 500, 0); }
 }
 
+// ✅ Sitemap: 5000 পোস্ট সাপোর্ট
 async function generateSitemap(env) {
   try {
-    const result = await env.DB.prepare(`SELECT id, published_at, created_at FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT 1000`).all();
+    const result = await env.DB.prepare(`SELECT id, published_at, created_at FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT 5000`).all();
     const news = result.results || [];
     const baseUrl = "https://ajkernews.in";
     let xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -2471,7 +2510,7 @@ async function generateSitemap(env) {
 
 async function generateNewsSitemap(env) {
   try {
-    const result = await env.DB.prepare(`SELECT id, headline, summary, main_topic, category, published_at, created_at FROM news WHERE status = 'published' AND created_at >= datetime('now', '-3 days') ORDER BY created_at DESC LIMIT 1000`).all();
+    const result = await env.DB.prepare(`SELECT id, headline, summary, main_topic, category, published_at, created_at FROM news WHERE status = 'published' AND created_at >= datetime('now', '-3 days') ORDER BY created_at DESC LIMIT 5000`).all();
     const news = result.results || [];
     const base = "https://ajkernews.in";
     let xml = `<?xml version="1.0" encoding="UTF-8"?>

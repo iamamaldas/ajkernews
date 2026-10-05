@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v35.0: Adult ad blocker + Native Banner
+// ✅ FINAL v36.0: SEO Fixed + Indexing Ready + Adult Ad Blocker
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -117,11 +117,11 @@ function getNativeBannerContainer() {
   </div>`;
 }
 
-// ✅ Adult Ad Blocker Script (inline)
+// ✅ Adult Ad Blocker Script (inline) — FIXED
 function getAdultBlockerScript() {
   return `<script>
 (function(){
-  var KEY = ['porn','xxx','sex','adult','nude','naked','erotic','cam-girl','camgirl','escort','livejasmin','chaturbate','bongacams','stripchat','trafficjunky','exoclick','juicyads','plugrush','adnium','ero-advertising','hentai','onlyfans','bang','milf','anal','hardcore','softcore','fuck','cock','pussy','dick','boobs','tits','cum'];
+  var KEY = ['porn','xxx','adult','nude','naked','erotic','cam-girl','camgirl','escort','livejasmin','chaturbate','bongacams','stripchat','trafficjunky','exoclick','juicyads','plugrush','adnium','ero-advertising','hentai','onlyfans','milf','hardcore','softcore','fuck','cock','pussy','dick','boobs','tits'];
   var SAFE = ['bicea.org','adsterra.com','profitableratecpm.com','highperformanceformat.com','afders.org','ajkernews.in','gstatic.com','googleapis.com','cloudflare.com','firebase.com','google.com'];
   function isSafe(u){ if(!u) return false; try { var h = new URL(u, location.origin).hostname.toLowerCase(); return SAFE.some(function(s){ return h.indexOf(s) !== -1; }); } catch(e){ return false; } }
   function isAdult(s){ if(!s) return false; var l = String(s).toLowerCase(); return KEY.some(function(k){ return l.indexOf(k) !== -1; }); }
@@ -137,7 +137,7 @@ function getAdultBlockerScript() {
     if(t === 'a'){ var h = el.href || el.getAttribute('href') || ''; if(isSafe(h)) return false; if(isAdult(h)) return true; }
     var idc = (el.id||'') + ' ' + (el.className||''); if(isAdult(idc)) return true;
     var st = el.getAttribute && el.getAttribute('style') || '';
-    if(st && (st.indexOf('position: fixed') !== -1 || st.indexOf('position:fixed') !== -1)){ if(/z-index:\\s*\\d{5,}/i.test(st)) return true; }
+    if(st && (st.indexOf('position: fixed') !== -1 || st.indexOf('position:fixed') !== -1)){ if(new RegExp('z-index:\\\\s*\\\\d{5,}', 'i').test(st)) return true; }
     return false;
   }
   function scan(){ try { document.querySelectorAll('iframe,img,a,div[style*="position"],ins,embed,object').forEach(function(el){ if(el.getAttribute('data-blocked') === '1') return; if(should(el)) block(el); }); } catch(e){} }
@@ -1367,6 +1367,28 @@ async function serveListingPage(env, category, searchQuery, request) {
       entertainment:'বিনোদন', crime:'অপরাধ', district:'জেলা', general:'সাধারণ'
     };
 
+    // ✅ প্রতিটি ক্যাটাগরির জন্য আলাদা Description (Duplicate Content ফিক্স)
+    const catDescription = {
+      top: 'কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ ও সেরা বাংলা খবর। আজকের গুরুত্বপূর্ণ সংবাদ এক জায়গায়।',
+      trending: 'ট্রেন্ডিং বাংলা খবর - সবচেয়ে বেশি পড়া ও শেয়ার হওয়া সংবাদ। এখনই দেখুন।',
+      all: 'সব বাংলা খবর - রাজনীতি, খেলা, বিনোদন, ব্যবসা, প্রযুক্তি ও আন্তর্জাতিক সংবাদ।',
+      west_bengal: 'পশ্চিমবঙ্গের সর্বশেষ খবর - কলকাতা, জেলা ও ব্লকের সংবাদ।',
+      kolkata: 'কলকাতার সর্বশেষ খবর - স্থানীয়, রাজনীতি, অপরাধ ও সংস্কৃতি।',
+      india: 'ভারতের সর্বশেষ খবর - রাজনীতি, অর্থনীতি, খেলা ও জাতীয় সংবাদ।',
+      world: 'বিশ্বের সর্বশেষ খবর - আন্তর্জাতিক রাজনীতি, অর্থনীতি ও ঘটনা।',
+      business: 'ব্যবসা ও অর্থনীতির সর্বশেষ খবর - শেয়ার বাজার, বাণিজ্য ও কর্পোরেট সংবাদ।',
+      sports: 'খেলার সর্বশেষ খবর - ক্রিকেট, ফুটবল ও অন্যান্য খেলা।',
+      politics: 'রাজনীতির সর্বশেষ খবর - ভারত, পশ্চিমবঙ্গ ও আন্তর্জাতিক রাজনীতি।',
+      technology: 'প্রযুক্তির সর্বশেষ খবর - গ্যাজেট, সফটওয়্যার ও AI আপডেট।',
+      entertainment: 'বিনোদনের সর্বশেষ খবর - সিনেমা, টিভি, সেলিব্রিটি ও সংস্কৃতি।',
+      crime: 'অপরাধের সর্বশেষ খবর - পুলিশ, আদালত ও তদন্তের আপডেট।',
+      district: 'জেলার সর্বশেষ খবর - পশ্চিমবঙ্গের প্রতিটি জেলার সংবাদ।',
+      general: 'সাধারণ বাংলা খবর - দৈনন্দিন জীবনের সব সংবাদ।'
+    };
+    const pageDescription = searchQuery 
+      ? `সার্চ "${searchQuery}" এর ফলাফল - Ajker News এ সর্বশেষ বাংলা খবর।` 
+      : (catDescription[category] || catDescription.top);
+
     let sql, binds;
     if (searchQuery) {
       sql = `SELECT id, headline, summary, published_at, created_at, category, image_url, source_name, main_topic FROM news WHERE status = 'published' AND (headline LIKE ? OR summary LIKE ? OR main_topic LIKE ?) ORDER BY created_at DESC LIMIT 100`;
@@ -1443,11 +1465,12 @@ async function serveListingPage(env, category, searchQuery, request) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escapeHtml(pageTitle)} | Ajker News</title>
-<meta name="description" content="কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ বাংলা খবর।">
+<meta name="description" content="${escapeHtml(pageDescription)}">
 <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1">
 <link rel="canonical" href="${escapeHtml(canonical)}">
 <meta property="og:type" content="website">
 <meta property="og:title" content="${escapeHtml(pageTitle)} | Ajker News">
+<meta property="og:description" content="${escapeHtml(pageDescription)}">
 <meta property="og:url" content="${escapeHtml(canonical)}">
 <meta property="og:image" content="https://ajkernews.in/logo.png">
 <script type="application/ld+json">${itemListLd}</script>
@@ -1476,8 +1499,7 @@ ${bannerContainer}
       status: 200,
       headers: {
         "Content-Type": "text/html; charset=UTF-8",
-        "Cache-Control": "public, no-cache, must-revalidate, max-age=0",
-        "Pragma": "no-cache", "Expires": "0",
+        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600, max-age=0, must-revalidate",
         "X-Robots-Tag": "index, follow, max-image-preview:large"
       }
     });
@@ -1926,8 +1948,7 @@ ${adultBlocker}
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=UTF-8",
-      "Cache-Control": "public, no-cache, must-revalidate, max-age=0",
-      "Pragma": "no-cache", "Expires": "0",
+      "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600, max-age=0, must-revalidate",
       "X-Robots-Tag": "index, follow, max-image-preview:large"
     }
   });
@@ -2158,8 +2179,7 @@ ${adultBlocker}
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=UTF-8",
-      "Cache-Control": "public, no-cache, must-revalidate, max-age=0",
-      "Pragma": "no-cache", "Expires": "0",
+      "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600, max-age=0, must-revalidate",
       "X-Robots-Tag": "noindex, nofollow"
     }
   });
@@ -2436,7 +2456,7 @@ async function generateSitemap(env) {
     for (const item of news) {
       const displayDate = item.created_at || item.published_at;
       const lastmod = displayDate ? new Date(displayDate).toISOString() : new Date().toISOString();
-      xml += `\n  <url><loc>${baseUrl}/news/${encodeURIComponent(item.id)}</loc><lastmod>${lastmod}</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>`;
+      xml += `\n  <url><loc>${baseUrl}/news/${encodeURIComponent(item.id)}</loc><lastmod>${lastmod}</lastmod><changefreq>hourly</changefreq><priority>0.9</priority></url>`;
     }
     xml += `\n</urlset>`;
     return new Response(xml, {
@@ -2452,7 +2472,7 @@ async function generateSitemap(env) {
 
 async function generateNewsSitemap(env) {
   try {
-    const result = await env.DB.prepare(`SELECT id, headline, summary, main_topic, category, published_at, created_at FROM news WHERE status = 'published' AND created_at >= datetime('now', '-2 days') ORDER BY created_at DESC LIMIT 1000`).all();
+    const result = await env.DB.prepare(`SELECT id, headline, summary, main_topic, category, published_at, created_at FROM news WHERE status = 'published' AND created_at >= datetime('now', '-3 days') ORDER BY created_at DESC LIMIT 1000`).all();
     const news = result.results || [];
     const base = "https://ajkernews.in";
     let xml = `<?xml version="1.0" encoding="UTF-8"?>

@@ -526,6 +526,67 @@ a[href*="juicyads"] {
   });
 </script>
 
+<!-- ✅ PWA Net ON হলে Notification Token Refresh -->
+<script>
+(function() {
+  'use strict';
+
+  // ✅ PWA Net ON হলে Notification Token Refresh
+  window.addEventListener('online', function() {
+    console.log('[PWA] Network is back online');
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({ type: 'NETWORK_ONLINE' });
+    }
+    refreshFcmTokenOnOnline();
+  });
+
+  window.addEventListener('offline', function() {
+    console.log('[PWA] Network is offline');
+  });
+
+  // ✅ FCM Token Refresh Function
+  async function refreshFcmTokenOnOnline() {
+    try {
+      if (!window.__firebase || !window.__firebaseReady) return;
+      if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+      
+      const reg = await navigator.serviceWorker.ready;
+      const token = await window.__firebase.getToken(window.__firebase.messaging, {
+        vapidKey: window.__VAPID_KEY,
+        serviceWorkerRegistration: reg
+      });
+      if (!token) return;
+      
+      const base = window.location.origin;
+      await fetch(base + '/api/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: token })
+      });
+      console.log('[PWA] FCM Token refreshed ✅');
+    } catch (e) {
+      console.warn('[PWA] FCM Token refresh failed:', e && e.message);
+    }
+  }
+
+  // ✅ Service Worker Message Handler
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', function(event) {
+      const data = event.data || {};
+      if (data.type === 'REFRESH_FCM_TOKEN') {
+        console.log('[PWA] Received REFRESH_FCM_TOKEN signal');
+        refreshFcmTokenOnOnline();
+      }
+      if (data.type === 'news_published') {
+        if (typeof showNewNewsBanner === 'function') {
+          showNewNewsBanner(data.count || 1);
+        }
+      }
+    });
+  }
+})();
+</script>
+
 <script>
 const WORKER_BASE = window.location.origin;
 const API_URL = `${WORKER_BASE}/api/news`;
@@ -1163,7 +1224,7 @@ async function loadNewNewsNow() {
 }
 
 const NOTIFICATION_PROMPT_DELAY = 15000;
-const NOTIFICATION_LATER_DELAY = 24 * 60 * 60 * 1000; // ✅ ২৪ ঘণ্টা (আগে ১০ ঘণ্টা ছিল)
+const NOTIFICATION_LATER_DELAY = 24 * 60 * 60 * 1000;
 const NOTIFICATION_LATER_KEY = 'notifPromptLaterAt';
 
 async function shouldShowNotificationPrompt() {
@@ -1195,7 +1256,6 @@ function handleNotificationPromptLater() {
 // 🟢 POPUNDER CONTROLLER — ৩ ঘণ্টা কুলডাউন
 // ✅ শুধুমাত্র নিউজ কার্ডে ক্লিক করলেই Popunder আসবে
 // ✅ Share/Comment/Love বাটনে ক্লিক করলে আসবে না
-// ✅ Native Banner + Social Bar সব সময় চলবে
 // ============================================
 async function getPopunderUrl() {
   if (popunderUrlCache) return popunderUrlCache;

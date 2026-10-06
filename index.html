@@ -35,7 +35,6 @@
 <script data-cfasync="false" src="https://bicea.org/14/3f58b0818e43e5e2e8f28449d29e9937"></script>
 <script async="async" data-cfasync="false" src="https://bicea.org/21/25ee2c0a822da5cf3429cd2cb222524f"></script>
 
-<!-- ✅ Ad Blocker -->
 <script src="/adblock.js" defer></script>
 
 <style>
@@ -253,13 +252,13 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   .native-banner-block { padding: 12px; margin: 20px 0 8px; }
 }
 
-/* 🛡️ ADULT AD BLOCKING (CSS) — popunder div rule সরানো হয়েছে */
-body > div[style*="position: fixed"][style*="z-index: 9999"]:not(#newNewsBanner),
-body > div[style*="position:fixed"][style*="z-index:9999"]:not(#newNewsBanner),
-body > div[style*="position: fixed"][style*="z-index: 99999"]:not(#newNewsBanner),
-body > div[style*="position:fixed"][style*="z-index:99999"]:not(#newNewsBanner),
-body > div[style*="position: fixed"][style*="z-index: 999999"]:not(#newNewsBanner),
-body > div[style*="position:fixed"][style*="z-index:999999"]:not(#newNewsBanner) {
+/* 🛡️ ADULT AD BLOCKING (CSS) */
+body > div[style*="position: fixed"][style*="z-index: 9999"]:not(#newNewsBanner):not(#popunderBlockOverlay),
+body > div[style*="position:fixed"][style*="z-index:9999"]:not(#newNewsBanner):not(#popunderBlockOverlay),
+body > div[style*="position: fixed"][style*="z-index: 99999"]:not(#newNewsBanner):not(#popunderBlockOverlay),
+body > div[style*="position:fixed"][style*="z-index:99999"]:not(#newNewsBanner):not(#popunderBlockOverlay),
+body > div[style*="position: fixed"][style*="z-index: 999999"]:not(#newNewsBanner):not(#popunderBlockOverlay),
+body > div[style*="position:fixed"][style*="z-index:999999"]:not(#newNewsBanner):not(#popunderBlockOverlay) {
   display: none !important;
   visibility: hidden !important;
   opacity: 0 !important;
@@ -745,8 +744,6 @@ function buildNewsHtml(news) {
   const safeSummary = summary.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
   const articleUrl = `/news/${encodeURIComponent(news.id)}`;
 
-  // ✅ Popunder fires only when clicking image/title/summary
-  // ❌ stopPropagation prevents popunder on buttons/links
   return `<article class="news-card" data-news-id="${escapeHtml(news.id)}">
     <div class="news-image-wrapper" onclick="openNewsWithPopunder('${articleUrl}')">
       <img class="news-image" src="${escapeHtml(image)}" alt="${escapeHtml(headline)}" loading="lazy" decoding="async" width="800" height="450" onerror="this.onerror=null;this.src='/logo.png';">
@@ -1095,7 +1092,6 @@ function setCategory(cat) {
   document.getElementById('categoryTitle').innerText = titles[currentCategory] || 'সেরা খবর';
   toggleSidebar(false);
 
-  // ✅ Category change হলে scroll top এ যান
   window.scrollTo({ top: 0, behavior: 'smooth' });
 
   loadNews(currentCategory, '', { showLoading: true, keepExisting: false });
@@ -1108,7 +1104,6 @@ async function performSearch() {
   currentSearchQuery = query;
   document.getElementById('categoryTitle').innerText = 'খুঁজছি: ' + query;
 
-  // ✅ Search হলে scroll top এ যান
   window.scrollTo({ top: 0, behavior: 'smooth' });
 
   await loadNews('all', query, { showLoading: true, keepExisting: false });
@@ -1201,23 +1196,24 @@ function handleNotificationPromptLater() {
 }
 
 // ============================================
-// 🟢 POPUNDER CONTROLLER — Fixed (Global Blocker removed)
+// 🟢 POPUNDER CONTROLLER — FINAL (Anti-Double-Fire)
 // ============================================
-// ✅ Adsterra script load হয় → নিজেই click listener register করে
-// ✅ News card body click করলে Adsterra fire করে
-// ✅ Button/link এ stopPropagation থাকায় popunder fire হয় না
+// ✅ Adsterra script page load এ inject হয়
+// ✅ User news card body click করলে Adsterra fire করে
+// ✅ সাথে সাথে invisible overlay যোগ হয় যাতে user দ্বিতীয় click করতে না পারে
+// ✅ এর ফলে Adsterra আর second fire করতে পারে না
 // ✅ ৩ ঘণ্টা cooldown
-// ✅ Navigation delay 300ms — Adsterra কে সময় দেওয়ার জন্য
 
 const POPUNDER_COOLDOWN_KEY = 'popunder_last_3h';
 const POPUNDER_COOLDOWN_MS = 3 * 60 * 60 * 1000;
 const POPUNDER_FALLBACK_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
 
 let popunderScriptInjected = false;
+let popunderFiredThisPage = false;
 
 async function initPopunder() {
   try {
-    // ✅ Cooldown check
+    // ✅ Cooldown check — cooldown active হলে script inject করা হবে না
     const lastTriggered = parseInt(localStorage.getItem(POPUNDER_COOLDOWN_KEY) || '0', 10);
     const now = Date.now();
     if (now - lastTriggered < POPUNDER_COOLDOWN_MS) {
@@ -1234,7 +1230,7 @@ async function initPopunder() {
       if (data && data.success && data.popunderUrl) url = data.popunderUrl;
     } catch (e) {}
 
-    // ✅ Adsterra Popunder script inject
+    // ✅ Adsterra script inject
     const s = document.createElement('script');
     s.async = true;
     s.src = url;
@@ -1252,26 +1248,68 @@ async function initPopunder() {
   }
 }
 
-// ✅ News click — Adsterra নিজেই popunder fire করবে
-// Navigation delay দিয়ে Adsterra কে fire করার সময় দেওয়া হচ্ছে
+// ✅ Full-page invisible overlay — সব further click block করে
+function blockAllClicks() {
+  if (document.getElementById('popunderBlockOverlay')) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'popunderBlockOverlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:2147483647;background:transparent;cursor:wait;';
+  // ✅ Capture phase এ সব click block
+  overlay.addEventListener('click', function(e) {
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    return false;
+  }, true);
+  overlay.addEventListener('mousedown', function(e) {
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    return false;
+  }, true);
+  overlay.addEventListener('touchstart', function(e) {
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    return false;
+  }, true);
+  document.body.appendChild(overlay);
+}
+
+// ✅ News click — Adsterra fire করে, তারপর overlay দিয়ে সব কিছু block করে দেয়
 function openNewsWithPopunder(url) {
-  const lastTriggered = parseInt(localStorage.getItem(POPUNDER_COOLDOWN_KEY) || '0', 10);
   const now = Date.now();
-  if (now - lastTriggered >= POPUNDER_COOLDOWN_MS && popunderScriptInjected) {
-    localStorage.setItem(POPUNDER_COOLDOWN_KEY, String(now));
-    console.log('[Popunder] News click — Adsterra firing popunder ✅');
+  const lastTriggered = parseInt(localStorage.getItem(POPUNDER_COOLDOWN_KEY) || '0', 10);
+  const cooldownActive = (now - lastTriggered) < POPUNDER_COOLDOWN_MS;
+
+  // ✅ Cooldown active অথবা এই page এ already fired — শুধু navigate
+  if (cooldownActive || popunderFiredThisPage) {
+    window.location.href = url;
+    return;
   }
 
-  // ✅ 300ms delay — Adsterra এর listener কে fire করার সময় দিন
+  // ✅ এই page এ fired mark
+  popunderFiredThisPage = true;
+
+  // ✅ Cooldown set করুন
+  localStorage.setItem(POPUNDER_COOLDOWN_KEY, String(now));
+  console.log('[Popunder] News click — Adsterra firing popunder ✅');
+
+  // ✅ Adsterra কে fire করার সময় দিন, তারপর overlay দিয়ে block করুন
+  setTimeout(function() {
+    blockAllClicks();
+    console.log('[Popunder] Clicks blocked — preventing double fire');
+  }, 50);
+
+  // ✅ Navigate after Adsterra fires
   setTimeout(function() {
     window.location.href = url;
-  }, 300);
+  }, 350);
 }
 
 (async function initApp() {
   try { localStorage.removeItem('newsCache:v1'); } catch (e) {}
 
-  // ✅ Popunder script inject
   initPopunder();
 
   await loadNews('top', '', { showLoading: true, keepExisting: false });

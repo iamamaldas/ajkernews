@@ -253,7 +253,7 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   .native-banner-block { padding: 12px; margin: 20px 0 8px; }
 }
 
-/* 🛡️ ADULT AD BLOCKING (CSS) */
+/* 🛡️ ADULT AD BLOCKING (CSS) — popunder div rule সরানো হয়েছে */
 body > div[style*="position: fixed"][style*="z-index: 9999"]:not(#newNewsBanner),
 body > div[style*="position:fixed"][style*="z-index:9999"]:not(#newNewsBanner),
 body > div[style*="position: fixed"][style*="z-index: 99999"]:not(#newNewsBanner),
@@ -266,8 +266,6 @@ body > div[style*="position:fixed"][style*="z-index:999999"]:not(#newNewsBanner)
   pointer-events: none !important;
 }
 
-div[id*="popunder"]:not(#native-banner-block),
-div[class*="popunder"],
 div[id*="ad-overlay"],
 div[class*="ad-overlay"],
 div[id*="adult"],
@@ -552,36 +550,6 @@ a[href*="juicyads"] {
 })();
 </script>
 
-<!-- ✅ Popunder Blocker — MUST run before Adsterra script loads -->
-<script>
-(function() {
-  'use strict';
-
-  // ✅ Whitelist: popunder ONLY fires when clicking these elements
-  const ALLOW_SELECTORS = '.news-image-wrapper, .news-title, .news-summary';
-
-  function isNewsCardBody(target) {
-    if (!target || typeof target.closest !== 'function') return false;
-    return !!target.closest(ALLOW_SELECTORS);
-  }
-
-  // ✅ Register blocker at bubble phase (runs AFTER button's own onclick)
-  // This stops Adsterra's listener from seeing clicks on non-news elements
-  ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend'].forEach(function(eventType) {
-    document.addEventListener(eventType, function(e) {
-      if (isNewsCardBody(e.target)) {
-        // Allow — let Adsterra fire
-        return;
-      }
-      // Block Adsterra from seeing this click
-      e.stopImmediatePropagation();
-    }, false); // bubble phase
-  });
-
-  console.log('[Popunder Blocker] Active — only news card body clicks allowed');
-})();
-</script>
-
 <script>
 const WORKER_BASE = window.location.origin;
 const API_URL = `${WORKER_BASE}/api/news`;
@@ -777,8 +745,8 @@ function buildNewsHtml(news) {
   const safeSummary = summary.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
   const articleUrl = `/news/${encodeURIComponent(news.id)}`;
 
-  // ✅ Popunder fires ONLY when clicking: news-image-wrapper, news-title, news-summary
-  // ❌ Blocked: news-actions, buttons, source link, date, category badge
+  // ✅ Popunder fires only when clicking image/title/summary
+  // ❌ stopPropagation prevents popunder on buttons/links
   return `<article class="news-card" data-news-id="${escapeHtml(news.id)}">
     <div class="news-image-wrapper" onclick="openNewsWithPopunder('${articleUrl}')">
       <img class="news-image" src="${escapeHtml(image)}" alt="${escapeHtml(headline)}" loading="lazy" decoding="async" width="800" height="450" onerror="this.onerror=null;this.src='/logo.png';">
@@ -1233,13 +1201,13 @@ function handleNotificationPromptLater() {
 }
 
 // ============================================
-// 🟢 POPUNDER CONTROLLER — Smart Version
+// 🟢 POPUNDER CONTROLLER — Fixed (Global Blocker removed)
 // ============================================
-// ✅ শুধু news card body (image/title/summary) click এ popunder fire হবে
-// ❌ Comment/Love/Share/Source link/Header/Sidebar/Footer — কোনোটাতেই হবে না
+// ✅ Adsterra script load হয় → নিজেই click listener register করে
+// ✅ News card body click করলে Adsterra fire করে
+// ✅ Button/link এ stopPropagation থাকায় popunder fire হয় না
 // ✅ ৩ ঘণ্টা cooldown
-// ✅ Mobile এ skip (user experience)
-// ✅ Global blocker (উপরে script section এ) — Adsterra কে block করে
+// ✅ Navigation delay 300ms — Adsterra কে সময় দেওয়ার জন্য
 
 const POPUNDER_COOLDOWN_KEY = 'popunder_last_3h';
 const POPUNDER_COOLDOWN_MS = 3 * 60 * 60 * 1000;
@@ -1249,13 +1217,6 @@ let popunderScriptInjected = false;
 
 async function initPopunder() {
   try {
-    // ✅ Mobile এ skip — mobile এ popunder irritating
-    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-    if (isMobile) {
-      console.log('[Popunder] Skipped on mobile device');
-      return;
-    }
-
     // ✅ Cooldown check
     const lastTriggered = parseInt(localStorage.getItem(POPUNDER_COOLDOWN_KEY) || '0', 10);
     const now = Date.now();
@@ -1273,15 +1234,14 @@ async function initPopunder() {
       if (data && data.success && data.popunderUrl) url = data.popunderUrl;
     } catch (e) {}
 
-    // ✅ Script inject — Adsterra নিজেই click listener register করবে
-    // কিন্তু global blocker শুধু news card body click টা allow করবে
+    // ✅ Adsterra Popunder script inject
     const s = document.createElement('script');
     s.async = true;
     s.src = url;
     s.setAttribute('data-cfasync', 'false');
     s.onload = function() {
       popunderScriptInjected = true;
-      console.log('[Popunder] Script loaded ✅ — will fire only on news card body click');
+      console.log('[Popunder] Script loaded ✅ — will fire on next news click');
     };
     s.onerror = function() {
       console.warn('[Popunder] Script failed to load ❌');
@@ -1292,20 +1252,20 @@ async function initPopunder() {
   }
 }
 
-// ✅ News click — navigation delay so popunder can fire first
+// ✅ News click — Adsterra নিজেই popunder fire করবে
+// Navigation delay দিয়ে Adsterra কে fire করার সময় দেওয়া হচ্ছে
 function openNewsWithPopunder(url) {
-  // ✅ Cooldown update (শুধু news card body click এ)
   const lastTriggered = parseInt(localStorage.getItem(POPUNDER_COOLDOWN_KEY) || '0', 10);
   const now = Date.now();
   if (now - lastTriggered >= POPUNDER_COOLDOWN_MS && popunderScriptInjected) {
     localStorage.setItem(POPUNDER_COOLDOWN_KEY, String(now));
-    console.log('[Popunder] News card click — popunder will fire ✅');
+    console.log('[Popunder] News click — Adsterra firing popunder ✅');
   }
 
-  // ✅ Delay navigation so event can bubble to Adsterra's listener first
+  // ✅ 300ms delay — Adsterra এর listener কে fire করার সময় দিন
   setTimeout(function() {
     window.location.href = url;
-  }, 150);
+  }, 300);
 }
 
 (async function initApp() {

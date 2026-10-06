@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v38.0: SEO + 5000 Sitemap + Improved 410 Gone + Bot Cache + SSE 30s
+// ✅ FINAL v40.0: Maximum Free Plan Optimization + SEO + 5000 Sitemap + Popunder 3h
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -15,6 +15,7 @@ import { cleanText, escapeHtml } from "./utils.js";
 
 const MAX_NEWS = 5000;
 const API_PAGE_SIZE = 10;
+const API_CACHE_TTL = 300; // ✅ 5 মিনিট (আগে 60s ছিল)
 
 const NOTIFICATION_CONFIG = {
   TTL_SECONDS: 259200,
@@ -115,37 +116,9 @@ function getNativeBannerContainer() {
   </div>`;
 }
 
+// ✅ Ad Blocker বাইরের ফাইল থেকে (CPU Time কমাতে)
 function getAdultBlockerScript() {
-  return `<script>
-(function(){
-  var KEY = ['porn','xxx','adult','nude','naked','erotic','cam-girl','camgirl','escort','livejasmin','chaturbate','bongacams','stripchat','trafficjunky','exoclick','juicyads','plugrush','adnium','ero-advertising','hentai','onlyfans','milf','hardcore','softcore','fuck','cock','pussy','dick','boobs','tits'];
-  var SAFE = ['bicea.org','adsterra.com','profitableratecpm.com','highperformanceformat.com','afders.org','ajkernews.in','gstatic.com','googleapis.com','cloudflare.com','firebase.com','google.com'];
-  function isSafe(u){ if(!u) return false; try { var h = new URL(u, location.origin).hostname.toLowerCase(); return SAFE.some(function(s){ return h.indexOf(s) !== -1; }); } catch(e){ return false; } }
-  function isAdult(s){ if(!s) return false; var l = String(s).toLowerCase(); return KEY.some(function(k){ return l.indexOf(k) !== -1; }); }
-  function block(el){ try { el.style.cssText = 'display:none!important;visibility:hidden!important;width:0!important;height:0!important;position:absolute!important;left:-99999px!important;pointer-events:none!important;'; el.setAttribute('data-blocked','1'); if(el.parentNode) setTimeout(function(){ try { el.parentNode.removeChild(el); } catch(e){} }, 100); } catch(e){} }
-  function should(el){
-    if(!el || !el.tagName) return false;
-    if(el.id === 'newNewsBanner' || el.id === 'copyToast' || el.id === 'searchModal' || el.id === 'sidebar' || el.id === 'modal' || el.id === 'notifPromptModal' || el.id === 'overlay' || el.id === 'newsContainer' || el.id === 'loadMoreBtn') return false;
-    if(el.id && el.id.indexOf('container-') === 0) return false;
-    if(el.classList && (el.classList.contains('native-banner-block') || el.classList.contains('news-card') || el.classList.contains('inline-native-ad'))) return false;
-    var t = el.tagName.toLowerCase();
-    if(t === 'iframe'){ var s = el.src || el.getAttribute('src') || el.getAttribute('data-src') || ''; if(isSafe(s)) return false; if(isAdult(s)) return true; var w = parseInt(el.width||0,10), h = parseInt(el.height||0,10); if((w > 400 || h > 300) && s && !isSafe(s)) return true; }
-    if(t === 'img'){ var s = el.src || el.getAttribute('src') || el.getAttribute('data-src') || ''; if(isSafe(s)) return false; if(isAdult(s)) return true; }
-    if(t === 'a'){ var h = el.href || el.getAttribute('href') || ''; if(isSafe(h)) return false; if(isAdult(h)) return true; }
-    var idc = (el.id||'') + ' ' + (el.className||''); if(isAdult(idc)) return true;
-    var st = el.getAttribute && el.getAttribute('style') || '';
-    if(st && (st.indexOf('position: fixed') !== -1 || st.indexOf('position:fixed') !== -1)){ if(new RegExp('z-index:\\\\s*\\\\d{5,}', 'i').test(st)) return true; }
-    return false;
-  }
-  function scan(){ try { document.querySelectorAll('iframe,img,a,div[style*="position"],ins,embed,object').forEach(function(el){ if(el.getAttribute('data-blocked') === '1') return; if(should(el)) block(el); }); } catch(e){} }
-  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', scan); else scan();
-  try { new MutationObserver(function(ms){ ms.forEach(function(m){ m.addedNodes.forEach(function(n){ if(n.nodeType === 1){ if(should(n)) block(n); else { try { n.querySelectorAll && n.querySelectorAll('iframe,img,a,ins,embed,object').forEach(function(c){ if(should(c)) block(c); }); } catch(e){} } } }); }); }).observe(document.documentElement, { childList: true, subtree: true }); } catch(e){}
-  setInterval(scan, 3000);
-  var orig = window.open;
-  window.open = function(u){ if(u && isAdult(u) && !isSafe(u)) { try { console.warn('[AdBlock] Blocked adult popup'); } catch(e){} return null; } return orig.apply(this, arguments); };
-  try { console.log('[AdBlock] Adult content blocker active'); } catch(e){}
-})();
-<\/script>`;
+  return `<script src="/adblock.js" defer><\/script>`;
 }
 
 async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
@@ -164,7 +137,6 @@ async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
   }
 }
 
-// ✅ উন্নত 410 Gone Page (Related News সহ)
 function gonePage(relatedNews = []) {
   const relatedHtml = relatedNews.length ? `
     <div style="margin-top: 32px; text-align: left;">
@@ -226,7 +198,8 @@ export default {
     }
 
     try {
-      await ensureTablesOnce(env);
+      // ⚠️ ensureTablesOnce সরানো হয়েছে — শুধু Cron-এ চলবে
+      // প্রতি Request-এ DB PRAGMA বন্ধ → CPU Time সাশ্রয়
 
       async function sha256(text) {
         const encoder = new TextEncoder();
@@ -430,8 +403,12 @@ export default {
       if (url.pathname === "/rss.xml") return await generateRSS(env);
       if (url.pathname === "/robots.txt") return generateRobotsTxt(env);
 
+      // ⚠️ SSE /api/live Disable করা হয়েছে CPU Time বাঁচাতে
       if (url.pathname === "/api/live" && request.method === "GET") {
-        return handleLiveStream(env, request);
+        return new Response("SSE disabled for performance", { 
+          status: 200, 
+          headers: { "Content-Type": "text/plain" } 
+        });
       }
 
       const userAgent = request.headers.get("User-Agent") || "";
@@ -683,6 +660,9 @@ export default {
     console.log(`[CRON] ${cron} started | IST Hour: ${istHour}`);
 
     try {
+      // ✅ Cron-এ টেবিল চেক (Request-এ নয়)
+      await ensureTablesOnce(env);
+
       const DIGEST_CRONS = {
         "45 2 * * *":  8,
         "45 7 * * *":  13,
@@ -806,84 +786,7 @@ export default {
   }
 };
 
-async function handleLiveStream(env, request) {
-  const encoder = new TextEncoder();
-  let lastCheck = new Date(Date.now() - 60 * 1000).toISOString();
-  let isClosed = false;
-
-  const stream = new ReadableStream({
-    async start(controller) {
-      const send = (type, data) => {
-        if (isClosed) return;
-        try {
-          controller.enqueue(encoder.encode(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`));
-        } catch (e) { isClosed = true; }
-      };
-
-      send('connected', { ts: Date.now() });
-
-      const checkForEvents = async () => {
-        if (isClosed) return;
-        try {
-          const rows = await env.DB.prepare(
-            `SELECT id, event_type, payload, created_at FROM live_events
-             WHERE created_at > ? ORDER BY created_at ASC LIMIT 10`
-          ).bind(lastCheck).all();
-
-          if (rows.results?.length) {
-            for (const row of rows.results) {
-              lastCheck = row.created_at;
-              send(row.event_type, JSON.parse(row.payload || "{}"));
-            }
-          }
-        } catch (e) {}
-      };
-
-      await checkForEvents();
-
-      const interval = setInterval(async () => {
-        if (isClosed) { clearInterval(interval); return; }
-        await checkForEvents();
-      }, 30000);
-
-      const heartbeat = setInterval(() => {
-        if (isClosed) { clearInterval(heartbeat); return; }
-        try {
-          controller.enqueue(encoder.encode(`: heartbeat\n\n`));
-        } catch (e) { isClosed = true; }
-      }, 60000);
-
-      setTimeout(() => {
-        if (!isClosed) {
-          isClosed = true;
-          clearInterval(interval);
-          clearInterval(heartbeat);
-          try {
-            send('timeout', { message: 'reconnect' });
-            controller.close();
-          } catch (e) {}
-        }
-      }, 5 * 60 * 1000);
-
-      request.signal?.addEventListener('abort', () => {
-        isClosed = true;
-        clearInterval(interval);
-        clearInterval(heartbeat);
-        try { controller.close(); } catch (e) {}
-      });
-    }
-  });
-
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache, no-transform",
-      "Connection": "keep-alive",
-      "X-Accel-Buffering": "no",
-      "Access-Control-Allow-Origin": "*"
-    }
-  });
-}
+// ⚠️ SSE handleLiveStream ফাংশন সরিয়ে ফেলা হয়েছে CPU Time বাঁচাতে
 
 async function sendDigest(env, istHour) {
   if (isQuietHours()) return;
@@ -1539,7 +1442,6 @@ async function serveArticlePage(id, env, request) {
   ).bind(safeId).first();
 
   if (!result) {
-    // ✅ Related News আনুন (User Experience-এর জন্য)
     let relatedNews = [];
     try {
       const related = await env.DB.prepare(
@@ -2272,7 +2174,7 @@ async function handlePushLogs(env, url) {
 }
 
 async function handleGetNews(url, env, request) {
-  return cacheNewsApi(request, async () => await handleGetNewsInternal(url, env), 60);
+  return cacheNewsApi(request, async () => await handleGetNewsInternal(url, env), API_CACHE_TTL);
 }
 
 async function handleGetNewsInternal(url, env) {
@@ -2482,7 +2384,6 @@ async function addComment(request, env) {
   } catch (error) { return json({ success: false, error: error?.message || "Comment error" }, 500, 0); }
 }
 
-// ✅ Sitemap: 5000 পোস্ট সাপোর্ট
 async function generateSitemap(env) {
   try {
     const result = await env.DB.prepare(`SELECT id, published_at, created_at FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT 5000`).all();

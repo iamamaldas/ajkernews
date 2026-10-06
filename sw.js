@@ -1,7 +1,7 @@
 // sw.js
-// ✅ FINAL v30 — Cache + FCM + Notification Click + Push Event Handler + Offline Queue
+// ✅ FINAL v32 — Maximum Free Plan Optimization
 
-const CACHE_VERSION = "ajker-news-v2026-10-05-final6";
+const CACHE_VERSION = "ajker-news-v2026-10-06-final9";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
 // ===== FCM Setup =====
@@ -210,7 +210,6 @@ self.addEventListener('message', (event) => {
     self.skipWaiting();
   }
   
-  // ✅ PWA-তে Net ON হলে Notification Token Refresh সিগন্যাল
   if (event.data && event.data.type === 'NETWORK_ONLINE') {
     console.log('[SW] Network online — refreshing FCM token');
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {

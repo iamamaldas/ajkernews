@@ -35,6 +35,9 @@
 <script data-cfasync="false" src="https://bicea.org/14/3f58b0818e43e5e2e8f28449d29e9937"></script>
 <script async="async" data-cfasync="false" src="https://bicea.org/21/25ee2c0a822da5cf3429cd2cb222524f"></script>
 
+<!-- ✅ Ad Blocker (বাইরের ফাইল — CPU Time সাশ্রয়) -->
+<script src="/adblock.js" defer></script>
+
 <style>
 * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-tap-highlight-color: transparent; }
 html { scroll-behavior: smooth; font-size: 16px; -webkit-text-size-adjust: 100%; }
@@ -457,39 +460,6 @@ a[href*="juicyads"] {
   <span>App</span>
 </button>
 
-<!-- 🛡️ Adult Ad Blocker (JS) -->
-<script>
-(function(){
-  'use strict';
-  var KEY = ['porn','xxx','adult','nude','naked','erotic','cam-girl','camgirl','escort','livejasmin','chaturbate','bongacams','stripchat','trafficjunky','exoclick','juicyads','plugrush','adnium','ero-advertising','hentai','onlyfans','milf','hardcore','softcore','fuck','cock','pussy','dick','boobs','tits'];
-  var SAFE = ['bicea.org','adsterra.com','profitableratecpm.com','highperformanceformat.com','afders.org','ajkernews.in','gstatic.com','googleapis.com','cloudflare.com','firebase.com','google.com'];
-  function isSafe(u){ if(!u) return false; try { var h = new URL(u, location.origin).hostname.toLowerCase(); return SAFE.some(function(s){ return h.indexOf(s) !== -1; }); } catch(e){ return false; } }
-  function isAdult(s){ if(!s) return false; var l = String(s).toLowerCase(); return KEY.some(function(k){ return l.indexOf(k) !== -1; }); }
-  function block(el){ try { el.style.cssText = 'display:none!important;visibility:hidden!important;width:0!important;height:0!important;position:absolute!important;left:-99999px!important;pointer-events:none!important;'; el.setAttribute('data-blocked','1'); if(el.parentNode) setTimeout(function(){ try { el.parentNode.removeChild(el); } catch(e){} }, 100); } catch(e){} }
-  function should(el){
-    if(!el || !el.tagName) return false;
-    if(el.id === 'newNewsBanner' || el.id === 'copyToast' || el.id === 'searchModal' || el.id === 'sidebar' || el.id === 'modal' || el.id === 'notifPromptModal' || el.id === 'overlay' || el.id === 'newsContainer' || el.id === 'loadMoreBtn') return false;
-    if(el.id && el.id.indexOf('container-') === 0) return false;
-    if(el.classList && (el.classList.contains('native-banner-block') || el.classList.contains('news-card') || el.classList.contains('inline-native-ad'))) return false;
-    var t = el.tagName.toLowerCase();
-    if(t === 'iframe'){ var s = el.src || el.getAttribute('src') || el.getAttribute('data-src') || ''; if(isSafe(s)) return false; if(isAdult(s)) return true; var w = parseInt(el.width||0,10), h = parseInt(el.height||0,10); if((w > 400 || h > 300) && s && !isSafe(s)) return true; }
-    if(t === 'img'){ var s = el.src || el.getAttribute('src') || el.getAttribute('data-src') || ''; if(isSafe(s)) return false; if(isAdult(s)) return true; }
-    if(t === 'a'){ var h = el.href || el.getAttribute('href') || ''; if(isSafe(h)) return false; if(isAdult(h)) return true; }
-    var idc = (el.id||'') + ' ' + (el.className||''); if(isAdult(idc)) return true;
-    var st = el.getAttribute && el.getAttribute('style') || '';
-    if(st && (st.indexOf('position: fixed') !== -1 || st.indexOf('position:fixed') !== -1)){ if(/z-index:\s*\d{5,}/i.test(st)) return true; }
-    return false;
-  }
-  function scan(){ try { document.querySelectorAll('iframe,img,a,div[style*="position"],ins,embed,object').forEach(function(el){ if(el.getAttribute('data-blocked') === '1') return; if(should(el)) block(el); }); } catch(e){} }
-  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', scan); else scan();
-  try { new MutationObserver(function(ms){ ms.forEach(function(m){ m.addedNodes.forEach(function(n){ if(n.nodeType === 1){ if(should(n)) block(n); else { try { n.querySelectorAll && n.querySelectorAll('iframe,img,a,ins,embed,object').forEach(function(c){ if(should(c)) block(c); }); } catch(e){} } } }); }); }).observe(document.documentElement, { childList: true, subtree: true }); } catch(e){}
-  setInterval(scan, 2000);
-  var orig = window.open;
-  window.open = function(u){ if(u && isAdult(u) && !isSafe(u)) { try { console.warn('[AdBlock] Blocked adult popup'); } catch(e){} return null; } return orig.apply(this, arguments); };
-  try { console.log('[AdBlock] Adult content blocker active'); } catch(e){}
-})();
-</script>
-
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
   import { getMessaging, getToken, onMessage, deleteToken } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging.js";
@@ -531,7 +501,6 @@ a[href*="juicyads"] {
 (function() {
   'use strict';
 
-  // ✅ PWA Net ON হলে Notification Token Refresh
   window.addEventListener('online', function() {
     console.log('[PWA] Network is back online');
     if (navigator.serviceWorker && navigator.serviceWorker.controller) {
@@ -544,7 +513,6 @@ a[href*="juicyads"] {
     console.log('[PWA] Network is offline');
   });
 
-  // ✅ FCM Token Refresh Function
   async function refreshFcmTokenOnOnline() {
     try {
       if (!window.__firebase || !window.__firebaseReady) return;
@@ -569,7 +537,6 @@ a[href*="juicyads"] {
     }
   }
 
-  // ✅ Service Worker Message Handler
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('message', function(event) {
       const data = event.data || {};
@@ -1167,31 +1134,11 @@ function openModal(url) {
 function closeModal() { document.getElementById('modal').style.display = 'none'; }
 document.getElementById('currentYear').textContent = new Date().getFullYear();
 
-let liveStream = null;
+// ⚠️ SSE /api/live বন্ধ করা হয়েছে CPU Time বাঁচাতে
+// let liveStream = null;
 let bannerTimeout = null;
 
-function startLiveStream() {
-  if (!window.EventSource) return;
-  if (liveStream) { try { liveStream.close(); } catch (e) {} }
-  try {
-    liveStream = new EventSource(`${WORKER_BASE}/api/live`);
-    liveStream.addEventListener('connected', () => {});
-    liveStream.addEventListener('news_published', (e) => {
-      try {
-        const data = JSON.parse(e.data || '{}');
-        showNewNewsBanner(data.count || 1);
-      } catch (err) { showNewNewsBanner(1); }
-    });
-    liveStream.addEventListener('timeout', () => {
-      try { liveStream.close(); } catch (e) {}
-      setTimeout(startLiveStream, 1000);
-    });
-    liveStream.onerror = () => {
-      try { liveStream.close(); } catch (e) {}
-      setTimeout(startLiveStream, 3000);
-    };
-  } catch (err) { setTimeout(startLiveStream, 5000); }
-}
+// function startLiveStream() { ... } — সরানো হয়েছে
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('message', (event) => {
@@ -1254,8 +1201,6 @@ function handleNotificationPromptLater() {
 
 // ============================================
 // 🟢 POPUNDER CONTROLLER — ৩ ঘণ্টা কুলডাউন
-// ✅ শুধুমাত্র নিউজ কার্ডে ক্লিক করলেই Popunder আসবে
-// ✅ Share/Comment/Love বাটনে ক্লিক করলে আসবে না
 // ============================================
 async function getPopunderUrl() {
   if (popunderUrlCache) return popunderUrlCache;
@@ -1320,7 +1265,7 @@ function openNewsWithPopunder(url) {
   }
 
   await checkNotificationStatus();
-  startLiveStream();
+  // startLiveStream(); // ⚠️ SSE বন্ধ
 })();
 
 window.addEventListener('load', () => {

@@ -1730,6 +1730,8 @@ ${adultBlocker}
   if (loveBtn) {
     loveBtn.addEventListener('click', async function(e) {
       e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
       var currentlyLoved = isLoved();
       var newLoved = !currentlyLoved;
       var countEl = document.getElementById('artLoveCount');
@@ -1764,7 +1766,12 @@ ${adultBlocker}
     if (commentModal) commentModal.classList.remove('active');
   }
 
-  if (commentBtn) commentBtn.addEventListener('click', function(e) { e.preventDefault(); openComments(); });
+  if (commentBtn) commentBtn.addEventListener('click', function(e) { 
+    e.preventDefault(); 
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    openComments(); 
+  });
   if (modalClose) modalClose.addEventListener('click', closeComments);
   if (commentModal) {
     commentModal.addEventListener('click', function(e) { if (e.target === commentModal) closeComments(); });
@@ -1793,6 +1800,8 @@ ${adultBlocker}
   if (commentSubmit) {
     commentSubmit.addEventListener('click', async function(e) {
       e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
       var authorEl = document.getElementById('artCommentAuthor');
       var textEl = document.getElementById('artCommentText');
       var author = (authorEl && authorEl.value || '').trim() || 'Guest';
@@ -1819,6 +1828,8 @@ ${adultBlocker}
   if (shareBtn) {
     shareBtn.addEventListener('click', async function(e) {
       e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
       var shareUrl = API_BASE + '/news/' + encodeURIComponent(NEWS_ID);
       var headline = document.querySelector('.article-h1');
       var headlineText = headline ? headline.textContent.trim() : 'খবর';

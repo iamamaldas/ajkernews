@@ -1,6 +1,5 @@
 // public/adblock.js
-// 🛡️ Adult Ad Blocker — v2.0 (Popunder Safe)
-// শুধু adult iframe/img/a block করে। Popunder/Social Bar/Native Banner স্পর্শ করে না।
+// 🛡️ Adult Ad Blocker v4.0 — Popunder + Social Bar + Native Banner Safe
 
 (function () {
   'use strict';
@@ -41,7 +40,6 @@
     return false;
   }
 
-  // ✅ শুধু CSS hide — DOM থেকে remove করি না
   function hideElement(el) {
     try {
       el.style.setProperty('display', 'none', 'important');
@@ -55,7 +53,6 @@
     if (!el || !el.tagName) return false;
     if (el.getAttribute && el.getAttribute('data-blocked') === '1') return false;
 
-    // নিজের element protect
     var id = el.id || '';
     var PROTECTED = [
       'newNewsBanner', 'copyToast', 'searchModal', 'sidebar',
@@ -68,16 +65,16 @@
     if (typeof cls === 'string') {
       if (cls.indexOf('native-banner') !== -1) return false;
       if (cls.indexOf('news-card') !== -1) return false;
+      if (cls.indexOf('news-image') !== -1) return false;
       if (cls.indexOf('action-btn') !== -1) return false;
       if (cls.indexOf('header') !== -1) return false;
       if (cls.indexOf('sidebar') !== -1) return false;
       if (cls.indexOf('modal') !== -1) return false;
+      if (cls.indexOf('overlay') !== -1) return false;
+      if (cls.indexOf('skeleton') !== -1) return false;
     }
 
     var tag = el.tagName.toLowerCase();
-
-    // ✅ শুধু iframe, img, a check করি
-    // ❌ div position:fixed + z-index check নেই (Popunder বাঁচে)
 
     if (tag === 'iframe') {
       var src = el.src || el.getAttribute('src') || el.getAttribute('data-src') || '';
@@ -148,5 +145,5 @@
     return origOpen.apply(this, arguments);
   };
 
-  try { console.log('[AdBlock] Adult blocker active v2.0 (Popunder safe)'); } catch (e) { }
+  try { console.log('[AdBlock] Active v4.0 — Popunder + Social Bar + Native safe'); } catch (e) { }
 })();

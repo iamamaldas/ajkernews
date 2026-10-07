@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v40.0: Maximum Free Plan Optimization + SEO + 5000 Sitemap + Popunder 3h
+// ✅ FINAL v41.0: Maximum Free Plan Optimization + SEO + 5000 Sitemap + Popunder 3h + Article Scroll
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -119,6 +119,67 @@ function getNativeBannerContainer() {
 // ✅ Ad Blocker বাইরের ফাইল থেকে (CPU Time কমাতে)
 function getAdultBlockerScript() {
   return `<script src="/adblock.js" defer><\/script>`;
+}
+
+// ✅ Article Page 70% Scroll Popunder Script — Google Safe & Adsterra Compliant
+function getArticlePopunderScript() {
+  return `
+<script>
+(function setupArticleScrollPopunder() {
+  'use strict';
+  var ua = navigator.userAgent || '';
+  var isBot = /googlebot|google-inspectiontool|apis-google|mediapartners-google|adsbot-google|bingbot|msnbot|adidxbot|yandex|baiduspider|duckduckbot|slurp|twitterbot|facebookexternalhit|whatsapp|telegrambot|linkedinbot|pinterestbot|lighthouse|chrome-lighthouse|gptbot|chatgpt-user|perplexitybot|ccbot|anthropic-ai|claude-web/i.test(ua);
+  if (isBot) return;
+  var POPUNDER_COOLDOWN_KEY = 'popunder_last_3h';
+  var POPUNDER_COOLDOWN_MS = 3 * 60 * 60 * 1000;
+  var POPUNDER_FALLBACK_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
+  var SCROLL_THRESHOLD = 0.7;
+  var MIN_TIME_ON_PAGE = 5000;
+  var scrollFired = false;
+  var scriptInjected = false;
+  var pageLoadTime = Date.now();
+  function isCooldownActive() {
+    try {
+      var last = parseInt(localStorage.getItem(POPUNDER_COOLDOWN_KEY) || '0', 10);
+      return (Date.now() - last) < POPUNDER_COOLDOWN_MS;
+    } catch (e) { return false; }
+  }
+  function injectPopunderScript() {
+    if (scriptInjected) return;
+    scriptInjected = true;
+    var url = POPUNDER_FALLBACK_URL;
+    fetch('/api/ads-config')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data && data.success && data.popunderUrl) url = data.popunderUrl;
+        var s = document.createElement('script');
+        s.async = true;
+        s.src = url;
+        s.setAttribute('data-cfasync', 'false');
+        document.body.appendChild(s);
+      })
+      .catch(function() {
+        var s = document.createElement('script');
+        s.async = true;
+        s.src = url;
+        s.setAttribute('data-cfasync', 'false');
+        document.body.appendChild(s);
+      });
+  }
+  window.addEventListener('scroll', function() {
+    if (scrollFired) return;
+    if (isCooldownActive()) return;
+    if ((Date.now() - pageLoadTime) < MIN_TIME_ON_PAGE) return;
+    var scrollPercent = window.scrollY / (document.body.scrollHeight - window.innerHeight);
+    if (scrollPercent >= SCROLL_THRESHOLD) {
+      scrollFired = true;
+      try { localStorage.setItem(POPUNDER_COOLDOWN_KEY, String(Date.now())); } catch (e) {}
+      console.log('[Popunder Article] 🎯 70% scrolled — firing');
+      injectPopunderScript();
+    }
+  }, { passive: true });
+})();
+</script>`;
 }
 
 async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
@@ -1436,6 +1497,8 @@ async function serveArticlePage(id, env, request) {
   const adScripts = isBot ? "" : getAdsterraScripts();
   const bannerContainer = isBot ? "" : getNativeBannerContainer();
   const adultBlocker = isBot ? "" : getAdultBlockerScript();
+  // ✅ Article Page 70% Scroll Popunder Script (Only for real users, not bots)
+  const articlePopunderScript = isBot ? "" : getArticlePopunderScript();
 
   const result = await env.DB.prepare(
     `SELECT headline, summary, main_topic, image_url, published_at, created_at, source_name, source_url, category FROM news WHERE id = ? AND status = 'published' LIMIT 1`
@@ -1871,6 +1934,7 @@ ${adultBlocker}
   }
 })();
 </script>
+${articlePopunderScript}
 </body>
 </html>`;
 

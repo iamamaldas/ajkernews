@@ -476,31 +476,6 @@ a[href*="livejasmin"], a[href*="chaturbate"], a[href*="bongacams"], a[href*="str
 })();
 </script>
 
-<!-- ✅ Popunder Blocker — runs before Adsterra listener registers -->
-<script>
-(function() {
-  'use strict';
-
-  var ALLOW_SELECTORS = '.news-image-wrapper, .news-title, .news-summary';
-
-  function isNewsCardBody(target) {
-    if (!target || typeof target.closest !== 'function') return false;
-    return !!target.closest(ALLOW_SELECTORS);
-  }
-
-  ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend'].forEach(function(eventType) {
-    document.addEventListener(eventType, function(e) {
-      if (isNewsCardBody(e.target)) {
-        return;
-      }
-      e.stopImmediatePropagation();
-    }, false);
-  });
-
-  console.log('[Popunder Blocker] Active — only news card body clicks allowed');
-})();
-</script>
-
 <script>
 const WORKER_BASE = window.location.origin;
 const API_URL = `${WORKER_BASE}/api/news`;
@@ -1144,8 +1119,13 @@ function handleNotificationPromptLater() {
 }
 
 // ============================================
-// 🟢 POPUNDER CONTROLLER
+// 🟢 POPUNDER CONTROLLER — Home Page
 // ============================================
+// ✅ শুধু news card body (image/title/summary) click এ fire হবে
+// ❌ Love/Comment/Share/Source link — কোনোটাতেই না
+// ✅ ৩ ঘণ্টা cooldown
+// ✅ Mobile এ skip
+
 const POPUNDER_COOLDOWN_KEY = 'popunder_last_3h';
 const POPUNDER_COOLDOWN_MS = 3 * 60 * 60 * 1000;
 const POPUNDER_FALLBACK_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
@@ -1159,7 +1139,6 @@ async function initPopunder() {
       console.log('[Popunder] Skipped on mobile device');
       return;
     }
-
     const lastTriggered = parseInt(localStorage.getItem(POPUNDER_COOLDOWN_KEY) || '0', 10);
     const now = Date.now();
     if (now - lastTriggered < POPUNDER_COOLDOWN_MS) {
@@ -1167,14 +1146,12 @@ async function initPopunder() {
       console.log('[Popunder] Cooldown active — next in ' + remainingMin + ' min');
       return;
     }
-
     let url = POPUNDER_FALLBACK_URL;
     try {
       const res = await fetch('/api/ads-config');
       const data = await res.json();
       if (data && data.success && data.popunderUrl) url = data.popunderUrl;
     } catch (e) {}
-
     const s = document.createElement('script');
     s.async = true;
     s.src = url;

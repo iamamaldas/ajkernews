@@ -34,6 +34,9 @@
 <!-- ✅ Adsterra Social Bar (Top) -->
 <script data-cfasync="false" src="https://bicea.org/14/3f58b0818e43e5e2e8f28449d29e9937"></script>
 
+<!-- ✅ Adsterra Native Banner (Fixed) -->
+<script async="async" data-cfasync="false" src="https://bicea.org/21/25ee2c0a822da5cf3429cd2cb222524f"></script>
+
 <!-- ✅ Adsterra Popunder (Home Page) -->
 <script async="async" data-cfasync="false" src="https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512"></script>
 
@@ -123,6 +126,7 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .main-content { padding:18px; max-width: min(820px, 95vw); margin: 0 auto; flex: 1 0 auto; width: 100%; }
 #newsContainer { min-height:200px; display:flex; flex-direction:column; gap:16px; }
 
+/* ✅ Native Banner Block — এটাই আপনার Native Banner */
 .native-banner-block { margin: 28px 0 8px; padding: 16px; background: #fafafa; border-radius: 14px; border: 1px dashed #e0e0e0; min-height: 260px; }
 .native-banner-label { font-size: 11px; color: #999; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
 
@@ -254,14 +258,6 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   .footer-links a { font-size:12.5px; }
   .native-banner-block { padding: 12px; margin: 20px 0 8px; }
 }
-
-/* 🛡️ MINIMAL Adult Block — Social Bar + Native Banner + Popunder সব safe */
-img[src*="/porn"], img[src*="/xxx"], img[src*="/nude"], img[src*="/naked"] {
-  display: none !important;
-}
-a[href*="livejasmin"], a[href*="chaturbate"], a[href*="bongacams"], a[href*="stripchat"] {
-  display: none !important;
-}
 </style>
 </head>
 <body>
@@ -358,6 +354,7 @@ a[href*="livejasmin"], a[href*="chaturbate"], a[href*="bongacams"], a[href*="str
 <div class="main-content">
   <div id="newsContainer"></div>
   
+  <!-- ✅ Native Banner Container — এই ID টাই আপনার Adsterra Native Banner এর জন্য -->
   <div class="native-banner-block">
     <div class="native-banner-label">Sponsored</div>
     <div id="container-25ee2c0a822da5cf3429cd2cb222524f" style="min-height: 250px; width: 100%;"></div>
@@ -1123,25 +1120,56 @@ function handleNotificationPromptLater() {
 // ============================================
 // 🟢 POPUNDER CONTROLLER — Home Page
 // ============================================
-// ✅ শুধু news card body (image/title/summary) click এ fire হবে
-// ❌ Love/Comment/Share/Source link — কোনোটাতেই না
-// ✅ ৩ ঘণ্টা cooldown
-// ✅ Mobile এ skip
-
 const POPUNDER_COOLDOWN_KEY = 'popunder_last_3h';
 const POPUNDER_COOLDOWN_MS = 3 * 60 * 60 * 1000;
+const POPUNDER_FALLBACK_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
+
+let popunderScriptInjected = false;
+
+async function initPopunder() {
+  try {
+    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+    if (isMobile) {
+      console.log('[Popunder] Skipped on mobile device');
+      return;
+    }
+    const lastTriggered = parseInt(localStorage.getItem(POPUNDER_COOLDOWN_KEY) || '0', 10);
+    const now = Date.now();
+    if (now - lastTriggered < POPUNDER_COOLDOWN_MS) {
+      const remainingMin = Math.round((POPUNDER_COOLDOWN_MS - (now - lastTriggered)) / 60000);
+      console.log('[Popunder] Cooldown active — next in ' + remainingMin + ' min');
+      return;
+    }
+    let url = POPUNDER_FALLBACK_URL;
+    try {
+      const res = await fetch('/api/ads-config');
+      const data = await res.json();
+      if (data && data.success && data.popunderUrl) url = data.popunderUrl;
+    } catch (e) {}
+    const s = document.createElement('script');
+    s.async = true;
+    s.src = url;
+    s.setAttribute('data-cfasync', 'false');
+    s.onload = function() {
+      popunderScriptInjected = true;
+      console.log('[Popunder] Script loaded ✅');
+    };
+    s.onerror = function() {
+      console.warn('[Popunder] Script failed to load ❌');
+    };
+    document.body.appendChild(s);
+  } catch (e) {
+    console.warn('[Popunder] Init error:', e && e.message);
+  }
+}
 
 function openNewsWithPopunder(url) {
   const lastTriggered = parseInt(localStorage.getItem(POPUNDER_COOLDOWN_KEY) || '0', 10);
   const now = Date.now();
-  
-  // ৩ ঘণ্টার কুলডাউন চেক
-  if (now - lastTriggered >= POPUNDER_COOLDOWN_MS) {
+  if (now - lastTriggered >= POPUNDER_COOLDOWN_MS && popunderScriptInjected) {
     localStorage.setItem(POPUNDER_COOLDOWN_KEY, String(now));
     console.log('[Popunder] News card click — popunder will fire ✅');
   }
-  
-  // পপআন্ডার ফায়ার হওয়ার জন্য ১৫০ms সময় দেওয়া হচ্ছে
   setTimeout(function() {
     window.location.href = url;
   }, 150);
@@ -1149,6 +1177,7 @@ function openNewsWithPopunder(url) {
 
 (async function initApp() {
   try { localStorage.removeItem('newsCache:v1'); } catch (e) {}
+  initPopunder();
   await loadNews('top', '', { showLoading: true, keepExisting: false });
   if ('serviceWorker' in navigator) {
     try {

@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v43.0: Popunder Share Fix + System Safe
+// ✅ FINAL v44.0: Popunder News Card Only + Article 70% Scroll + Social Bar Top + 3hr Cooldown
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -118,6 +118,132 @@ function getNativeBannerContainer() {
 
 function getAdultBlockerScript() {
   return `<script src="/adblock.js" defer><\/script>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// ✅ SOCIAL BAR FORCE TOP — CSS + JS (used in Article Page)
+// ═══════════════════════════════════════════════════════════
+function getSocialBarTopScript() {
+  return `<style id="socialBarTopStyle">
+html body > div[class*="socialbar"],
+html body > div[class*="social-bar"],
+html body > div[class*="adsterra"],
+html body > div[id*="socialbar"],
+html body > div[id*="social-bar"],
+html body > div[id*="adsterra"],
+html body > div[class*="sb-"],
+html body > iframe[class*="socialbar"],
+html body > iframe[class*="adsterra"],
+html body > iframe[id*="socialbar"],
+html body > iframe[id*="adsterra"],
+html body > div[style*="bottom: 0"],
+html body > div[style*="bottom:0"],
+html body > div[style*="bottom: 10"],
+html body > div[style*="bottom:10"],
+html body > div[style*="bottom: 15"],
+html body > div[style*="bottom:15"],
+html body > div[style*="bottom: 20"],
+html body > div[style*="bottom:20"] {
+  top: 0 !important;
+  bottom: auto !important;
+  left: 0 !important;
+  right: auto !important;
+  position: fixed !important;
+  z-index: 99999 !important;
+  transform: none !important;
+  margin: 0 !important;
+}
+html body > div[class*="socialbar"] iframe,
+html body > div[class*="adsterra"] iframe,
+html body > div[id*="socialbar"] iframe,
+html body > div[id*="adsterra"] iframe {
+  top: 0 !important;
+  bottom: auto !important;
+  left: 0 !important;
+  right: auto !important;
+  position: fixed !important;
+}
+</style>
+<script>
+(function() {
+  'use strict';
+  function moveSocialBarToTop() {
+    try {
+      var all = document.querySelectorAll('body > div, body > iframe, body > ins');
+      for (var i = 0; i < all.length; i++) {
+        var el = all[i];
+        if (el.id === 'artCommentModal') continue;
+        
+        var cls = (el.className || '').toString().toLowerCase();
+        var idn = (el.id || '').toString().toLowerCase();
+        var style = window.getComputedStyle(el);
+        
+        var isSocialBar = (
+          cls.indexOf('social') !== -1 ||
+          cls.indexOf('adsterra') !== -1 ||
+          cls.indexOf('sb-') !== -1 ||
+          idn.indexOf('social') !== -1 ||
+          idn.indexOf('adsterra') !== -1
+        );
+        
+        var isFixedBottom = (
+          style.position === 'fixed' &&
+          (style.bottom === '0px' || parseInt(style.bottom, 10) >= -5) &&
+          el.offsetHeight > 0 && el.offsetHeight < 250 &&
+          style.top !== '0px'
+        );
+        
+        if (isSocialBar || isFixedBottom) {
+          el.style.setProperty('top', '0', 'important');
+          el.style.setProperty('bottom', 'auto', 'important');
+          el.style.setProperty('left', '0', 'important');
+          el.style.setProperty('right', 'auto', 'important');
+          el.style.setProperty('position', 'fixed', 'important');
+          el.style.setProperty('z-index', '99999', 'important');
+          el.style.setProperty('transform', 'none', 'important');
+          el.style.setProperty('margin', '0', 'important');
+          
+          var iframes = el.querySelectorAll('iframe');
+          for (var j = 0; j < iframes.length; j++) {
+            iframes[j].style.setProperty('top', '0', 'important');
+            iframes[j].style.setProperty('bottom', 'auto', 'important');
+            iframes[j].style.setProperty('left', '0', 'important');
+            iframes[j].style.setProperty('right', 'auto', 'important');
+          }
+        }
+      }
+    } catch (e) {}
+  }
+  
+  var count = 0;
+  var interval = setInterval(function() {
+    moveSocialBarToTop();
+    count++;
+    if (count >= 200) clearInterval(interval);
+  }, 300);
+  
+  if (window.MutationObserver) {
+    try {
+      var observer = new MutationObserver(function() {
+        moveSocialBarToTop();
+      });
+      observer.observe(document.body || document.documentElement, {
+        childList: true,
+        subtree: false,
+        attributes: true,
+        attributeFilter: ['style', 'class']
+      });
+      setTimeout(function() { observer.disconnect(); }, 60000);
+    } catch (e) {}
+  }
+  
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', moveSocialBarToTop);
+  }
+  window.addEventListener('load', moveSocialBarToTop);
+  moveSocialBarToTop();
+})();
+<\/script>`;
 }
 
 async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
@@ -1265,6 +1391,7 @@ async function serveListingPage(env, category, searchQuery, request) {
     const adScripts = isBot ? "" : getAdsterraScripts();
     const bannerContainer = isBot ? "" : getNativeBannerContainer();
     const adultBlocker = isBot ? "" : getAdultBlockerScript();
+    const socialBarScript = isBot ? "" : getSocialBarTopScript();
 
     const catLabel = {
       top:'সেরা খবর', trending:'ট্রেন্ডিং', west_bengal:'পশ্চিমবঙ্গ',
@@ -1384,6 +1511,7 @@ async function serveListingPage(env, category, searchQuery, request) {
 <meta property="og:image" content="https://ajkernews.in/logo.png">
 <script type="application/ld+json">${itemListLd}</script>
 ${adScripts}
+${socialBarScript}
 </head>
 <body style="max-width:820px;margin:0 auto;padding:20px;font-family:Inter,-apple-system,sans-serif;color:#111;">
 ${adultBlocker}
@@ -1428,6 +1556,7 @@ async function serveArticlePage(id, env, request) {
   const adScripts = isBot ? "" : getAdsterraScripts();
   const bannerContainer = isBot ? "" : getNativeBannerContainer();
   const adultBlocker = isBot ? "" : getAdultBlockerScript();
+  const socialBarScript = isBot ? "" : getSocialBarTopScript();
 
   const result = await env.DB.prepare(
     `SELECT headline, summary, main_topic, image_url, published_at, created_at, source_name, source_url, category FROM news WHERE id = ? AND status = 'published' LIMIT 1`
@@ -1560,6 +1689,7 @@ async function serveArticlePage(id, env, request) {
 <script type="application/ld+json">${newsArticleLd}</script>
 <script type="application/ld+json">${breadcrumbLd}</script>
 ${adScripts}
+${socialBarScript}
 <style>
   * { margin:0; padding:0; box-sizing:border-box; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
   html { scroll-behavior: smooth; font-size: 16px; -webkit-text-size-adjust: 100%; }
@@ -1907,11 +2037,11 @@ ${adultBlocker}
   }
 
   // ============================================
-  // 📜 ARTICLE PAGE — 70% SCROLL POPUNDER
+  // 📜 ARTICLE PAGE — 70% SCROLL POPUNDER ONLY
   // ============================================
   (function articleScrollPopunder() {
     var POP_KEY = 'popunder_article_70';
-    var POP_MS = 3 * 60 * 60 * 1000;
+    var POP_MS = 3 * 60 * 60 * 1000; // 3 hours cooldown
     var FIRED_KEY = 'popunder_fired_' + NEWS_ID;
     var fired = false;
     var scriptLoaded = false;
@@ -1950,18 +2080,15 @@ ${adultBlocker}
       
       ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'pointerdown', 'pointerup'].forEach(function(eventType) {
         document.addEventListener(eventType, function(e) {
-          // Allow article body (popunder fires here on 70% scroll)
           if (isAllowedTarget(e.target)) return;
-          // Allow action buttons (share, love, comment)
           if (isActionTarget(e.target)) return;
-          // Block everything else
           e.stopImmediatePropagation();
-        }, true); // capture phase
+        }, true);
       });
-      console.log('[Article Popunder Blocker] Active — capture phase');
+      console.log('[Article Popunder Blocker] Active');
     })();
 
-    // Script inject
+    // Script inject (only when 70% reached)
     (async function loadPopunder() {
       try {
         var url = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
@@ -2064,6 +2191,7 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
   const isBot = BOT_REGEX.test(userAgent);
   const adScripts = isBot ? "" : getAdsterraScripts();
   const adultBlocker = isBot ? "" : getAdultBlockerScript();
+  const socialBarScript = isBot ? "" : getSocialBarTopScript();
 
   const title = cleanText(result.headline) || "Ajker News";
   const description = cleanText(result.summary || "").slice(0, 160);
@@ -2095,6 +2223,7 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
 <meta property="og:site_name" content="Ajker News">
 <meta name="twitter:card" content="summary_large_image">
 ${adScripts}
+${socialBarScript}
 <style>
   * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, sans-serif; }
   body { background: #f5f5f5; color: #111; padding: 0 0 40px; }

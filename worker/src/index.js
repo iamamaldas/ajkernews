@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v42.0: Maximum Free Plan Optimization + SEO + 5000 Sitemap + Popunder (Home + Article 70% Scroll)
+// ✅ FINAL v43.0: Popunder Share Fix + System Safe
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -1726,8 +1726,73 @@ ${adultBlocker}
     }
   } catch (e) {}
 
+  // ============================================
+  // SHARE BUTTON — Capture phase protection
+  // ============================================
+  var shareBtn = document.getElementById('artShareBtn');
+  if (shareBtn) {
+    ['click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'touchstart', 'touchend'].forEach(function(evt) {
+      shareBtn.addEventListener(evt, function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+      }, true);
+    });
+
+    shareBtn.addEventListener('click', async function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      var shareUrl = API_BASE + '/news/' + encodeURIComponent(NEWS_ID);
+      var headline = document.querySelector('.article-h1');
+      var headlineText = headline ? headline.textContent.trim() : 'খবর';
+      var bodyEl = document.getElementById('articleBody');
+      var fullSummary = bodyEl ? bodyEl.textContent.trim() : '';
+      var shortSummary = fullSummary.slice(0, 100).trim();
+      var summaryPart = shortSummary ? shortSummary + (fullSummary.length > 100 ? '...' : '') + '\\n\\n' : '';
+
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: headlineText, text: headlineText + '\\n\\n' + summaryPart + 'বিস্তারিত পড়ুন', url: shareUrl });
+          return;
+        } catch (err) { if (err && err.name === 'AbortError') return; }
+      }
+
+      var text = headlineText + '\\n\\n' + summaryPart + 'বিস্তারিত পড়ুন: ' + shareUrl;
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+          alert('লিংক কপি হয়েছে');
+          return;
+        }
+      } catch (err) {}
+
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        alert('লিংক কপি হয়েছে');
+      } catch (err) { prompt('লিংক কপি করুন:', text); }
+    });
+  }
+
+  // ============================================
+  // LOVE BUTTON — Capture phase protection
+  // ============================================
   var loveBtn = document.getElementById('artLoveBtn');
   if (loveBtn) {
+    ['click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'touchstart', 'touchend'].forEach(function(evt) {
+      loveBtn.addEventListener(evt, function(e) {
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+      }, true);
+    });
+
     loveBtn.addEventListener('click', async function(e) {
       e.preventDefault();
       e.stopPropagation();
@@ -1753,6 +1818,9 @@ ${adultBlocker}
     });
   }
 
+  // ============================================
+  // COMMENT BUTTON — Capture phase protection
+  // ============================================
   var commentModal = document.getElementById('artCommentModal');
   var commentBtn = document.getElementById('artCommentBtn');
   var modalClose = document.getElementById('artModalClose');
@@ -1766,12 +1834,21 @@ ${adultBlocker}
     if (commentModal) commentModal.classList.remove('active');
   }
 
-  if (commentBtn) commentBtn.addEventListener('click', function(e) { 
-    e.preventDefault(); 
-    e.stopPropagation();
-    e.stopImmediatePropagation();
-    openComments(); 
-  });
+  if (commentBtn) {
+    ['click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'touchstart', 'touchend'].forEach(function(evt) {
+      commentBtn.addEventListener(evt, function(e) {
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+      }, true);
+    });
+
+    commentBtn.addEventListener('click', function(e) { 
+      e.preventDefault(); 
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      openComments(); 
+    });
+  }
   if (modalClose) modalClose.addEventListener('click', closeComments);
   if (commentModal) {
     commentModal.addEventListener('click', function(e) { if (e.target === commentModal) closeComments(); });
@@ -1824,50 +1901,6 @@ ${adultBlocker}
     });
   }
 
-  var shareBtn = document.getElementById('artShareBtn');
-  if (shareBtn) {
-    shareBtn.addEventListener('click', async function(e) {
-      e.preventDefault();
-      e.stopPropagation();
-      e.stopImmediatePropagation();
-      var shareUrl = API_BASE + '/news/' + encodeURIComponent(NEWS_ID);
-      var headline = document.querySelector('.article-h1');
-      var headlineText = headline ? headline.textContent.trim() : 'খবর';
-      var bodyEl = document.getElementById('articleBody');
-      var fullSummary = bodyEl ? bodyEl.textContent.trim() : '';
-      var shortSummary = fullSummary.slice(0, 100).trim();
-      var summaryPart = shortSummary ? shortSummary + (fullSummary.length > 100 ? '...' : '') + '\\n\\n' : '';
-
-      if (navigator.share) {
-        try {
-          await navigator.share({ title: headlineText, text: headlineText + '\\n\\n' + summaryPart + 'বিস্তারিত পড়ুন', url: shareUrl });
-          return;
-        } catch (err) { if (err && err.name === 'AbortError') return; }
-      }
-
-      var text = headlineText + '\\n\\n' + summaryPart + 'বিস্তারিত পড়ুন: ' + shareUrl;
-      try {
-        if (navigator.clipboard && window.isSecureContext) {
-          await navigator.clipboard.writeText(text);
-          alert('লিংক কপি হয়েছে');
-          return;
-        }
-      } catch (err) {}
-
-      try {
-        var ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.left = '-9999px';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        alert('লিংক কপি হয়েছে');
-      } catch (err) { prompt('লিংক কপি করুন:', text); }
-    });
-  }
-
   function escapeHtml(v) {
     if (v === null || v === undefined) return '';
     return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
@@ -1900,20 +1933,32 @@ ${adultBlocker}
       return;
     }
 
-    // Popunder Blocker — শুধু article body click allow
+    // Popunder Blocker — capture phase + action button allow
     (function installBlocker() {
       var ALLOW_SELECTORS = '.article-body, #articleBody, .article-main, .article-h1, .article-img';
+      var ACTION_SELECTORS = '.article-actions-row, .action-btn-art, .article-source-row, .article-source-link, .article-date, .modal-box, #artCommentModal';
+      
       function isAllowedTarget(target) {
         if (!target || typeof target.closest !== 'function') return false;
         return !!target.closest(ALLOW_SELECTORS);
       }
-      ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend'].forEach(function(eventType) {
+      
+      function isActionTarget(target) {
+        if (!target || typeof target.closest !== 'function') return false;
+        return !!target.closest(ACTION_SELECTORS);
+      }
+      
+      ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'pointerdown', 'pointerup'].forEach(function(eventType) {
         document.addEventListener(eventType, function(e) {
+          // Allow article body (popunder fires here on 70% scroll)
           if (isAllowedTarget(e.target)) return;
+          // Allow action buttons (share, love, comment)
+          if (isActionTarget(e.target)) return;
+          // Block everything else
           e.stopImmediatePropagation();
-        }, false);
+        }, true); // capture phase
       });
-      console.log('[Article Popunder Blocker] Active');
+      console.log('[Article Popunder Blocker] Active — capture phase');
     })();
 
     // Script inject
@@ -1994,67 +2039,6 @@ ${adultBlocker}
       "X-Robots-Tag": "index, follow, max-image-preview:large"
     }
   });
-}
-
-async function ensureTables(env) {
-  const queries = [
-    `CREATE TABLE IF NOT EXISTS news (id TEXT PRIMARY KEY, source_url TEXT UNIQUE, source_name TEXT, source_title TEXT, source_description TEXT, headline TEXT, summary TEXT, main_topic TEXT, category TEXT, language TEXT DEFAULT 'bn', image_url TEXT, published_at TEXT, created_at TEXT, day_key TEXT, status TEXT DEFAULT 'published', score INTEGER DEFAULT 0, search_text TEXT, indexed_at TEXT)`,
-    `CREATE TABLE IF NOT EXISTS news_loves (id INTEGER PRIMARY KEY AUTOINCREMENT, news_id TEXT, device_id TEXT, UNIQUE(news_id, device_id))`,
-    `CREATE TABLE IF NOT EXISTS news_comments (id TEXT PRIMARY KEY, news_id TEXT, author_name TEXT, comment_text TEXT, created_at TEXT)`,
-    `CREATE TABLE IF NOT EXISTS push_subscriptions (id TEXT PRIMARY KEY, endpoint TEXT UNIQUE, keys_json TEXT, token TEXT, created_at TEXT)`,
-    `CREATE TABLE IF NOT EXISTS push_clicks (id TEXT PRIMARY KEY, news_id TEXT, device_id TEXT, source TEXT, created_at TEXT)`,
-    `CREATE TABLE IF NOT EXISTS push_log (id TEXT PRIMARY KEY, news_id TEXT, token TEXT, status TEXT, error TEXT, title TEXT, sent_at TEXT)`,
-    `CREATE TABLE IF NOT EXISTS push_sent (id TEXT PRIMARY KEY, news_id TEXT, token TEXT, sent_at TEXT, UNIQUE(news_id, token))`,
-    `CREATE TABLE IF NOT EXISTS push_digest_log (id TEXT PRIMARY KEY, digest_type TEXT, news_count INTEGER, sent_count INTEGER, sent_at TEXT)`,
-    `CREATE TABLE IF NOT EXISTS live_events (id TEXT PRIMARY KEY, event_type TEXT, payload TEXT, created_at TEXT)`,
-    `CREATE TABLE IF NOT EXISTS admin_sessions (id TEXT PRIMARY KEY, token TEXT UNIQUE, ip TEXT, user_agent TEXT, expires_at TEXT, created_at TEXT)`,
-    `CREATE INDEX IF NOT EXISTS idx_news_status_published ON news(status, published_at DESC)`,
-    `CREATE INDEX IF NOT EXISTS idx_news_status_created ON news(status, created_at DESC)`,
-    `CREATE INDEX IF NOT EXISTS idx_news_category_published ON news(category, published_at DESC)`,
-    `CREATE INDEX IF NOT EXISTS idx_news_score_published ON news(score DESC, published_at DESC)`,
-    `CREATE INDEX IF NOT EXISTS idx_news_loves_news_id ON news_loves(news_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_news_comments_news_created ON news_comments(news_id, created_at ASC)`,
-    `CREATE INDEX IF NOT EXISTS idx_push_subscriptions_token ON push_subscriptions(token)`,
-    `CREATE INDEX IF NOT EXISTS idx_push_clicks_created ON push_clicks(created_at DESC)`,
-    `CREATE INDEX IF NOT EXISTS idx_push_clicks_news ON push_clicks(news_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_push_log_sent_at ON push_log(sent_at DESC)`,
-    `CREATE INDEX IF NOT EXISTS idx_push_log_news_id ON push_log(news_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_push_sent_news ON push_sent(news_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_push_sent_sent_at ON push_sent(sent_at DESC)`,
-    `CREATE INDEX IF NOT EXISTS idx_push_digest_log_sent_at ON push_digest_log(sent_at DESC)`,
-    `CREATE INDEX IF NOT EXISTS idx_live_events_created_at ON live_events(created_at DESC)`,
-    `CREATE INDEX IF NOT EXISTS idx_admin_sessions_token ON admin_sessions(token)`
-  ];
-
-  for (const sql of queries) {
-    try { await env.DB.prepare(sql).run(); } catch (error) {}
-  }
-
-  try {
-    const columns = await env.DB.prepare(`PRAGMA table_info(news)`).all();
-    const colNames = (columns.results || []).map(c => c.name);
-    if (!colNames.includes("language")) await env.DB.prepare(`ALTER TABLE news ADD COLUMN language TEXT DEFAULT 'bn'`).run();
-    if (!colNames.includes("search_text")) await env.DB.prepare(`ALTER TABLE news ADD COLUMN search_text TEXT`).run();
-    if (!colNames.includes("indexed_at")) await env.DB.prepare(`ALTER TABLE news ADD COLUMN indexed_at TEXT`).run();
-  } catch (error) {}
-
-  try {
-    const pushColumns = await env.DB.prepare(`PRAGMA table_info(push_subscriptions)`).all();
-    const pushColNames = (pushColumns.results || []).map(c => c.name);
-    if (!pushColNames.includes("token")) await env.DB.prepare(`ALTER TABLE push_subscriptions ADD COLUMN token TEXT`).run();
-  } catch (error) {}
-}
-
-async function ensureTablesOnce(env) {
-  if (!tablesReadyPromise) {
-    tablesReadyPromise = ensureTables(env);
-  }
-  try {
-    await tablesReadyPromise;
-  } catch (error) {
-    tablesReadyPromise = null;
-    throw error;
-  }
 }
 
 async function serveSharePage(id, env, requestUserAgentFromContext = "", requestUrl = null) {
@@ -2983,4 +2967,65 @@ loadNews('', false);
 </script>
 </body>
 </html>`;
+}
+
+async function ensureTables(env) {
+  const queries = [
+    `CREATE TABLE IF NOT EXISTS news (id TEXT PRIMARY KEY, source_url TEXT UNIQUE, source_name TEXT, source_title TEXT, source_description TEXT, headline TEXT, summary TEXT, main_topic TEXT, category TEXT, language TEXT DEFAULT 'bn', image_url TEXT, published_at TEXT, created_at TEXT, day_key TEXT, status TEXT DEFAULT 'published', score INTEGER DEFAULT 0, search_text TEXT, indexed_at TEXT)`,
+    `CREATE TABLE IF NOT EXISTS news_loves (id INTEGER PRIMARY KEY AUTOINCREMENT, news_id TEXT, device_id TEXT, UNIQUE(news_id, device_id))`,
+    `CREATE TABLE IF NOT EXISTS news_comments (id TEXT PRIMARY KEY, news_id TEXT, author_name TEXT, comment_text TEXT, created_at TEXT)`,
+    `CREATE TABLE IF NOT EXISTS push_subscriptions (id TEXT PRIMARY KEY, endpoint TEXT UNIQUE, keys_json TEXT, token TEXT, created_at TEXT)`,
+    `CREATE TABLE IF NOT EXISTS push_clicks (id TEXT PRIMARY KEY, news_id TEXT, device_id TEXT, source TEXT, created_at TEXT)`,
+    `CREATE TABLE IF NOT EXISTS push_log (id TEXT PRIMARY KEY, news_id TEXT, token TEXT, status TEXT, error TEXT, title TEXT, sent_at TEXT)`,
+    `CREATE TABLE IF NOT EXISTS push_sent (id TEXT PRIMARY KEY, news_id TEXT, token TEXT, sent_at TEXT, UNIQUE(news_id, token))`,
+    `CREATE TABLE IF NOT EXISTS push_digest_log (id TEXT PRIMARY KEY, digest_type TEXT, news_count INTEGER, sent_count INTEGER, sent_at TEXT)`,
+    `CREATE TABLE IF NOT EXISTS live_events (id TEXT PRIMARY KEY, event_type TEXT, payload TEXT, created_at TEXT)`,
+    `CREATE TABLE IF NOT EXISTS admin_sessions (id TEXT PRIMARY KEY, token TEXT UNIQUE, ip TEXT, user_agent TEXT, expires_at TEXT, created_at TEXT)`,
+    `CREATE INDEX IF NOT EXISTS idx_news_status_published ON news(status, published_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_news_status_created ON news(status, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_news_category_published ON news(category, published_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_news_score_published ON news(score DESC, published_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_news_loves_news_id ON news_loves(news_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_news_comments_news_created ON news_comments(news_id, created_at ASC)`,
+    `CREATE INDEX IF NOT EXISTS idx_push_subscriptions_token ON push_subscriptions(token)`,
+    `CREATE INDEX IF NOT EXISTS idx_push_clicks_created ON push_clicks(created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_push_clicks_news ON push_clicks(news_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_push_log_sent_at ON push_log(sent_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_push_log_news_id ON push_log(news_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_push_sent_news ON push_sent(news_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_push_sent_sent_at ON push_sent(sent_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_push_digest_log_sent_at ON push_digest_log(sent_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_live_events_created_at ON live_events(created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_admin_sessions_token ON admin_sessions(token)`
+  ];
+
+  for (const sql of queries) {
+    try { await env.DB.prepare(sql).run(); } catch (error) {}
+  }
+
+  try {
+    const columns = await env.DB.prepare(`PRAGMA table_info(news)`).all();
+    const colNames = (columns.results || []).map(c => c.name);
+    if (!colNames.includes("language")) await env.DB.prepare(`ALTER TABLE news ADD COLUMN language TEXT DEFAULT 'bn'`).run();
+    if (!colNames.includes("search_text")) await env.DB.prepare(`ALTER TABLE news ADD COLUMN search_text TEXT`).run();
+    if (!colNames.includes("indexed_at")) await env.DB.prepare(`ALTER TABLE news ADD COLUMN indexed_at TEXT`).run();
+  } catch (error) {}
+
+  try {
+    const pushColumns = await env.DB.prepare(`PRAGMA table_info(push_subscriptions)`).all();
+    const pushColNames = (pushColumns.results || []).map(c => c.name);
+    if (!pushColNames.includes("token")) await env.DB.prepare(`ALTER TABLE push_subscriptions ADD COLUMN token TEXT`).run();
+  } catch (error) {}
+}
+
+async function ensureTablesOnce(env) {
+  if (!tablesReadyPromise) {
+    tablesReadyPromise = ensureTables(env);
+  }
+  try {
+    await tablesReadyPromise;
+  } catch (error) {
+    tablesReadyPromise = null;
+    throw error;
+  }
 }

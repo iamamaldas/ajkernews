@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v41.0: Maximum Free Plan Optimization + SEO + 5000 Sitemap + Popunder 3h (Back Button Safe)
+// ✅ FINAL v42.0: Maximum Free Plan Optimization + SEO + 5000 Sitemap + Popunder (Home + Article 70% Scroll)
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -116,7 +116,6 @@ function getNativeBannerContainer() {
   </div>`;
 }
 
-// ✅ Ad Blocker বাইরের ফাইল থেকে (CPU Time কমাতে)
 function getAdultBlockerScript() {
   return `<script src="/adblock.js" defer><\/script>`;
 }
@@ -198,9 +197,6 @@ export default {
     }
 
     try {
-      // ⚠️ ensureTablesOnce সরানো হয়েছে — শুধু Cron-এ চলবে
-      // প্রতি Request-এ DB PRAGMA বন্ধ → CPU Time সাশ্রয়
-
       async function sha256(text) {
         const encoder = new TextEncoder();
         const data = encoder.encode(text);
@@ -403,7 +399,6 @@ export default {
       if (url.pathname === "/rss.xml") return await generateRSS(env);
       if (url.pathname === "/robots.txt") return generateRobotsTxt(env);
 
-      // ⚠️ SSE /api/live Disable করা হয়েছে CPU Time বাঁচাতে
       if (url.pathname === "/api/live" && request.method === "GET") {
         return new Response("SSE disabled for performance", { 
           status: 200, 
@@ -660,7 +655,6 @@ export default {
     console.log(`[CRON] ${cron} started | IST Hour: ${istHour}`);
 
     try {
-      // ✅ Cron-এ টেবিল চেক (Request-এ নয়)
       await ensureTablesOnce(env);
 
       const DIGEST_CRONS = {
@@ -785,8 +779,6 @@ export default {
     }
   }
 };
-
-// ⚠️ SSE handleLiveStream ফাংশন সরিয়ে ফেলা হয়েছে CPU Time বাঁচাতে
 
 async function sendDigest(env, istHour) {
   if (isQuietHours()) return;
@@ -1869,6 +1861,115 @@ ${adultBlocker}
     if (v === null || v === undefined) return '';
     return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
   }
+
+  // ============================================
+  // 📜 ARTICLE PAGE — 70% SCROLL POPUNDER
+  // ============================================
+  (function articleScrollPopunder() {
+    var POP_KEY = 'popunder_article_70';
+    var POP_MS = 3 * 60 * 60 * 1000;
+    var FIRED_KEY = 'popunder_fired_' + NEWS_ID;
+    var fired = false;
+    var scriptLoaded = false;
+
+    var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+    if (isMobile) {
+      console.log('[Article Popunder] Mobile skip');
+      return;
+    }
+
+    var last = parseInt(localStorage.getItem(POP_KEY) || '0', 10);
+    if ((Date.now() - last) < POP_MS) {
+      console.log('[Article Popunder] Cooldown active');
+      return;
+    }
+
+    if (sessionStorage.getItem(FIRED_KEY) === '1') {
+      console.log('[Article Popunder] Already fired on this article');
+      return;
+    }
+
+    // Popunder Blocker — শুধু article body click allow
+    (function installBlocker() {
+      var ALLOW_SELECTORS = '.article-body, #articleBody, .article-main, .article-h1, .article-img';
+      function isAllowedTarget(target) {
+        if (!target || typeof target.closest !== 'function') return false;
+        return !!target.closest(ALLOW_SELECTORS);
+      }
+      ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend'].forEach(function(eventType) {
+        document.addEventListener(eventType, function(e) {
+          if (isAllowedTarget(e.target)) return;
+          e.stopImmediatePropagation();
+        }, false);
+      });
+      console.log('[Article Popunder Blocker] Active');
+    })();
+
+    // Script inject
+    (async function loadPopunder() {
+      try {
+        var url = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
+        try {
+          var res = await fetch('/api/ads-config');
+          var data = await res.json();
+          if (data && data.success && data.popunderUrl) url = data.popunderUrl;
+        } catch (e) {}
+
+        var s = document.createElement('script');
+        s.async = true;
+        s.src = url;
+        s.setAttribute('data-cfasync', 'false');
+        s.onload = function() {
+          scriptLoaded = true;
+          console.log('[Article Popunder] Script armed ✅');
+        };
+        s.onerror = function() {
+          console.warn('[Article Popunder] Script failed ❌');
+        };
+        document.body.appendChild(s);
+      } catch (e) {}
+    })();
+
+    // 70% scroll detector
+    function checkScroll() {
+      if (fired) return;
+      var docHeight = document.documentElement.scrollHeight - window.innerHeight;
+      if (docHeight <= 0) return;
+      var scrolled = (window.pageYOffset || document.documentElement.scrollTop) / docHeight * 100;
+
+      if (scrolled >= 70) {
+        fired = true;
+        sessionStorage.setItem(FIRED_KEY, '1');
+        localStorage.setItem(POP_KEY, String(Date.now()));
+        console.log('[Article Popunder] 70% reached — firing ✅');
+
+        if (scriptLoaded) {
+          try {
+            var articleBody = document.getElementById('articleBody') || document.querySelector('.article-body');
+            if (articleBody) {
+              var evt = new MouseEvent('click', {
+                bubbles: true,
+                cancelable: true,
+                view: window
+              });
+              articleBody.dispatchEvent(evt);
+              console.log('[Article Popunder] Synthetic click dispatched');
+            }
+          } catch (e) {}
+        }
+
+        window.removeEventListener('scroll', onScroll);
+      }
+    }
+
+    var timer = null;
+    function onScroll() {
+      if (timer) return;
+      timer = setTimeout(function() { timer = null; checkScroll(); }, 250);
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    setTimeout(checkScroll, 500);
+  })();
 })();
 </script>
 </body>
@@ -2533,10 +2634,6 @@ function json(data, status = 200, cacheSeconds = 60) {
     }
   });
 }
-
-// ============================================
-// 🔐 ADMIN HTML FUNCTIONS
-// ============================================
 
 function getAdminLoginHTML() {
   return `<!DOCTYPE html>

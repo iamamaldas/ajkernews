@@ -31,8 +31,8 @@
 { "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in/logo.png" }
 </script>
 
-<!-- ✅ Adsterra Social Bar — MUST be first, no defer (for top display) -->
-<script data-cfasync="false" src="https://bicea.org/14/3f58b0818e43e5e2e8f28449d29e9937"></script>
+<!-- ✅✅✅ Adsterra Social Bar — MUST BE FIRST, no defer ✅✅✅ -->
+<script async data-cfasync="false" src="https://bicea.org/14/3f58b0818e43e5e2e8f28449d29e9937"></script>
 
 <!-- ✅ Adsterra Native Banner -->
 <script async="async" data-cfasync="false" src="https://bicea.org/21/25ee2c0a822da5cf3429cd2cb222524f"></script>
@@ -40,7 +40,7 @@
 <!-- ✅ Adsterra Popunder (Home Page) -->
 <script async="async" data-cfasync="false" src="https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512"></script>
 
-<!-- ✅ Ad Blocker (defer — so it doesn't block ad scripts) -->
+<!-- ✅ Ad Blocker (defer — Social Bar load হওয়ার পরে) -->
 <script src="/adblock.js" defer></script>
 
 <style>
@@ -126,7 +126,6 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .main-content { padding:18px; max-width: min(820px, 95vw); margin: 0 auto; flex: 1 0 auto; width: 100%; }
 #newsContainer { min-height:200px; display:flex; flex-direction:column; gap:16px; }
 
-/* ✅ Native Banner Block */
 .native-banner-block { margin: 28px 0 8px; padding: 16px; background: #fafafa; border-radius: 14px; border: 1px dashed #e0e0e0; min-height: 260px; }
 .native-banner-label { font-size: 11px; color: #999; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
 
@@ -354,7 +353,6 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 <div class="main-content">
   <div id="newsContainer"></div>
   
-  <!-- ✅ Native Banner Container -->
   <div class="native-banner-block">
     <div class="native-banner-label">Sponsored</div>
     <div id="container-25ee2c0a822da5cf3429cd2cb222524f" style="min-height: 250px; width: 100%;"></div>
@@ -479,8 +477,6 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 <script>
 (function() {
   'use strict';
-  // ✅ শুধু নিউজ কার্ডের ছবি/টাইটেল/সামারিতে ক্লিক করলে Popunder ফায়ার হবে
-  // ❌ Share, Comment, Love, Source Link — কোনোটাতেই না
   var ALLOW_SELECTORS = '.news-image-wrapper, .news-title, .news-summary';
   function isNewsCardBody(target) {
     if (!target || typeof target.closest !== 'function') return false;
@@ -1138,9 +1134,6 @@ function handleNotificationPromptLater() {
   hideNotificationPrompt();
 }
 
-// ============================================
-// 🟢 POPUNDER CONTROLLER — Home Page
-// ============================================
 const POPUNDER_COOLDOWN_KEY = 'popunder_last_3h';
 const POPUNDER_COOLDOWN_MS = 3 * 60 * 60 * 1000;
 const POPUNDER_FALLBACK_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";

@@ -31,7 +31,7 @@
 { "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in/logo.png" }
 </script>
 
-<!-- ✅ Adsterra Social Bar + Native Banner (Always Active) -->
+<!-- ✅ Adsterra Social Bar + Native Banner -->
 <script data-cfasync="false" src="https://bicea.org/14/3f58b0818e43e5e2e8f28449d29e9937"></script>
 <script async="async" data-cfasync="false" src="https://bicea.org/21/25ee2c0a822da5cf3429cd2cb222524f"></script>
 
@@ -1192,109 +1192,78 @@ function handleNotificationPromptLater() {
 }
 
 // ============================================
-// 🟢 POPUNDER — Smart System (Home + Article)
+// 🟢 POPUNDER CONTROLLER — SIMPLE & WORKING
 // ============================================
-// ✅ Home page: news card click → popunder fire
-// ✅ Article page: 70% scroll → popunder fire
-// ✅ Cooldown: 3 hours (SHARED via localStorage)
-// ✅ Comment/Love/Share/Header/Sidebar/Footer → NO fire
-// ✅ Back button → NO fire
-// ✅ Adsterra policy compliant
+// ✅ Adsterra script page load এ load হয়
+// ✅ Adsterra নিজেই click listener register করে
+// ✅ News card click → popunder fire
+// ✅ Comment/Love/Share click → stopPropagation → fire হবে না
+// ✅ ৩ ঘণ্টা cooldown (localStorage এ)
 
 const POPUNDER_COOLDOWN_KEY = 'popunder_last_3h';
 const POPUNDER_COOLDOWN_MS = 3 * 60 * 60 * 1000;
 const POPUNDER_FALLBACK_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
 
 let popunderScriptInjected = false;
-let popunderFiredThisPage = false;
-let popunderUrlCache = null;
 
-// ✅ Cooldown check — SHARED
-function isPopunderCooldownActive() {
+async function initPopunder() {
   try {
-    const last = parseInt(localStorage.getItem(POPUNDER_COOLDOWN_KEY) || '0', 10);
-    return (Date.now() - last) < POPUNDER_COOLDOWN_MS;
-  } catch (e) { return false; }
-}
+    // ✅ Cooldown check
+    const lastTriggered = parseInt(localStorage.getItem(POPUNDER_COOLDOWN_KEY) || '0', 10);
+    const now = Date.now();
+    if (now - lastTriggered < POPUNDER_COOLDOWN_MS) {
+      const remainingMin = Math.round((POPUNDER_COOLDOWN_MS - (now - lastTriggered)) / 60000);
+      console.log('[Popunder] Cooldown active — next in ' + remainingMin + ' min');
+      return;
+    }
 
-// ✅ Cooldown set — SHARED
-function setPopunderCooldown() {
-  try { localStorage.setItem(POPUNDER_COOLDOWN_KEY, String(Date.now())); } catch (e) {}
-}
-
-// ✅ Popunder script inject — on demand
-async function injectPopunderScript() {
-  if (popunderScriptInjected) return;
-  popunderScriptInjected = true;
-
-  let url = POPUNDER_FALLBACK_URL;
-  if (!popunderUrlCache) {
+    // ✅ URL fetch
+    let url = POPUNDER_FALLBACK_URL;
     try {
       const res = await fetch('/api/ads-config');
       const data = await res.json();
-      if (data && data.success && data.popunderUrl) {
-        popunderUrlCache = data.popunderUrl;
-        url = popunderUrlCache;
-      }
+      if (data && data.success && data.popunderUrl) url = data.popunderUrl;
     } catch (e) {}
-  } else {
-    url = popunderUrlCache;
-  }
 
-  console.log('[Popunder] Injecting script:', url);
-  const s = document.createElement('script');
-  s.async = true;
-  s.src = url;
-  s.setAttribute('data-cfasync', 'false');
-  s.onload = function() {
-    console.log('[Popunder] Script loaded ✅');
-  };
-  s.onerror = function() {
-    console.warn('[Popunder] Script failed to load ❌');
-  };
-  document.body.appendChild(s);
+    // ✅ Adsterra Popunder script inject
+    const s = document.createElement('script');
+    s.async = true;
+    s.src = url;
+    s.setAttribute('data-cfasync', 'false');
+    s.onload = function() {
+      popunderScriptInjected = true;
+      console.log('[Popunder] Script loaded ✅ — will fire on next news click');
+    };
+    s.onerror = function() {
+      console.warn('[Popunder] Script failed to load ❌');
+    };
+    document.body.appendChild(s);
+  } catch (e) {
+    console.warn('[Popunder] Init error:', e && e.message);
+  }
 }
 
-// ✅ News card click handler (Home page)
+// ✅ News click — Adsterra নিজেই popunder fire করবে
+// Navigation delay দিয়ে Adsterra কে fire করার সময় দেওয়া হচ্ছে
 function openNewsWithPopunder(url) {
-  if (!isPopunderCooldownActive() && !popunderFiredThisPage) {
-    popunderFiredThisPage = true;
-    setPopunderCooldown();
-    injectPopunderScript();
-    setTimeout(function() {
-      window.location.href = url;
-    }, 400);
-  } else {
-    window.location.href = url;
+  const lastTriggered = parseInt(localStorage.getItem(POPUNDER_COOLDOWN_KEY) || '0', 10);
+  const now = Date.now();
+  if (now - lastTriggered >= POPUNDER_COOLDOWN_MS && popunderScriptInjected) {
+    localStorage.setItem(POPUNDER_COOLDOWN_KEY, String(now));
+    console.log('[Popunder] News click — Adsterra firing popunder ✅');
   }
+
+  // ✅ 300ms delay — Adsterra এর listener কে fire করার সময় দিন
+  setTimeout(function() {
+    window.location.href = url;
+  }, 300);
 }
-
-// ✅ Article page 70% scroll trigger
-// Note: এই trigger home page এ কিছু করবে না — শুধু /news/* page এ কাজ করবে
-// তবে article page গুলো Worker থেকে render হয়, তাই সেখানে আলাদা script যোগ করতে হবে
-(function setupArticleScrollTrigger() {
-  if (!/^\/news\//.test(window.location.pathname)) return;
-
-  let articleScrollFired = false;
-
-  window.addEventListener('scroll', function() {
-    if (articleScrollFired) return;
-    if (isPopunderCooldownActive()) return;
-
-    const scrollPercent = window.scrollY / (document.body.scrollHeight - window.innerHeight);
-    if (scrollPercent >= 0.7) {
-      articleScrollFired = true;
-      setPopunderCooldown();
-      console.log('[Popunder] 🎯 Article 70% scroll — firing');
-      injectPopunderScript();
-    }
-  }, { passive: true });
-
-  console.log('[Popunder] Article scroll trigger ready');
-})();
 
 (async function initApp() {
   try { localStorage.removeItem('newsCache:v1'); } catch (e) {}
+
+  // ✅ Popunder script inject
+  initPopunder();
 
   await loadNews('top', '', { showLoading: true, keepExisting: false });
 

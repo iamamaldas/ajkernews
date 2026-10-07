@@ -1,5 +1,5 @@
 // public/adblock.js
-// 🛡️ Adult Ad Blocker v4.0 — Popunder + Social Bar + Native Banner Safe
+// 🛡️ Adult Ad Blocker v5.0 — Popunder + Social Bar + Native Banner সব Safe
 
 (function () {
   'use strict';
@@ -145,5 +145,5 @@
     return origOpen.apply(this, arguments);
   };
 
-  try { console.log('[AdBlock] Active v4.0 — Popunder + Social Bar + Native safe'); } catch (e) { }
+  try { console.log('[AdBlock] Active v5.0 — Popunder + Social Bar + Native safe'); } catch (e) { }
 })();

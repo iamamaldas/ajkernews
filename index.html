@@ -31,7 +31,7 @@
 { "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in/logo.png" }
 </script>
 
-<!-- ✅ Back Button Protection — Popunder Block on Back Navigation -->
+<!-- ✅ Back Button Protection — শুধু Popunder Script Block, Social Bar Safe -->
 <script>
 (function backButtonProtection() {
   'use strict';
@@ -39,16 +39,18 @@
     try {
       localStorage.setItem('popunder_last_3h', String(Date.now()));
     } catch (e) {}
+    // ✅ শুধু Adsterra Popunder script (afders.org) remove করব — Social Bar (bicea.org) safe
     try {
-      var scripts = document.querySelectorAll('script[src*="afders"], script[src*="bicea.org/1"]');
+      var scripts = document.querySelectorAll('script[src*="afders.org"]');
       scripts.forEach(function(s) {
-        if (s.src && (s.src.includes('afders') || s.src.includes('cefd70fdb'))) {
+        if (s.src && s.src.indexOf('afders.org') !== -1) {
           s.remove();
+          console.log('[Back Protection] Popunder script removed');
         }
       });
     } catch (e) {}
     window.__popunderBlockedByBack = true;
-    console.log('[Back Protection] Popunder blocked on back navigation');
+    console.log('[Back Protection] Popunder blocked — Social Bar untouched');
   }
   window.addEventListener('pageshow', function(event) {
     if (event.persisted) {
@@ -287,31 +289,13 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   .native-banner-block { padding: 12px; margin: 20px 0 8px; }
 }
 
-/* 🛡️ ADULT AD BLOCKING (CSS) — popunder div hide rules সরানো হয়েছে Social Bar এর জন্য */
-body > div[style*="position: fixed"][style*="z-index: 9999"]:not(#newNewsBanner),
-body > div[style*="position:fixed"][style*="z-index:9999"]:not(#newNewsBanner),
-body > div[style*="position: fixed"][style*="z-index: 99999"]:not(#newNewsBanner),
-body > div[style*="position:fixed"][style*="z-index:99999"]:not(#newNewsBanner),
-body > div[style*="position: fixed"][style*="z-index: 999999"]:not(#newNewsBanner),
-body > div[style*="position:fixed"][style*="z-index:999999"]:not(#newNewsBanner) {
-  display: none !important;
-  visibility: hidden !important;
-  opacity: 0 !important;
-  pointer-events: none !important;
-}
-
-div[id*="ad-overlay"],
-div[class*="ad-overlay"],
+/* 🛡️ ADULT AD BLOCKING (CSS) — শুধু Adult ads block, Social Bar/Native Banner/Popunder safe */
 div[id*="adult"],
 div[class*="adult"],
 div[id*="porno"],
 div[class*="porno"],
 div[id*="xxx"],
-div[class*="xxx"],
-div[class*="video-ad"],
-div[id*="video-ad"],
-div[class*="videoAd"],
-div[id*="videoAd"] {
+div[class*="xxx"] {
   display: none !important;
   visibility: hidden !important;
   opacity: 0 !important;
@@ -1229,13 +1213,6 @@ function handleNotificationPromptLater() {
 // ============================================
 // 🟢 POPUNDER CONTROLLER — Final Smart Version
 // ============================================
-// ✅ শুধু news card body (image/title/summary) click এ popunder fire হবে
-// ❌ Comment/Love/Share/Source link/Header/Sidebar/Footer — কোনোটাতেই হবে না
-// ✅ ৩ ঘণ্টা cooldown
-// ✅ Mobile এ skip (user experience)
-// ✅ Back button protection (উপরে script এ)
-// ✅ Global blocker সরানো — Social Bar ঠিকমতো কাজ করবে
-
 const POPUNDER_COOLDOWN_KEY = 'popunder_last_3h';
 const POPUNDER_COOLDOWN_MS = 3 * 60 * 60 * 1000;
 const POPUNDER_FALLBACK_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
@@ -1252,30 +1229,23 @@ function isPopunderCooldownActive() {
 
 async function initPopunder() {
   try {
-    // ✅ Mobile এ skip
     const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
     if (isMobile) {
       console.log('[Popunder] Skipped on mobile device');
       return;
     }
-
-    // ✅ Cooldown check
     if (isPopunderCooldownActive()) {
       const lastTriggered = parseInt(localStorage.getItem(POPUNDER_COOLDOWN_KEY) || '0', 10);
       const remainingMin = Math.round((POPUNDER_COOLDOWN_MS - (Date.now() - lastTriggered)) / 60000);
       console.log('[Popunder] Cooldown active — next in ' + remainingMin + ' min');
       return;
     }
-
-    // ✅ URL fetch
     let url = POPUNDER_FALLBACK_URL;
     try {
       const res = await fetch('/api/ads-config');
       const data = await res.json();
       if (data && data.success && data.popunderUrl) url = data.popunderUrl;
     } catch (e) {}
-
-    // ✅ Script inject
     const s = document.createElement('script');
     s.async = true;
     s.src = url;
@@ -1293,15 +1263,11 @@ async function initPopunder() {
   }
 }
 
-// ✅ News click handler — Adsterra নিজেই popunder fire করবে
 function openNewsWithPopunder(url) {
-  // ✅ Back Button Protection check
   if (window.__popunderBlockedByBack) {
     window.location.href = url;
     return;
   }
-
-  // ✅ Cooldown update
   const lastTriggered = parseInt(localStorage.getItem(POPUNDER_COOLDOWN_KEY) || '0', 10);
   const now = Date.now();
   if (now - lastTriggered >= POPUNDER_COOLDOWN_MS && popunderScriptInjected && !popunderFiredThisPage) {
@@ -1309,8 +1275,6 @@ function openNewsWithPopunder(url) {
     localStorage.setItem(POPUNDER_COOLDOWN_KEY, String(now));
     console.log('[Popunder] News card click — Adsterra will fire popunder ✅');
   }
-
-  // ✅ Navigation delay — Adsterra কে fire করার সময় দিন
   setTimeout(function() {
     window.location.href = url;
   }, 300);
@@ -1318,12 +1282,8 @@ function openNewsWithPopunder(url) {
 
 (async function initApp() {
   try { localStorage.removeItem('newsCache:v1'); } catch (e) {}
-
-  // ✅ Popunder script inject
   initPopunder();
-
   await loadNews('top', '', { showLoading: true, keepExisting: false });
-
   if ('serviceWorker' in navigator) {
     try {
       const mainReg = await navigator.serviceWorker.register('/sw.js', {
@@ -1333,7 +1293,6 @@ function openNewsWithPopunder(url) {
       await mainReg.update().catch(() => {});
     } catch (err) {}
   }
-
   await checkNotificationStatus();
 })();
 

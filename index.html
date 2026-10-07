@@ -1192,78 +1192,63 @@ function handleNotificationPromptLater() {
 }
 
 // ============================================
-// 🟢 POPUNDER CONTROLLER — SIMPLE & WORKING
+// 🟢 POPUNDER — 100% News Card Click Only
 // ============================================
-// ✅ Adsterra script page load এ load হয়
-// ✅ Adsterra নিজেই click listener register করে
-// ✅ News card click → popunder fire
-// ✅ Comment/Love/Share click → stopPropagation → fire হবে না
-// ✅ ৩ ঘণ্টা cooldown (localStorage এ)
 
 const POPUNDER_COOLDOWN_KEY = 'popunder_last_3h';
 const POPUNDER_COOLDOWN_MS = 3 * 60 * 60 * 1000;
 const POPUNDER_FALLBACK_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
 
 let popunderScriptInjected = false;
+let popunderFiredThisPage = false;
 
-async function initPopunder() {
+function isPopunderCooldownActive() {
   try {
-    // ✅ Cooldown check
-    const lastTriggered = parseInt(localStorage.getItem(POPUNDER_COOLDOWN_KEY) || '0', 10);
-    const now = Date.now();
-    if (now - lastTriggered < POPUNDER_COOLDOWN_MS) {
-      const remainingMin = Math.round((POPUNDER_COOLDOWN_MS - (now - lastTriggered)) / 60000);
-      console.log('[Popunder] Cooldown active — next in ' + remainingMin + ' min');
-      return;
-    }
+    const last = parseInt(localStorage.getItem(POPUNDER_COOLDOWN_KEY) || '0', 10);
+    return (Date.now() - last) < POPUNDER_COOLDOWN_MS;
+  } catch (e) { return false; }
+}
 
-    // ✅ URL fetch
-    let url = POPUNDER_FALLBACK_URL;
+async function openNewsWithPopunder(url) {
+  if (isPopunderCooldownActive() || popunderFiredThisPage) {
+    window.location.href = url;
+    return;
+  }
+
+  popunderFiredThisPage = true;
+  try { localStorage.setItem(POPUNDER_COOLDOWN_KEY, String(Date.now())); } catch (e) {}
+
+  if (!popunderScriptInjected) {
+    popunderScriptInjected = true;
+
+    let adsUrl = POPUNDER_FALLBACK_URL;
     try {
       const res = await fetch('/api/ads-config');
       const data = await res.json();
-      if (data && data.success && data.popunderUrl) url = data.popunderUrl;
+      if (data && data.success && data.popunderUrl) adsUrl = data.popunderUrl;
     } catch (e) {}
 
-    // ✅ Adsterra Popunder script inject
+    console.log('[Popunder] Injecting script + firing:', adsUrl);
     const s = document.createElement('script');
     s.async = true;
-    s.src = url;
+    s.src = adsUrl;
     s.setAttribute('data-cfasync', 'false');
     s.onload = function() {
-      popunderScriptInjected = true;
-      console.log('[Popunder] Script loaded ✅ — will fire on next news click');
+      console.log('[Popunder] Script loaded ✅ — popunder fired');
     };
     s.onerror = function() {
-      console.warn('[Popunder] Script failed to load ❌');
+      console.warn('[Popunder] Script failed ❌');
     };
     document.body.appendChild(s);
-  } catch (e) {
-    console.warn('[Popunder] Init error:', e && e.message);
-  }
-}
-
-// ✅ News click — Adsterra নিজেই popunder fire করবে
-// Navigation delay দিয়ে Adsterra কে fire করার সময় দেওয়া হচ্ছে
-function openNewsWithPopunder(url) {
-  const lastTriggered = parseInt(localStorage.getItem(POPUNDER_COOLDOWN_KEY) || '0', 10);
-  const now = Date.now();
-  if (now - lastTriggered >= POPUNDER_COOLDOWN_MS && popunderScriptInjected) {
-    localStorage.setItem(POPUNDER_COOLDOWN_KEY, String(now));
-    console.log('[Popunder] News click — Adsterra firing popunder ✅');
   }
 
-  // ✅ 300ms delay — Adsterra এর listener কে fire করার সময় দিন
   setTimeout(function() {
     window.location.href = url;
-  }, 300);
+  }, 500);
 }
 
 (async function initApp() {
   try { localStorage.removeItem('newsCache:v1'); } catch (e) {}
-
-  // ✅ Popunder script inject
-  initPopunder();
 
   await loadNews('top', '', { showLoading: true, keepExisting: false });
 

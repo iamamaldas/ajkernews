@@ -4,9 +4,6 @@
 const CACHE_VERSION = "ajker-news-v2026-10-08-final11";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
-// ═══════════════════════════════════════════════════════════
-// ✅ FCM Setup
-// ═══════════════════════════════════════════════════════════
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging-compat.js');
 
@@ -19,16 +16,12 @@ firebase.initializeApp({
   appId: "1:430988740362:web:ccb5e3cd2eeefc82345cf3"
 });
 
-// ═══════════════════════════════════════════════════════════
-// ✅ FCM Background Message Handler
-// ═══════════════════════════════════════════════════════════
 if (firebase.messaging.isSupported()) {
   const messaging = firebase.messaging();
 
   messaging.onBackgroundMessage((payload) => {
     console.log('[SW-FCM] Background message:', JSON.stringify(payload));
 
-    // ✅ News published event
     if (payload.data && payload.data.type === 'news_published') {
       return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
         clients.forEach((client) => {
@@ -41,7 +34,6 @@ if (firebase.messaging.isSupported()) {
       });
     }
 
-    // ✅ Now handle everything (data-only payload + notification payload)
     const title = payload.data?.title || payload.notification?.title || 'Ajker News';
     const body = payload.data?.body || payload.notification?.body || 'নতুন খবর এসেছে';
     const image = payload.data?.image || payload.notification?.image || undefined;
@@ -63,9 +55,6 @@ if (firebase.messaging.isSupported()) {
   });
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ INDEXEDDB — Pending Notifications Queue
-// ═══════════════════════════════════════════════════════════
 const DB_NAME = 'ajker-news-notif-db';
 const DB_VERSION = 1;
 const STORE_NAME = 'pending_notifications';
@@ -93,10 +82,7 @@ async function savePendingNotification(notif) {
       tx.oncomplete = () => resolve(true);
       tx.onerror = () => reject(tx.error);
     });
-  } catch (e) {
-    console.warn('[SW-QUEUE] Save failed:', e);
-    return false;
-  }
+  } catch (e) { return false; }
 }
 
 async function getPendingNotifications() {
@@ -108,10 +94,7 @@ async function getPendingNotifications() {
       req.onsuccess = () => resolve(req.result || []);
       req.onerror = () => reject(req.error);
     });
-  } catch (e) {
-    console.warn('[SW-QUEUE] Get failed:', e);
-    return [];
-  }
+  } catch (e) { return []; }
 }
 
 async function clearPendingNotifications() {
@@ -123,35 +106,16 @@ async function clearPendingNotifications() {
       tx.oncomplete = () => resolve(true);
       tx.onerror = () => reject(tx.error);
     });
-  } catch (e) {
-    console.warn('[SW-QUEUE] Clear failed:', e);
-    return false;
-  }
+  } catch (e) { return false; }
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ PUSH EVENT HANDLER
-// ═══════════════════════════════════════════════════════════
 self.addEventListener('push', (event) => {
-  console.log('[SW-PUSH] Push event received');
-
   if (!event.data) return;
-
   let payload;
-  try {
-    payload = event.data.json();
-  } catch (e) {
-    console.log('[SW-PUSH] Not JSON:', event.data.text());
-    return;
-  }
-
-  console.log('[SW-PUSH] Payload:', JSON.stringify(payload));
-
+  try { payload = event.data.json(); } catch (e) { return; }
+  
   const data = payload.data || payload;
-  if (!data || !data.title) {
-    console.log('[SW-PUSH] No title — skip');
-    return;
-  }
+  if (!data || !data.title) return;
 
   const notifData = {
     title: data.title || 'Ajker News',
@@ -165,7 +129,6 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     (async () => {
       await savePendingNotification(notifData);
-
       try {
         await self.registration.showNotification(notifData.title, {
           body: notifData.body,
@@ -180,22 +143,15 @@ self.addEventListener('push', (event) => {
           data: { url: notifData.url }
         });
         await clearPendingNotifications();
-        console.log('[SW-PUSH] Notification shown ✅');
-      } catch (e) {
-        console.warn('[SW-PUSH] Show failed:', e);
-      }
+      } catch (e) {}
     })()
   );
 });
 
-// ═══════════════════════════════════════════════════════════
-// ✅ FLUSH PENDING
-// ═══════════════════════════════════════════════════════════
 async function flushPendingNotifications() {
   try {
     const pending = await getPendingNotifications();
     if (!pending || !pending.length) return;
-
     for (const notif of pending) {
       try {
         await self.registration.showNotification(notif.title, {
@@ -212,24 +168,15 @@ async function flushPendingNotifications() {
         });
       } catch (e) {}
     }
-
     await clearPendingNotifications();
   } catch (e) {}
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ NOTIFICATION CLICK
-// ═══════════════════════════════════════════════════════════
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-
   let targetUrl = event.notification.data?.url || 'https://ajkernews.in/';
-
-  if (targetUrl.startsWith('/')) {
-    targetUrl = 'https://ajkernews.in' + targetUrl;
-  } else if (!targetUrl.startsWith('http')) {
-    targetUrl = 'https://ajkernews.in/' + targetUrl;
-  }
+  if (targetUrl.startsWith('/')) targetUrl = 'https://ajkernews.in' + targetUrl;
+  else if (!targetUrl.startsWith('http')) targetUrl = 'https://ajkernews.in/' + targetUrl;
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
@@ -246,9 +193,6 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-// ═══════════════════════════════════════════════════════════
-// ✅ PUSH SUBSCRIPTION CHANGE
-// ═══════════════════════════════════════════════════════════
 self.addEventListener('pushsubscriptionchange', (event) => {
   event.waitUntil(
     (async () => {
@@ -258,24 +202,17 @@ self.addEventListener('pushsubscriptionchange', (event) => {
           applicationServerKey: event.oldSubscription ? event.oldSubscription.options.applicationServerKey : undefined
         });
         const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-        allClients.forEach((client) => {
-          client.postMessage({ type: 'REFRESH_FCM_TOKEN' });
-        });
+        allClients.forEach((client) => client.postMessage({ type: 'REFRESH_FCM_TOKEN' }));
       } catch (e) {}
     })()
   );
 });
 
-// ═══════════════════════════════════════════════════════════
-// ✅ Install / Activate
-// ═══════════════════════════════════════════════════════════
 self.addEventListener("install", event => {
-  console.log("[SW] Installing", CACHE_VERSION);
   self.skipWaiting();
 });
 
 self.addEventListener("activate", event => {
-  console.log("[SW] Activating...");
   event.waitUntil(
     (async () => {
       const keys = await caches.keys();
@@ -290,19 +227,12 @@ self.addEventListener("activate", event => {
   );
 });
 
-// ═══════════════════════════════════════════════════════════
-// ✅ FETCH HANDLER
-// ═══════════════════════════════════════════════════════════
 self.addEventListener("fetch", event => {
   const request = event.request;
   if (request.method !== "GET") return;
-
   const url = new URL(request.url);
   if (!url.protocol.startsWith("http")) return;
-
-  if (url.origin !== self.location.origin && !url.hostname.includes("gstatic")) {
-    return;
-  }
+  if (url.origin !== self.location.origin && !url.hostname.includes("gstatic")) return;
 
   if (
     url.pathname.startsWith("/api/") ||
@@ -326,22 +256,15 @@ self.addEventListener("fetch", event => {
     caches.match(request).then(cached => {
       if (cached) return cached;
       return fetch(request).then(response => {
-        if (!response || response.status !== 200 || response.type !== "basic") {
-          return response;
-        }
+        if (!response || response.status !== 200 || response.type !== "basic") return response;
         const responseToCache = response.clone();
-        caches.open(STATIC_CACHE).then(cache => {
-          cache.put(request, responseToCache);
-        });
+        caches.open(STATIC_CACHE).then(cache => cache.put(request, responseToCache));
         return response;
       });
     })
   );
 });
 
-// ═══════════════════════════════════════════════════════════
-// ✅ MESSAGE HANDLER
-// ═══════════════════════════════════════════════════════════
 self.addEventListener('message', (event) => {
   if (event.data === "SKIP_WAITING") {
     self.skipWaiting();
@@ -352,9 +275,7 @@ self.addEventListener('message', (event) => {
       (async () => {
         await flushPendingNotifications();
         const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-        clients.forEach((client) => {
-          client.postMessage({ type: 'REFRESH_FCM_TOKEN' });
-        });
+        clients.forEach((client) => client.postMessage({ type: 'REFRESH_FCM_TOKEN' }));
       })()
     );
   }

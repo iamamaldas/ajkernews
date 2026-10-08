@@ -67,11 +67,13 @@
     return false;
   }
   
-  // ✅ Capture phase — fires BEFORE Adsterra's listener
+  // ✅ Capture phase on window — fires BEFORE Adsterra's listeners
   ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'pointerdown', 'pointerup'].forEach(function(eventType) {
-    document.addEventListener(eventType, function(e) {
+    window.addEventListener(eventType, function(e) {
       if (shouldAllowPopunder(e.target)) return;
+      // Block Adsterra's listener
       e.stopImmediatePropagation();
+      e.stopPropagation();
     }, true);
   });
   

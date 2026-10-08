@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v44.0: Popunder News Card Only + Article 70% Scroll + Social Bar Top + 3hr Cooldown
+// ✅ FINAL v45.0: Popunder News Card Only + Article 70% Scroll + Social Bar Top + 3hr Cooldown
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -2041,7 +2041,7 @@ ${adultBlocker}
   // ============================================
   (function articleScrollPopunder() {
     var POP_KEY = 'popunder_article_70';
-    var POP_MS = 3 * 60 * 60 * 1000; // 3 hours cooldown
+    var POP_MS = 3 * 60 * 60 * 1000;
     var FIRED_KEY = 'popunder_fired_' + NEWS_ID;
     var fired = false;
     var scriptLoaded = false;
@@ -2063,7 +2063,6 @@ ${adultBlocker}
       return;
     }
 
-    // Popunder Blocker — capture phase + action button allow
     (function installBlocker() {
       var ALLOW_SELECTORS = '.article-body, #articleBody, .article-main, .article-h1, .article-img';
       var ACTION_SELECTORS = '.article-actions-row, .action-btn-art, .article-source-row, .article-source-link, .article-date, .modal-box, #artCommentModal';
@@ -2088,7 +2087,6 @@ ${adultBlocker}
       console.log('[Article Popunder Blocker] Active');
     })();
 
-    // Script inject (only when 70% reached)
     (async function loadPopunder() {
       try {
         var url = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
@@ -2113,7 +2111,6 @@ ${adultBlocker}
       } catch (e) {}
     })();
 
-    // 70% scroll detector
     function checkScroll() {
       if (fired) return;
       var docHeight = document.documentElement.scrollHeight - window.innerHeight;

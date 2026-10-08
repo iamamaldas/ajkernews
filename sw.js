@@ -1,7 +1,7 @@
 // sw.js
-// ✅ FINAL v33 — Offline Notification Queue + FCM + TTL Safe
+// ✅ FINAL v34 — Offline Queue + FCM + Image Support + TTL Safe
 
-const CACHE_VERSION = "ajker-news-v2026-10-08-final10";
+const CACHE_VERSION = "ajker-news-v2026-10-08-final11";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
 // ═══════════════════════════════════════════════════════════
@@ -28,6 +28,7 @@ if (firebase.messaging.isSupported()) {
   messaging.onBackgroundMessage((payload) => {
     console.log('[SW-FCM] Background message:', JSON.stringify(payload));
 
+    // ✅ News published event
     if (payload.data && payload.data.type === 'news_published') {
       return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
         clients.forEach((client) => {
@@ -40,14 +41,10 @@ if (firebase.messaging.isSupported()) {
       });
     }
 
-    if (payload.notification) {
-      console.log('[SW-FCM] Notification payload — browser handles it.');
-      return;
-    }
-
-    const title = payload.data?.title || 'Ajker News';
-    const body = payload.data?.body || 'নতুন খবর এসেছে';
-    const image = payload.data?.image || undefined;
+    // ✅ Now handle everything (data-only payload + notification payload)
+    const title = payload.data?.title || payload.notification?.title || 'Ajker News';
+    const body = payload.data?.body || payload.notification?.body || 'নতুন খবর এসেছে';
+    const image = payload.data?.image || payload.notification?.image || undefined;
     const url = payload.data?.url || 'https://ajkernews.in/';
     const tag = payload.data?.notificationId || 'ajker-' + Date.now();
 
@@ -133,15 +130,12 @@ async function clearPendingNotifications() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ✅ PUSH EVENT HANDLER — Offline Safe
+// ✅ PUSH EVENT HANDLER
 // ═══════════════════════════════════════════════════════════
 self.addEventListener('push', (event) => {
   console.log('[SW-PUSH] Push event received');
 
-  if (!event.data) {
-    console.log('[SW-PUSH] No data');
-    return;
-  }
+  if (!event.data) return;
 
   let payload;
   try {
@@ -155,7 +149,7 @@ self.addEventListener('push', (event) => {
 
   const data = payload.data || payload;
   if (!data || !data.title) {
-    console.log('[SW-PUSH] No title in payload — skip');
+    console.log('[SW-PUSH] No title — skip');
     return;
   }
 
@@ -170,10 +164,6 @@ self.addEventListener('push', (event) => {
 
   event.waitUntil(
     (async () => {
-      let isOnline = true;
-      try { isOnline = self.navigator.onLine; } catch (e) { isOnline = true; }
-
-      // Save to pending queue first
       await savePendingNotification(notifData);
 
       try {
@@ -189,25 +179,22 @@ self.addEventListener('push', (event) => {
           silent: false,
           data: { url: notifData.url }
         });
-        // Successfully shown — remove from pending
         await clearPendingNotifications();
         console.log('[SW-PUSH] Notification shown ✅');
       } catch (e) {
-        console.warn('[SW-PUSH] Show failed (will retry):', e);
+        console.warn('[SW-PUSH] Show failed:', e);
       }
     })()
   );
 });
 
 // ═══════════════════════════════════════════════════════════
-// ✅ FLUSH PENDING NOTIFICATIONS (when network returns)
+// ✅ FLUSH PENDING
 // ═══════════════════════════════════════════════════════════
 async function flushPendingNotifications() {
   try {
     const pending = await getPendingNotifications();
     if (!pending || !pending.length) return;
-
-    console.log(`[SW-FLUSH] ${pending.length} pending notifications`);
 
     for (const notif of pending) {
       try {
@@ -223,16 +210,11 @@ async function flushPendingNotifications() {
           silent: false,
           data: { url: notif.url }
         });
-      } catch (e) {
-        console.warn('[SW-FLUSH] Failed to show one:', e);
-      }
+      } catch (e) {}
     }
 
     await clearPendingNotifications();
-    console.log('[SW-FLUSH] All pending flushed ✅');
-  } catch (e) {
-    console.warn('[SW-FLUSH] Failed:', e);
-  }
+  } catch (e) {}
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -248,8 +230,6 @@ self.addEventListener('notificationclick', (event) => {
   } else if (!targetUrl.startsWith('http')) {
     targetUrl = 'https://ajkernews.in/' + targetUrl;
   }
-
-  console.log('[SW-CLICK] Opening URL:', targetUrl);
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
@@ -270,7 +250,6 @@ self.addEventListener('notificationclick', (event) => {
 // ✅ PUSH SUBSCRIPTION CHANGE
 // ═══════════════════════════════════════════════════════════
 self.addEventListener('pushsubscriptionchange', (event) => {
-  console.log('[SW-PUSHSUB] Subscription changed — syncing...');
   event.waitUntil(
     (async () => {
       try {
@@ -282,9 +261,7 @@ self.addEventListener('pushsubscriptionchange', (event) => {
         allClients.forEach((client) => {
           client.postMessage({ type: 'REFRESH_FCM_TOKEN' });
         });
-      } catch (e) {
-        console.warn('[SW-PUSHSUB] Re-subscribe failed:', e);
-      }
+      } catch (e) {}
     })()
   );
 });
@@ -305,13 +282,9 @@ self.addEventListener("activate", event => {
       await Promise.all(
         keys
           .filter(k => k.startsWith("ajker-news-") && k !== STATIC_CACHE)
-          .map(k => {
-            console.log("[SW] Deleting old cache:", k);
-            return caches.delete(k);
-          })
+          .map(k => caches.delete(k))
       );
       await self.clients.claim();
-      // Flush pending notifications from previous session
       await flushPendingNotifications();
     })()
   );
@@ -352,7 +325,6 @@ self.addEventListener("fetch", event => {
   event.respondWith(
     caches.match(request).then(cached => {
       if (cached) return cached;
-
       return fetch(request).then(response => {
         if (!response || response.status !== 200 || response.type !== "basic") {
           return response;
@@ -376,7 +348,6 @@ self.addEventListener('message', (event) => {
   }
   
   if (event.data && event.data.type === 'NETWORK_ONLINE') {
-    console.log('[SW] Network online — flushing pending notifications');
     event.waitUntil(
       (async () => {
         await flushPendingNotifications();
@@ -389,7 +360,6 @@ self.addEventListener('message', (event) => {
   }
 
   if (event.data && event.data.type === 'FLUSH_PENDING') {
-    console.log('[SW] Manual flush request');
     event.waitUntil(flushPendingNotifications());
   }
 });

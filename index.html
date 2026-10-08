@@ -32,30 +32,90 @@
 </script>
 
 <!-- ═══════════════════════════════════════════════════════════
-     ✅ POPUNDER CLICK CONTROLLER — Registered BEFORE Adsterra
-     Capture phase blocker: Allows only news card body clicks
+     ✅ POPUNDER CONTROLLER — Registered BEFORE Adsterra
+     Allows popunder ONLY on news card body (image/title/summary)
+     Blocks everything else (share/love/comment/header/sidebar/etc.)
      ═══════════════════════════════════════════════════════════ -->
 <script>
 (function() {
   'use strict';
   
-  var ALLOW_SELECTORS = '.news-image-wrapper, .news-title, .news-summary';
+  // ✅ Elements that ALLOW popunder (news card body parts only)
+  var ALLOW_SELECTORS = [
+    '.news-image-wrapper',
+    '.news-image',
+    '.news-title',
+    '.news-summary'
+  ].join(',');
   
-  var BLOCK_SELECTORS = '.action-btn, .news-actions, .news-source-link, .news-meta, .news-category, .news-body, .header, .sidebar, .footer, .modal, .modal-content, .floating-app-btn, .trending-banner, .banner-right-btn, .notif-btn, .search-btn, .hamburger, .notif-prompt-modal, .notif-prompt-box, .notif-prompt-btn, .search-modal, .search-modal-box, .search-submit-btn, #newNewsBanner, #copyToast, #overlay, #sidebar, #modal, #notifPromptModal, #searchModal';
+  // ✅ Elements that BLOCK popunder (all interactive UI)
+  var BLOCK_SELECTORS = [
+    '.action-btn',
+    '.news-actions',
+    '.news-source-link',
+    '.news-meta',
+    '.news-category',
+    '.header',
+    '.header-left',
+    '.header-right',
+    '.header-home-link',
+    '.header-logo',
+    '.sidebar',
+    '.sidebar-menu',
+    '.sidebar-header',
+    '.close-btn',
+    '.footer',
+    '.footer-links',
+    '.footer-copy',
+    '.modal',
+    '.modal-content',
+    '.close-modal',
+    '.floating-app-btn',
+    '.trending-banner',
+    '.banner-right-btn',
+    '.notif-btn',
+    '.search-btn',
+    '.hamburger',
+    '.notif-prompt-modal',
+    '.notif-prompt-box',
+    '.notif-prompt-btn',
+    '.search-modal',
+    '.search-modal-box',
+    '.search-submit-btn',
+    '.close-search',
+    '.copy-toast',
+    '#newNewsBanner',
+    '#copyToast',
+    '#overlay',
+    '#sidebar',
+    '#modal',
+    '#modal-body',
+    '#notifPromptModal',
+    '#searchModal'
+  ].join(',');
   
-  function shouldAllow(target) {
+  function shouldAllowPopunder(target) {
     if (!target || typeof target.closest !== 'function') return false;
+    
+    // 1st: Explicit BLOCK element? → block
     if (target.closest(BLOCK_SELECTORS)) return false;
+    
+    // 2nd: Inside ALLOW element? → allow
     if (target.closest(ALLOW_SELECTORS)) return true;
+    
+    // Default: block
     return false;
   }
   
+  // ✅ Capture-phase blocker — fires BEFORE Adsterra's listener
   var events = ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'pointerdown', 'pointerup', 'auxclick'];
   events.forEach(function(evt) {
     document.addEventListener(evt, function(e) {
-      if (shouldAllow(e.target)) {
+      if (shouldAllowPopunder(e.target)) {
+        // ✅ Allow — popunder fires naturally
         return;
       }
+      // ❌ Block — stop propagation to Adsterra's listener
       e.stopImmediatePropagation();
     }, true);
   });
@@ -1265,8 +1325,8 @@ async function loadNewNewsNow() {
 // ✅ NOTIFICATION PROMPT SYSTEM — Multi-Trigger + Fallback
 // ═══════════════════════════════════════════════════════════
 
-const NOTIFICATION_PROMPT_DELAY = 10000;                // 10 seconds
-const NOTIFICATION_LATER_DELAY = 6 * 60 * 60 * 1000;    // 6 hours
+const NOTIFICATION_PROMPT_DELAY = 10000;
+const NOTIFICATION_LATER_DELAY = 6 * 60 * 60 * 1000;
 const NOTIFICATION_LATER_KEY = 'notifPromptLaterAt';
 const NOTIFICATION_SHOWN_KEY = 'notifPromptShownAt';
 
@@ -1328,10 +1388,6 @@ function handleNotificationPromptLater() {
   console.log('[Notif] User chose "later" — will show again in 6h');
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ MULTI-TRIGGER PROMPT SYSTEM
-// ═══════════════════════════════════════════════════════════
-
 function triggerNotificationPrompt() {
   shouldShowNotificationPrompt().then(function(eligible) {
     if (eligible) {
@@ -1344,20 +1400,16 @@ function triggerNotificationPrompt() {
   });
 }
 
-// Trigger 1: After page load + 10s
 window.addEventListener('load', function() {
   setTimeout(triggerNotificationPrompt, NOTIFICATION_PROMPT_DELAY);
 });
 
-// Trigger 2: DOMContentLoaded + 14s (fallback)
 document.addEventListener('DOMContentLoaded', function() {
   setTimeout(triggerNotificationPrompt, NOTIFICATION_PROMPT_DELAY + 4000);
 });
 
-// Trigger 3: Independent setTimeout (12s) — load event depend করে না
 setTimeout(triggerNotificationPrompt, NOTIFICATION_PROMPT_DELAY + 2000);
 
-// Trigger 4: First scroll (200px+)
 var _notifScrollTriggered = false;
 window.addEventListener('scroll', function() {
   if (_notifScrollTriggered) return;
@@ -1367,7 +1419,6 @@ window.addEventListener('scroll', function() {
   setTimeout(triggerNotificationPrompt, 3000);
 }, { passive: true });
 
-// Trigger 5: First click
 var _notifClickTriggered = false;
 document.addEventListener('click', function() {
   if (_notifClickTriggered) return;

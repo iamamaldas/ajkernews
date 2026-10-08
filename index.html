@@ -32,50 +32,6 @@
 </script>
 
 <!-- ═══════════════════════════════════════════════════════════
-     ✅ POPUNDER CONTROLLER — Only news card body allowed
-     ═══════════════════════════════════════════════════════════ -->
-<script>
-(function() {
-  'use strict';
-  
-  var ALLOW_SELECTORS = '.news-image-wrapper, .news-image, .news-title, .news-summary';
-  
-  var BLOCK_SELECTORS = [
-    '.action-btn', '.news-actions', '.news-source-link', '.news-meta', '.news-category',
-    '.header', '.header-left', '.header-right', '.header-home-link', '.header-logo',
-    '.sidebar', '.sidebar-menu', '.sidebar-header', '.close-btn',
-    '.footer', '.footer-links', '.footer-copy',
-    '.modal', '.modal-content', '.close-modal', '#modal', '#modal-body',
-    '.floating-app-btn',
-    '.trending-banner', '.banner-right-btn',
-    '.notif-btn', '.search-btn', '.hamburger',
-    '.notif-prompt-modal', '.notif-prompt-box', '.notif-prompt-btn',
-    '.search-modal', '.search-modal-box', '.search-submit-btn', '.close-search',
-    '.copy-toast',
-    '#newNewsBanner', '#copyToast', '#overlay', '#sidebar',
-    '#notifPromptModal', '#searchModal'
-  ].join(',');
-  
-  function shouldAllowPopunder(target) {
-    if (!target || typeof target.closest !== 'function') return false;
-    if (target.closest(BLOCK_SELECTORS)) return false;
-    if (target.closest(ALLOW_SELECTORS)) return true;
-    return false;
-  }
-  
-  var events = ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'pointerdown', 'pointerup', 'auxclick'];
-  events.forEach(function(evt) {
-    document.addEventListener(evt, function(e) {
-      if (shouldAllowPopunder(e.target)) return;
-      e.stopImmediatePropagation();
-    }, true);
-  });
-  
-  console.log('[Popunder Controller] Active — news card body only');
-})();
-</script>
-
-<!-- ═══════════════════════════════════════════════════════════
      ✅ SOCIAL BAR — FORCE TO TOP
      ═══════════════════════════════════════════════════════════ -->
 <style id="socialBarTopStyle">
@@ -202,14 +158,79 @@ html body > div[id*="adsterra"] iframe {
 })();
 </script>
 
+<!-- ═══════════════════════════════════════════════════════════
+     ✅ POPUNDER CONTROLLER — Adsterra dynamically load হবে
+     ═══════════════════════════════════════════════════════════ -->
+<script>
+(function() {
+  'use strict';
+  
+  window.__POPUNDER_LOADED = false;
+  window.__POPUNDER_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
+  
+  // ✅ Trigger popunder — load Adsterra script + fire click
+  window.__triggerPopunder = function() {
+    if (window.__POPUNDER_LOADED) {
+      console.log('[Popunder] Already loaded in this session');
+      return;
+    }
+    
+    // Cooldown check (3 hours)
+    var cooldownKey = 'popunder_last_fire';
+    var cooldownMs = 3 * 60 * 60 * 1000;
+    var last = parseInt(localStorage.getItem(cooldownKey) || '0', 10);
+    if (Date.now() - last < cooldownMs) {
+      console.log('[Popunder] Cooldown active — skip');
+      return;
+    }
+    
+    // Mobile skip
+    var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+    if (isMobile) {
+      console.log('[Popunder] Mobile skip');
+      return;
+    }
+    
+    localStorage.setItem(cooldownKey, String(Date.now()));
+    window.__POPUNDER_LOADED = true;
+    
+    console.log('[Popunder] Loading Adsterra script...');
+    
+    var s = document.createElement('script');
+    s.async = true;
+    s.src = window.__POPUNDER_URL;
+    s.setAttribute('data-cfasync', 'false');
+    s.onload = function() {
+      console.log('[Popunder] Script loaded ✅ — dispatching click');
+      // Adsterra এর click listener register হওয়ার পর একটা synthetic click fire
+      setTimeout(function() {
+        try {
+          var evt = new MouseEvent('click', {
+            bubbles: true,
+            cancelable: true,
+            view: window
+          });
+          document.body.dispatchEvent(evt);
+        } catch (e) {}
+      }, 200);
+    };
+    s.onerror = function() {
+      console.warn('[Popunder] Script failed ❌');
+    };
+    document.body.appendChild(s);
+  };
+  
+  console.log('[Popunder Controller] Ready — Adsterra loads on demand only');
+})();
+</script>
+
 <!-- ✅ Adsterra Social Bar ✅ -->
 <script async data-cfasync="false" src="https://bicea.org/14/3f58b0818e43e5e2e8f28449d29e9937"></script>
 
 <!-- ✅ Adsterra Native Banner ✅ -->
 <script async="async" data-cfasync="false" src="https://bicea.org/21/25ee2c0a822da5cf3429cd2cb222524f"></script>
 
-<!-- ✅ Adsterra Popunder ✅ -->
-<script async="async" data-cfasync="false" src="https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512"></script>
+<!-- ❌ Adsterra Popunder script — এখানে load হবে না! (dynamic load হবে) -->
 
 <!-- ✅ Ad Blocker (defer) -->
 <script src="/adblock.js" defer></script>
@@ -594,7 +615,6 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   window.addEventListener('online', function() {
     console.log('[PWA] Network is back online');
     if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-      // Send NETWORK_ONLINE message to SW (flushes pending notifications + refreshes FCM token)
       navigator.serviceWorker.controller.postMessage({ type: 'NETWORK_ONLINE' });
     }
     refreshFcmTokenOnOnline();
@@ -1355,12 +1375,17 @@ document.addEventListener('click', function() {
 }, { once: true, passive: true });
 
 // ═══════════════════════════════════════════════════════════
-// ✅ NEWS CARD CLICK — Adsterra script already loaded
+// ✅ NEWS CARD CLICK — Popunder trigger
 // ═══════════════════════════════════════════════════════════
 function openNewsWithPopunder(url) {
+  // Trigger popunder script (dynamically load Adsterra)
+  if (typeof window.__triggerPopunder === 'function') {
+    window.__triggerPopunder();
+  }
+  // Navigate to article
   setTimeout(function() {
     window.location.href = url;
-  }, 250);
+  }, 300);
 }
 
 (async function initApp() {

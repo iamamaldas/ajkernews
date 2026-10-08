@@ -32,95 +32,46 @@
 </script>
 
 <!-- ═══════════════════════════════════════════════════════════
-     ✅ POPUNDER CONTROLLER — Registered BEFORE Adsterra
-     Allows popunder ONLY on news card body (image/title/summary)
-     Blocks everything else (share/love/comment/header/sidebar/etc.)
+     ✅ POPUNDER CONTROLLER — Only news card body allowed
      ═══════════════════════════════════════════════════════════ -->
 <script>
 (function() {
   'use strict';
   
-  // ✅ Elements that ALLOW popunder (news card body parts only)
-  var ALLOW_SELECTORS = [
-    '.news-image-wrapper',
-    '.news-image',
-    '.news-title',
-    '.news-summary'
-  ].join(',');
+  var ALLOW_SELECTORS = '.news-image-wrapper, .news-image, .news-title, .news-summary';
   
-  // ✅ Elements that BLOCK popunder (all interactive UI)
   var BLOCK_SELECTORS = [
-    '.action-btn',
-    '.news-actions',
-    '.news-source-link',
-    '.news-meta',
-    '.news-category',
-    '.header',
-    '.header-left',
-    '.header-right',
-    '.header-home-link',
-    '.header-logo',
-    '.sidebar',
-    '.sidebar-menu',
-    '.sidebar-header',
-    '.close-btn',
-    '.footer',
-    '.footer-links',
-    '.footer-copy',
-    '.modal',
-    '.modal-content',
-    '.close-modal',
+    '.action-btn', '.news-actions', '.news-source-link', '.news-meta', '.news-category',
+    '.header', '.header-left', '.header-right', '.header-home-link', '.header-logo',
+    '.sidebar', '.sidebar-menu', '.sidebar-header', '.close-btn',
+    '.footer', '.footer-links', '.footer-copy',
+    '.modal', '.modal-content', '.close-modal', '#modal', '#modal-body',
     '.floating-app-btn',
-    '.trending-banner',
-    '.banner-right-btn',
-    '.notif-btn',
-    '.search-btn',
-    '.hamburger',
-    '.notif-prompt-modal',
-    '.notif-prompt-box',
-    '.notif-prompt-btn',
-    '.search-modal',
-    '.search-modal-box',
-    '.search-submit-btn',
-    '.close-search',
+    '.trending-banner', '.banner-right-btn',
+    '.notif-btn', '.search-btn', '.hamburger',
+    '.notif-prompt-modal', '.notif-prompt-box', '.notif-prompt-btn',
+    '.search-modal', '.search-modal-box', '.search-submit-btn', '.close-search',
     '.copy-toast',
-    '#newNewsBanner',
-    '#copyToast',
-    '#overlay',
-    '#sidebar',
-    '#modal',
-    '#modal-body',
-    '#notifPromptModal',
-    '#searchModal'
+    '#newNewsBanner', '#copyToast', '#overlay', '#sidebar',
+    '#notifPromptModal', '#searchModal'
   ].join(',');
   
   function shouldAllowPopunder(target) {
     if (!target || typeof target.closest !== 'function') return false;
-    
-    // 1st: Explicit BLOCK element? → block
     if (target.closest(BLOCK_SELECTORS)) return false;
-    
-    // 2nd: Inside ALLOW element? → allow
     if (target.closest(ALLOW_SELECTORS)) return true;
-    
-    // Default: block
     return false;
   }
   
-  // ✅ Capture-phase blocker — fires BEFORE Adsterra's listener
   var events = ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'pointerdown', 'pointerup', 'auxclick'];
   events.forEach(function(evt) {
     document.addEventListener(evt, function(e) {
-      if (shouldAllowPopunder(e.target)) {
-        // ✅ Allow — popunder fires naturally
-        return;
-      }
-      // ❌ Block — stop propagation to Adsterra's listener
+      if (shouldAllowPopunder(e.target)) return;
       e.stopImmediatePropagation();
     }, true);
   });
   
-  console.log('[Popunder Controller] Active — only news card body allowed');
+  console.log('[Popunder Controller] Active — news card body only');
 })();
 </script>
 
@@ -257,7 +208,7 @@ html body > div[id*="adsterra"] iframe {
 <!-- ✅ Adsterra Native Banner ✅ -->
 <script async="async" data-cfasync="false" src="https://bicea.org/21/25ee2c0a822da5cf3429cd2cb222524f"></script>
 
-<!-- ✅ Adsterra Popunder — PAGE LOAD এ load হবে ✅ -->
+<!-- ✅ Adsterra Popunder ✅ -->
 <script async="async" data-cfasync="false" src="https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512"></script>
 
 <!-- ✅ Ad Blocker (defer) -->
@@ -643,6 +594,7 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   window.addEventListener('online', function() {
     console.log('[PWA] Network is back online');
     if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      // Send NETWORK_ONLINE message to SW (flushes pending notifications + refreshes FCM token)
       navigator.serviceWorker.controller.postMessage({ type: 'NETWORK_ONLINE' });
     }
     refreshFcmTokenOnOnline();
@@ -893,22 +845,22 @@ function buildNewsHtml(news) {
       <img class="news-image" src="${escapeHtml(image)}" alt="${escapeHtml(headline)}" loading="lazy" decoding="async" width="800" height="450" onerror="this.onerror=null;this.src='/logo.png';">
     </div>
     <div class="news-body">
-      <div class="news-category" onclick="event.stopPropagation(); event.stopImmediatePropagation();">${escapeHtml(category)}</div>
+      <div class="news-category">${escapeHtml(category)}</div>
       <h2 class="news-title" onclick="openNewsWithPopunder('${articleUrl}')">${escapeHtml(headline)}</h2>
       ${summary ? `<p class="news-summary" onclick="openNewsWithPopunder('${articleUrl}')">${escapeHtml(summary)}</p>` : ''}
-      <div class="news-meta" onclick="event.stopPropagation(); event.stopImmediatePropagation();">
-        <a href="${articleUrl}" class="news-source-link" onclick="event.stopPropagation(); event.stopImmediatePropagation();">${escapeHtml(source)}</a>
-        <div onclick="event.stopPropagation(); event.stopImmediatePropagation();">${escapeHtml(formattedTime)}</div>
+      <div class="news-meta">
+        <a href="${articleUrl}" class="news-source-link">${escapeHtml(source)}</a>
+        <div>${escapeHtml(formattedTime)}</div>
       </div>
-      <div class="news-actions" onclick="event.stopPropagation(); event.stopImmediatePropagation();">
-        <button class="action-btn" type="button" data-action="comment" onclick="event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation(); openCommentModal('${news.id}')">
+      <div class="news-actions">
+        <button class="action-btn" type="button" data-action="comment" onclick="openCommentModal('${news.id}')">
           <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
         </button>
-        <button class="action-btn love-btn${loved ? ' loved' : ''}" type="button" data-action="love" data-love-button="${escapeHtml(news.id)}" onclick="event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation(); toggleLove('${news.id}')">
+        <button class="action-btn love-btn${loved ? ' loved' : ''}" type="button" data-action="love" data-love-button="${escapeHtml(news.id)}" onclick="toggleLove('${news.id}')">
           <svg viewBox="0 0 24 24" fill="${fill}" stroke="#e74c3c" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
           <span class="action-count" data-love-count="${escapeHtml(news.id)}">${loveCount}</span>
         </button>
-        <button class="action-btn" type="button" data-action="share" onclick="event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation(); shareNews('${news.id}', '${safeHeadline}', '${safeSummary}')">
+        <button class="action-btn" type="button" data-action="share" onclick="shareNews('${news.id}', '${safeHeadline}', '${safeSummary}')">
           <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
         </button>
       </div>
@@ -1196,7 +1148,6 @@ async function checkNotificationStatus() {
         vapidKey: window.__VAPID_KEY,
         serviceWorkerRegistration: reg
       }).catch(() => null);
-
       if (existingToken) {
         btn.classList.add('subscribed');
         localStorage.setItem('notifSubscribed', '1');
@@ -1322,7 +1273,7 @@ async function loadNewNewsNow() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ✅ NOTIFICATION PROMPT SYSTEM — Multi-Trigger + Fallback
+// ✅ NOTIFICATION PROMPT — Multi-Trigger
 // ═══════════════════════════════════════════════════════════
 
 const NOTIFICATION_PROMPT_DELAY = 10000;
@@ -1334,20 +1285,14 @@ async function shouldShowNotificationPrompt() {
   try {
     if (!('Notification' in window)) return false;
     if (!('serviceWorker' in navigator)) return false;
-
     if (Notification.permission === 'granted') return false;
     if (Notification.permission === 'denied') return false;
-
     if (localStorage.getItem('notifSubscribed') === '1') return false;
-
     const laterAt = parseInt(localStorage.getItem(NOTIFICATION_LATER_KEY) || '0', 10);
     if (laterAt && (Date.now() - laterAt) < NOTIFICATION_LATER_DELAY) return false;
-
     const shownAt = parseInt(sessionStorage.getItem(NOTIFICATION_SHOWN_KEY) || '0', 10);
     if (shownAt && (Date.now() - shownAt) < 60 * 60 * 1000) return false;
-
     if (!window.__firebaseReady) return false;
-
     return true;
   } catch (e) {
     return false;
@@ -1356,13 +1301,9 @@ async function shouldShowNotificationPrompt() {
 
 function showNotificationPrompt() {
   const modal = document.getElementById('notifPromptModal');
-  if (!modal) {
-    console.warn('[Notif] Modal element not found');
-    return;
-  }
+  if (!modal) return;
   modal.classList.add('active');
   sessionStorage.setItem(NOTIFICATION_SHOWN_KEY, String(Date.now()));
-  console.log('[Notif] Prompt shown ✅');
 }
 
 function hideNotificationPrompt() {
@@ -1372,32 +1313,18 @@ function hideNotificationPrompt() {
 
 async function handleNotificationPromptEnable() {
   hideNotificationPrompt();
-  try {
-    await toggleNotification();
-    if (Notification.permission === 'granted') {
-      console.log('[Notif] Successfully enabled ✅');
-    }
-  } catch (e) {
-    console.error('[Notif] Enable failed:', e);
-  }
+  try { await toggleNotification(); } catch (e) {}
 }
 
 function handleNotificationPromptLater() {
   localStorage.setItem(NOTIFICATION_LATER_KEY, String(Date.now()));
   hideNotificationPrompt();
-  console.log('[Notif] User chose "later" — will show again in 6h');
 }
 
 function triggerNotificationPrompt() {
   shouldShowNotificationPrompt().then(function(eligible) {
-    if (eligible) {
-      showNotificationPrompt();
-    } else {
-      console.log('[Notif] Prompt not eligible');
-    }
-  }).catch(function(e) {
-    console.warn('[Notif] Check failed:', e);
-  });
+    if (eligible) showNotificationPrompt();
+  }).catch(function(e) {});
 }
 
 window.addEventListener('load', function() {
@@ -1427,12 +1354,9 @@ document.addEventListener('click', function() {
   setTimeout(triggerNotificationPrompt, 5000);
 }, { once: true, passive: true });
 
-console.log('[Notif] Multi-trigger system armed — will fire in ' + (NOTIFICATION_PROMPT_DELAY/1000) + 's');
-
-// ============================================
-// ✅ NEWS CARD CLICK → Popunder fires naturally
-// Adsterra script already loaded on page load
-// ============================================
+// ═══════════════════════════════════════════════════════════
+// ✅ NEWS CARD CLICK — Adsterra script already loaded
+// ═══════════════════════════════════════════════════════════
 function openNewsWithPopunder(url) {
   setTimeout(function() {
     window.location.href = url;

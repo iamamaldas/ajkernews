@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v47.0: Popunder + Article + Social Bar + 7-day TTL + Image Push + Spam Filter + One Comment Per User
+// ✅ FINAL v48.0: Popunder Moved to Separate File (article-popunder.js) | Article + Social Bar + 7-day TTL + Image Push + Spam Filter + One Comment Per User
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -12,6 +12,7 @@ import { fastIndexNews } from "./fast-index.js";
 import { cacheNewsApi, purgeNewsApiCache, purgeArticleCache } from "./cache.js";
 import { getFcmCredentials } from "./jwt.js";
 import { cleanText, escapeHtml } from "./utils.js";
+import { getArticlePopunderScript } from "./article-popunder.js";
 
 const MAX_NEWS = 5000;
 const API_PAGE_SIZE = 10;
@@ -1613,6 +1614,7 @@ async function serveArticlePage(id, env, request) {
   const bannerContainer = isBot ? "" : getNativeBannerContainer();
   const adultBlocker = isBot ? "" : getAdultBlockerScript();
   const socialBarScript = isBot ? "" : getSocialBarTopScript();
+  const articlePopunder = isBot ? "" : getArticlePopunderScript();
 
   const result = await env.DB.prepare(
     `SELECT headline, summary, main_topic, image_url, published_at, created_at, source_name, source_url, category FROM news WHERE id = ? AND status = 'published' LIMIT 1`
@@ -1746,6 +1748,7 @@ async function serveArticlePage(id, env, request) {
 <script type="application/ld+json">${breadcrumbLd}</script>
 ${adScripts}
 ${socialBarScript}
+${articlePopunder}
 <style>
   * { margin:0; padding:0; box-sizing:border-box; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
   html { scroll-behavior: smooth; font-size: 16px; -webkit-text-size-adjust: 100%; }
@@ -2068,100 +2071,6 @@ ${adultBlocker}
     if (v === null || v === undefined) return '';
     return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
   }
-
-  // ARTICLE PAGE — 70% SCROLL POPUNDER
-  (function articleScrollPopunder() {
-    var POP_KEY = 'popunder_article_70';
-    var POP_MS = 3 * 60 * 60 * 1000;
-    var FIRED_KEY = 'popunder_fired_' + NEWS_ID;
-    var fired = false;
-    var scriptLoaded = false;
-
-    var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-    if (isMobile) return;
-
-    var last = parseInt(localStorage.getItem(POP_KEY) || '0', 10);
-    if ((Date.now() - last) < POP_MS) return;
-
-    if (sessionStorage.getItem(FIRED_KEY) === '1') return;
-
-    (function installBlocker() {
-      var ALLOW_SELECTORS = '.article-body, #articleBody, .article-main, .article-h1, .article-img';
-      var ACTION_SELECTORS = '.article-actions-row, .action-btn-art, .article-source-row, .article-source-link, .article-date, .modal-box, #artCommentModal, .header, .back-btn, .header-logo, .header-title';
-      
-      function isAllowedTarget(target) {
-        if (!target || typeof target.closest !== 'function') return false;
-        return !!target.closest(ALLOW_SELECTORS);
-      }
-      
-      function isActionTarget(target) {
-        if (!target || typeof target.closest !== 'function') return false;
-        return !!target.closest(ACTION_SELECTORS);
-      }
-      
-      ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'pointerdown', 'pointerup'].forEach(function(eventType) {
-        document.addEventListener(eventType, function(e) {
-          if (isAllowedTarget(e.target)) return;
-          if (isActionTarget(e.target)) return;
-          e.stopImmediatePropagation();
-        }, true);
-      });
-    })();
-
-    (async function loadPopunder() {
-      try {
-        var url = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
-        try {
-          var res = await fetch('/api/ads-config');
-          var data = await res.json();
-          if (data && data.success && data.popunderUrl) url = data.popunderUrl;
-        } catch (e) {}
-
-        var s = document.createElement('script');
-        s.async = true;
-        s.src = url;
-        s.setAttribute('data-cfasync', 'false');
-        s.onload = function() { scriptLoaded = true; };
-        document.body.appendChild(s);
-      } catch (e) {}
-    })();
-
-    function checkScroll() {
-      if (fired) return;
-      var docHeight = document.documentElement.scrollHeight - window.innerHeight;
-      if (docHeight <= 0) return;
-      var scrolled = (window.pageYOffset || document.documentElement.scrollTop) / docHeight * 100;
-
-      if (scrolled >= 70) {
-        fired = true;
-        sessionStorage.setItem(FIRED_KEY, '1');
-        localStorage.setItem(POP_KEY, String(Date.now()));
-
-        if (scriptLoaded) {
-          try {
-            var articleBody = document.getElementById('articleBody') || document.querySelector('.article-body');
-            if (articleBody) {
-              var evt = new MouseEvent('click', {
-                bubbles: true,
-                cancelable: true,
-                view: window
-              });
-              articleBody.dispatchEvent(evt);
-            }
-          } catch (e) {}
-        }
-        window.removeEventListener('scroll', onScroll);
-      }
-    }
-
-    var timer = null;
-    function onScroll() {
-      if (timer) return;
-      timer = setTimeout(function() { timer = null; checkScroll(); }, 250);
-    }
-    window.addEventListener('scroll', onScroll, { passive: true });
-    setTimeout(checkScroll, 500);
-  })();
 })();
 </script>
 </body>

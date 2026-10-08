@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v45.0: Popunder News Card Only + Article 70% Scroll + Social Bar Top + 3hr Cooldown
+// ✅ FINAL v46.0: Popunder News Card Only + Article 70% Scroll + Social Bar Top + 7-day TTL
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -18,12 +18,12 @@ const API_PAGE_SIZE = 10;
 const API_CACHE_TTL = 300;
 
 const NOTIFICATION_CONFIG = {
-  TTL_SECONDS: 259200,
+  TTL_SECONDS: 604800,
   QUIET_START_HOUR: 23,
   QUIET_END_HOUR: 7,
   BREAKING_SCORE_THRESHOLD: 55,
-  BREAKING_TTL_SECONDS: 259200,
-  REGULAR_TTL_SECONDS: 172800,
+  BREAKING_TTL_SECONDS: 604800,
+  REGULAR_TTL_SECONDS: 604800,
   MAX_BATCH_SIZE: 500,
   DIGEST_NEWS_COUNT: 3,
   DIGEST_MIN_NEWS: 2,
@@ -1856,19 +1856,9 @@ ${adultBlocker}
     }
   } catch (e) {}
 
-  // ============================================
-  // SHARE BUTTON — Capture phase protection
-  // ============================================
+  // SHARE BUTTON
   var shareBtn = document.getElementById('artShareBtn');
   if (shareBtn) {
-    ['click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'touchstart', 'touchend'].forEach(function(evt) {
-      shareBtn.addEventListener(evt, function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-      }, true);
-    });
-
     shareBtn.addEventListener('click', async function(e) {
       e.preventDefault();
       e.stopPropagation();
@@ -1911,18 +1901,9 @@ ${adultBlocker}
     });
   }
 
-  // ============================================
-  // LOVE BUTTON — Capture phase protection
-  // ============================================
+  // LOVE BUTTON
   var loveBtn = document.getElementById('artLoveBtn');
   if (loveBtn) {
-    ['click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'touchstart', 'touchend'].forEach(function(evt) {
-      loveBtn.addEventListener(evt, function(e) {
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-      }, true);
-    });
-
     loveBtn.addEventListener('click', async function(e) {
       e.preventDefault();
       e.stopPropagation();
@@ -1948,9 +1929,7 @@ ${adultBlocker}
     });
   }
 
-  // ============================================
-  // COMMENT BUTTON — Capture phase protection
-  // ============================================
+  // COMMENT BUTTON
   var commentModal = document.getElementById('artCommentModal');
   var commentBtn = document.getElementById('artCommentBtn');
   var modalClose = document.getElementById('artModalClose');
@@ -1965,13 +1944,6 @@ ${adultBlocker}
   }
 
   if (commentBtn) {
-    ['click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'touchstart', 'touchend'].forEach(function(evt) {
-      commentBtn.addEventListener(evt, function(e) {
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-      }, true);
-    });
-
     commentBtn.addEventListener('click', function(e) { 
       e.preventDefault(); 
       e.stopPropagation();
@@ -2036,9 +2008,9 @@ ${adultBlocker}
     return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
   }
 
-  // ============================================
-  // 📜 ARTICLE PAGE — 70% SCROLL POPUNDER ONLY
-  // ============================================
+  // ═══════════════════════════════════════════════════
+  // ARTICLE PAGE — 70% SCROLL POPUNDER ONLY
+  // ═══════════════════════════════════════════════════
   (function articleScrollPopunder() {
     var POP_KEY = 'popunder_article_70';
     var POP_MS = 3 * 60 * 60 * 1000;
@@ -2047,25 +2019,16 @@ ${adultBlocker}
     var scriptLoaded = false;
 
     var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-    if (isMobile) {
-      console.log('[Article Popunder] Mobile skip');
-      return;
-    }
+    if (isMobile) return;
 
     var last = parseInt(localStorage.getItem(POP_KEY) || '0', 10);
-    if ((Date.now() - last) < POP_MS) {
-      console.log('[Article Popunder] Cooldown active');
-      return;
-    }
+    if ((Date.now() - last) < POP_MS) return;
 
-    if (sessionStorage.getItem(FIRED_KEY) === '1') {
-      console.log('[Article Popunder] Already fired on this article');
-      return;
-    }
+    if (sessionStorage.getItem(FIRED_KEY) === '1') return;
 
     (function installBlocker() {
       var ALLOW_SELECTORS = '.article-body, #articleBody, .article-main, .article-h1, .article-img';
-      var ACTION_SELECTORS = '.article-actions-row, .action-btn-art, .article-source-row, .article-source-link, .article-date, .modal-box, #artCommentModal';
+      var ACTION_SELECTORS = '.article-actions-row, .action-btn-art, .article-source-row, .article-source-link, .article-date, .modal-box, #artCommentModal, .header, .back-btn, .header-logo, .header-title';
       
       function isAllowedTarget(target) {
         if (!target || typeof target.closest !== 'function') return false;
@@ -2084,7 +2047,6 @@ ${adultBlocker}
           e.stopImmediatePropagation();
         }, true);
       });
-      console.log('[Article Popunder Blocker] Active');
     })();
 
     (async function loadPopunder() {
@@ -2100,13 +2062,7 @@ ${adultBlocker}
         s.async = true;
         s.src = url;
         s.setAttribute('data-cfasync', 'false');
-        s.onload = function() {
-          scriptLoaded = true;
-          console.log('[Article Popunder] Script armed ✅');
-        };
-        s.onerror = function() {
-          console.warn('[Article Popunder] Script failed ❌');
-        };
+        s.onload = function() { scriptLoaded = true; };
         document.body.appendChild(s);
       } catch (e) {}
     })();
@@ -2121,7 +2077,6 @@ ${adultBlocker}
         fired = true;
         sessionStorage.setItem(FIRED_KEY, '1');
         localStorage.setItem(POP_KEY, String(Date.now()));
-        console.log('[Article Popunder] 70% reached — firing ✅');
 
         if (scriptLoaded) {
           try {
@@ -2133,11 +2088,9 @@ ${adultBlocker}
                 view: window
               });
               articleBody.dispatchEvent(evt);
-              console.log('[Article Popunder] Synthetic click dispatched');
             }
           } catch (e) {}
         }
-
         window.removeEventListener('scroll', onScroll);
       }
     }

@@ -28,7 +28,7 @@ const NOTIFICATION_CONFIG = {
   DIGEST_NEWS_COUNT: 3,
   DIGEST_MIN_NEWS: 2,
   MAX_BREAKING_PER_DAY: 2,
-  PRIME_HOURS: [8, 13, 18, 21],
+  PRIME_HOURS: [8, 13, 18, 21]
 };
 
 let tablesReadyPromise = null;
@@ -1105,8 +1105,6 @@ async function sendDigestPush(env, payload, tokens) {
     const notifTag = String(payload.tag || Date.now());
     const targetUrl = String(payload.url || "https://ajkernews.in/");
 
-    // ✅ Data-only payload for Web Push (image আসবে SW থেকে)
-    // Android এর জন্য android.notification.image আলাদা
     const message = {
       message: {
         token: token,
@@ -2609,14 +2607,10 @@ async function getComments(url, env) {
   return json({ comments: result.results || [] }, 200, 0);
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ ADD COMMENT — Spam Filter + One Comment Per User
-// ═══════════════════════════════════════════════════════════
 async function addComment(request, env) {
   try {
     const { newsId, author, text, deviceId } = await request.json();
     
-    // Field validation
     if (!newsId || !text) {
       return json({ success: false, error: "Missing fields" }, 400, 0);
     }
@@ -2624,7 +2618,6 @@ async function addComment(request, env) {
       return json({ success: false, error: "Device ID required" }, 400, 0);
     }
     
-    // Spam filter
     if (isSpamComment(text)) {
       return json({ success: false, error: "স্প্যাম বা অশ্লীল মন্তব্য গ্রহণ করা হয় না।" }, 400, 0);
     }
@@ -2632,7 +2625,6 @@ async function addComment(request, env) {
       return json({ success: false, error: "নামে স্প্যাম শনাক্ত হয়েছে।" }, 400, 0);
     }
     
-    // One comment per user per card
     const alreadyCommented = await hasUserCommented(env, newsId, deviceId);
     if (alreadyCommented) {
       return json({ 
@@ -2642,7 +2634,6 @@ async function addComment(request, env) {
       }, 409, 0);
     }
     
-    // Rate limiting (60s)
     try {
       const recent = await env.DB.prepare(
         `SELECT COUNT(*) AS c FROM news_comments 
@@ -2653,7 +2644,6 @@ async function addComment(request, env) {
       }
     } catch (e) {}
     
-    // Save
     const id = crypto.randomUUID();
     const cleanAuthor = cleanText(author || "Guest").slice(0, 50);
     const cleanComment = cleanText(text).slice(0, 1000);
@@ -3207,7 +3197,6 @@ async function ensureTables(env) {
     if (!pushColNames.includes("token")) await env.DB.prepare(`ALTER TABLE push_subscriptions ADD COLUMN token TEXT`).run();
   } catch (error) {}
 
-  // ✅ Add device_id column to news_comments for one-comment-per-user
   try {
     const commentCols = await env.DB.prepare(`PRAGMA table_info(news_comments)`).all();
     const commentColNames = (commentCols.results || []).map(c => c.name);

@@ -32,56 +32,6 @@
 </script>
 
 <!-- ═══════════════════════════════════════════════════════════
-     ✅ POPUNDER CONTROLLER — Capture Phase Blocker (MUST BE FIRST)
-     Allows popunder ONLY on news card body (image/title/summary)
-     ═══════════════════════════════════════════════════════════ -->
-<script>
-(function() {
-  'use strict';
-  
-  // ✅ Elements that ALLOW popunder (news card body only)
-  var ALLOW_SELECTORS = '.news-image-wrapper, .news-image, .news-title, .news-summary';
-  
-  // ✅ Elements that BLOCK popunder (all interactive UI)
-  var BLOCK_SELECTORS = [
-    '.action-btn', '.news-actions', '.news-source-link', '.news-meta', '.news-category',
-    '.header', '.header-left', '.header-right', '.header-home-link', '.header-logo',
-    '.sidebar', '.sidebar-menu', '.sidebar-header', '.close-btn',
-    '.footer', '.footer-links', '.footer-copy',
-    '.modal', '.modal-content', '.close-modal', '#modal', '#modal-body',
-    '.floating-app-btn',
-    '.trending-banner', '.banner-right-btn',
-    '.notif-btn', '.search-btn', '.hamburger',
-    '.notif-prompt-modal', '.notif-prompt-box', '.notif-prompt-btn',
-    '.search-modal', '.search-modal-box', '.search-submit-btn', '.close-search',
-    '.copy-toast',
-    '#newNewsBanner', '#copyToast', '#overlay', '#sidebar',
-    '#notifPromptModal', '#searchModal',
-    '#loadMoreBtn'
-  ].join(',');
-  
-  function shouldAllowPopunder(target) {
-    if (!target || typeof target.closest !== 'function') return false;
-    if (target.closest(BLOCK_SELECTORS)) return false;
-    if (target.closest(ALLOW_SELECTORS)) return true;
-    return false;
-  }
-  
-  // ✅ Capture phase on window — fires BEFORE Adsterra's listeners
-  ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'pointerdown', 'pointerup'].forEach(function(eventType) {
-    window.addEventListener(eventType, function(e) {
-      if (shouldAllowPopunder(e.target)) return;
-      // Block Adsterra's listener
-      e.stopImmediatePropagation();
-      e.stopPropagation();
-    }, true);
-  });
-  
-  console.log('[Popunder Controller] Active — only news card body allowed');
-})();
-</script>
-
-<!-- ═══════════════════════════════════════════════════════════
      ✅ SOCIAL BAR — FORCE TO TOP
      ═══════════════════════════════════════════════════════════ -->
 <style id="socialBarTopStyle">
@@ -213,9 +163,6 @@ html body > div[id*="adsterra"] iframe {
 
 <!-- ✅ Adsterra Native Banner ✅ -->
 <script async="async" data-cfasync="false" src="https://bicea.org/21/25ee2c0a822da5cf3429cd2cb222524f"></script>
-
-<!-- ✅ Adsterra Popunder — PAGE LOAD এ load হবে (আগের মতোই) ✅ -->
-<script async="async" data-cfasync="false" src="https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512"></script>
 
 <!-- ✅ Ad Blocker (defer) -->
 <script src="/adblock.js" defer></script>
@@ -1374,16 +1321,11 @@ document.addEventListener('click', function() {
 }, { once: true, passive: true });
 
 // ═══════════════════════════════════════════════════════════
-// ✅ NEWS CARD CLICK — Popunder fires naturally
-// Adsterra script already loaded on page load
+// ✅ HOME PAGE — NO POPUNDER
+// শুধু navigate করবে, কোনো popunder trigger হবে না
 // ═══════════════════════════════════════════════════════════
 function openNewsWithPopunder(url) {
-  // Adsterra script already loaded on page load
-  // Its click listener fires automatically (allowed by controller)
-  // Small delay to let popunder open before navigation
-  setTimeout(function() {
-    window.location.href = url;
-  }, 250);
+  window.location.href = url;
 }
 
 (async function initApp() {

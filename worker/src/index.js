@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v46.0: Popunder News Card Only + Article 70% Scroll + Social Bar Top + 7-day TTL
+// ✅ FINAL v47.0: Popunder + Article + Social Bar + 7-day TTL + Image Push + Spam Filter + One Comment Per User
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -120,9 +120,6 @@ function getAdultBlockerScript() {
   return `<script src="/adblock.js" defer><\/script>`;
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ SOCIAL BAR FORCE TOP — CSS + JS (used in Article Page)
-// ═══════════════════════════════════════════════════════════
 function getSocialBarTopScript() {
   return `<style id="socialBarTopStyle">
 html body > div[class*="socialbar"],
@@ -246,6 +243,70 @@ html body > div[id*="adsterra"] iframe {
 <\/script>`;
 }
 
+// ═══════════════════════════════════════════════════════════
+// ✅ SPAM COMMENT FILTER
+// ═══════════════════════════════════════════════════════════
+function isSpamComment(text) {
+  if (!text || typeof text !== 'string') return true;
+  
+  var lower = text.toLowerCase().trim();
+  
+  // URL / Link block
+  var urlPattern = /(https?:\/\/|www\.|\.com|\.net|\.org|\.in|\.xyz|\.top|\.info|\.ru|\.tk|bit\.ly|tinyurl|t\.co)/i;
+  if (urlPattern.test(lower)) return true;
+  
+  // Spam keywords
+  var spamWords = [
+    'buy now', 'click here', 'free money', 'casino', 'viagra', 'cialis',
+    'porn', 'sex', 'xxx', 'adult', 'escort', 'loan', 'bitcoin', 'crypto',
+    'make money', 'earn money', 'work from home', 'weight loss',
+    'lottery', 'jackpot', 'winner', 'prize', 'free gift',
+    'telegram', 'whatsapp', 'call now', 'contact me'
+  ];
+  for (var i = 0; i < spamWords.length; i++) {
+    if (lower.indexOf(spamWords[i]) !== -1) return true;
+  }
+  
+  // Bad words
+  var badWords = [
+    'fuck', 'shit', 'bitch', 'asshole', 'bastard', 'damn',
+    'madarchod', 'bhenchod', 'chutiya', 'gandu', 'harami',
+    'খানকি', 'মাদারচোদ', 'চোদ', 'গালি', 'শালা', 'কুত্তা'
+  ];
+  for (var j = 0; j < badWords.length; j++) {
+    if (lower.indexOf(badWords[j]) !== -1) return true;
+  }
+  
+  // Too many special characters
+  var specialCount = (text.match(/[!@#$%^&*()_+={}\[\]|\\:;"'<>,.?\/~`]/g) || []).length;
+  if (specialCount > text.length * 0.3) return true;
+  
+  // Repeated characters
+  if (/(.)\1{5,}/.test(text)) return true;
+  
+  // Too short or too long
+  if (lower.length < 2) return true;
+  if (lower.length > 1000) return true;
+  
+  return false;
+}
+
+// ═══════════════════════════════════════════════════════════
+// ✅ CHECK: User already commented?
+// ═══════════════════════════════════════════════════════════
+async function hasUserCommented(env, newsId, deviceId) {
+  try {
+    const row = await env.DB.prepare(
+      `SELECT id FROM news_comments 
+       WHERE news_id = ? AND device_id = ? 
+       LIMIT 1`
+    ).bind(newsId, deviceId).first();
+    return !!row?.id;
+  } catch (e) {
+    return false;
+  }
+}
+
 async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
   if (!invalidTokens || !invalidTokens.length) return 0;
   try {
@@ -355,6 +416,7 @@ export default {
         return new Response(JSON.stringify(data), { status, headers });
       }
 
+      // Admin routes
       if (url.pathname === "/admin" && request.method === "GET") {
         const session = await getAdminSession(request, env);
         if (session) return Response.redirect(new URL("/admin/dashboard", url).toString(), 302);
@@ -1010,6 +1072,9 @@ async function sendBreakingAlert(env, news) {
   if (insertStmts.length) try { await env.DB.batch(insertStmts); } catch (e) {}
 }
 
+// ═══════════════════════════════════════════════════════════
+// ✅ MAIN PUSH SENDER — Image Support (data-only payload)
+// ═══════════════════════════════════════════════════════════
 async function sendDigestPush(env, payload, tokens) {
   const result = {
     accessTokenObtained: false, tokenExchangeError: null,
@@ -1040,14 +1105,11 @@ async function sendDigestPush(env, payload, tokens) {
     const notifTag = String(payload.tag || Date.now());
     const targetUrl = String(payload.url || "https://ajkernews.in/");
 
+    // ✅ Data-only payload for Web Push (image আসবে SW থেকে)
+    // Android এর জন্য android.notification.image আলাদা
     const message = {
       message: {
         token: token,
-        notification: {
-          title: title,
-          body: body,
-          ...(image ? { image: image } : {})
-        },
         data: {
           title: title,
           body: body,
@@ -1065,7 +1127,7 @@ async function sendDigestPush(env, payload, tokens) {
             color: "#e53935",
             tag: notifTag,
             sound: "default",
-            ...(image ? { image: image } : {}),
+            image: image,
             click_action: "FCM_PLUGIN_ACTIVITY"
           }
         },
@@ -1075,17 +1137,13 @@ async function sendDigestPush(env, payload, tokens) {
             TTL: String(ttl)
           },
           fcmOptions: { link: targetUrl },
-          notification: {
+          data: {
             title: title,
             body: body,
-            icon: "/logo.png",
-            badge: "/logo.png",
-            ...(image ? { image: image } : {}),
-            tag: notifTag,
-            renotify: true,
-            requireInteraction: true,
-            silent: false,
-            data: { url: targetUrl }
+            image: image,
+            url: targetUrl,
+            notificationId: notifTag,
+            isBreaking: isBreaking ? "1" : "0"
           }
         }
       }
@@ -1992,12 +2050,17 @@ ${adultBlocker}
         var res = await fetch(API_BASE + '/api/comments', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ newsId: NEWS_ID, author: author, text: text })
+          body: JSON.stringify({ newsId: NEWS_ID, author: author, text: text, deviceId: getDeviceId() })
         });
-        if (res.ok) {
+        var data = await res.json();
+        if (data.success) {
           if (textEl) textEl.value = '';
           await loadComments();
-        } else { alert('মন্তব্য পাঠানো যায়নি'); }
+        } else if (data.code === 'ALREADY_COMMENTED') {
+          alert('⚠️ আপনি ইতিমধ্যে এই খবরে একটি মন্তব্য করেছেন।');
+        } else {
+          alert('❌ ' + (data.error || 'মন্তব্য পাঠানো যায়নি'));
+        }
       } catch (e) { alert('মন্তব্য পাঠানো যায়নি'); }
       finally { commentSubmit.disabled = false; commentSubmit.textContent = 'পাঠান'; }
     });
@@ -2008,9 +2071,7 @@ ${adultBlocker}
     return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
   }
 
-  // ═══════════════════════════════════════════════════
-  // ARTICLE PAGE — 70% SCROLL POPUNDER ONLY
-  // ═══════════════════════════════════════════════════
+  // ARTICLE PAGE — 70% SCROLL POPUNDER
   (function articleScrollPopunder() {
     var POP_KEY = 'popunder_article_70';
     var POP_MS = 3 * 60 * 60 * 1000;
@@ -2548,15 +2609,64 @@ async function getComments(url, env) {
   return json({ comments: result.results || [] }, 200, 0);
 }
 
+// ═══════════════════════════════════════════════════════════
+// ✅ ADD COMMENT — Spam Filter + One Comment Per User
+// ═══════════════════════════════════════════════════════════
 async function addComment(request, env) {
   try {
-    const { newsId, author, text } = await request.json();
-    if (!newsId || !text) return json({ error: "Missing fields" }, 400, 0);
+    const { newsId, author, text, deviceId } = await request.json();
+    
+    // Field validation
+    if (!newsId || !text) {
+      return json({ success: false, error: "Missing fields" }, 400, 0);
+    }
+    if (!deviceId) {
+      return json({ success: false, error: "Device ID required" }, 400, 0);
+    }
+    
+    // Spam filter
+    if (isSpamComment(text)) {
+      return json({ success: false, error: "স্প্যাম বা অশ্লীল মন্তব্য গ্রহণ করা হয় না।" }, 400, 0);
+    }
+    if (author && isSpamComment(author)) {
+      return json({ success: false, error: "নামে স্প্যাম শনাক্ত হয়েছে।" }, 400, 0);
+    }
+    
+    // One comment per user per card
+    const alreadyCommented = await hasUserCommented(env, newsId, deviceId);
+    if (alreadyCommented) {
+      return json({ 
+        success: false, 
+        error: "আপনি ইতিমধ্যে এই খবরে একটি মন্তব্য করেছেন।",
+        code: "ALREADY_COMMENTED"
+      }, 409, 0);
+    }
+    
+    // Rate limiting (60s)
+    try {
+      const recent = await env.DB.prepare(
+        `SELECT COUNT(*) AS c FROM news_comments 
+         WHERE device_id = ? AND created_at >= datetime('now', '-60 seconds')`
+      ).bind(deviceId).first();
+      if (Number(recent?.c || 0) >= 1) {
+        return json({ success: false, error: "অনুগ্রহ করে ৬০ সেকেন্ড পরে চেষ্টা করুন।" }, 429, 0);
+      }
+    } catch (e) {}
+    
+    // Save
     const id = crypto.randomUUID();
-    await env.DB.prepare(`INSERT INTO news_comments (id, news_id, author_name, comment_text, created_at) VALUES (?, ?, ?, ?, ?)`)
-      .bind(id, newsId, cleanText(author || "Guest"), cleanText(text), new Date().toISOString()).run();
+    const cleanAuthor = cleanText(author || "Guest").slice(0, 50);
+    const cleanComment = cleanText(text).slice(0, 1000);
+    
+    await env.DB.prepare(
+      `INSERT INTO news_comments (id, news_id, author_name, comment_text, device_id, created_at) 
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(id, newsId, cleanAuthor, cleanComment, deviceId, new Date().toISOString()).run();
+    
     return json({ success: true, comment_id: id }, 200, 0);
-  } catch (error) { return json({ success: false, error: error?.message || "Comment error" }, 500, 0); }
+  } catch (error) { 
+    return json({ success: false, error: error?.message || "Comment error" }, 500, 0); 
+  }
 }
 
 async function generateSitemap(env) {
@@ -3052,7 +3162,7 @@ async function ensureTables(env) {
   const queries = [
     `CREATE TABLE IF NOT EXISTS news (id TEXT PRIMARY KEY, source_url TEXT UNIQUE, source_name TEXT, source_title TEXT, source_description TEXT, headline TEXT, summary TEXT, main_topic TEXT, category TEXT, language TEXT DEFAULT 'bn', image_url TEXT, published_at TEXT, created_at TEXT, day_key TEXT, status TEXT DEFAULT 'published', score INTEGER DEFAULT 0, search_text TEXT, indexed_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS news_loves (id INTEGER PRIMARY KEY AUTOINCREMENT, news_id TEXT, device_id TEXT, UNIQUE(news_id, device_id))`,
-    `CREATE TABLE IF NOT EXISTS news_comments (id TEXT PRIMARY KEY, news_id TEXT, author_name TEXT, comment_text TEXT, created_at TEXT)`,
+    `CREATE TABLE IF NOT EXISTS news_comments (id TEXT PRIMARY KEY, news_id TEXT, author_name TEXT, comment_text TEXT, device_id TEXT, created_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS push_subscriptions (id TEXT PRIMARY KEY, endpoint TEXT UNIQUE, keys_json TEXT, token TEXT, created_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS push_clicks (id TEXT PRIMARY KEY, news_id TEXT, device_id TEXT, source TEXT, created_at TEXT)`,
     `CREATE TABLE IF NOT EXISTS push_log (id TEXT PRIMARY KEY, news_id TEXT, token TEXT, status TEXT, error TEXT, title TEXT, sent_at TEXT)`,
@@ -3066,6 +3176,7 @@ async function ensureTables(env) {
     `CREATE INDEX IF NOT EXISTS idx_news_score_published ON news(score DESC, published_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_news_loves_news_id ON news_loves(news_id)`,
     `CREATE INDEX IF NOT EXISTS idx_news_comments_news_created ON news_comments(news_id, created_at ASC)`,
+    `CREATE INDEX IF NOT EXISTS idx_news_comments_device ON news_comments(news_id, device_id)`,
     `CREATE INDEX IF NOT EXISTS idx_push_subscriptions_token ON push_subscriptions(token)`,
     `CREATE INDEX IF NOT EXISTS idx_push_clicks_created ON push_clicks(created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_push_clicks_news ON push_clicks(news_id)`,
@@ -3094,6 +3205,15 @@ async function ensureTables(env) {
     const pushColumns = await env.DB.prepare(`PRAGMA table_info(push_subscriptions)`).all();
     const pushColNames = (pushColumns.results || []).map(c => c.name);
     if (!pushColNames.includes("token")) await env.DB.prepare(`ALTER TABLE push_subscriptions ADD COLUMN token TEXT`).run();
+  } catch (error) {}
+
+  // ✅ Add device_id column to news_comments for one-comment-per-user
+  try {
+    const commentCols = await env.DB.prepare(`PRAGMA table_info(news_comments)`).all();
+    const commentColNames = (commentCols.results || []).map(c => c.name);
+    if (!commentColNames.includes("device_id")) {
+      await env.DB.prepare(`ALTER TABLE news_comments ADD COLUMN device_id TEXT`).run();
+    }
   } catch (error) {}
 }
 

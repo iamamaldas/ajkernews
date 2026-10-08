@@ -1,9 +1,8 @@
 // worker/src/article-popunder.js
 // ═══════════════════════════════════════════════════════════
 // ✅ ARTICLE-ONLY POPUNDER SCRIPT
-// শুধু news detail পেজে trigger হয়, 70% scroll-এ, daily once
-// Header, menu, button, share, comment — সব blocked
-// + Adsterra Frequency Cap (1/24h) — double safety
+// 60 seconds time-based trigger only (high quality impression)
+// Daily once per user | Header, menu, button, share, comment — blocked
 // ═══════════════════════════════════════════════════════════
 
 export const POPUNDER_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
@@ -15,15 +14,18 @@ export function getArticlePopunderScript() {
 
   var POPUNDER_URL = "${POPUNDER_URL}";
   var COOLDOWN_KEY = 'popunder_article_last_fire';
-  var COOLDOWN_MS = 24 * 60 * 60 * 1000; // ✅ 24 hours = daily once
-  var SCROLL_TRIGGER = 70;
+  var COOLDOWN_MS = 24 * 60 * 60 * 1000;      // ✅ 24 hours = daily once
+  var TIME_TRIGGER_MS = 60 * 1000;             // ✅ 60 seconds = 1 minute
   var fired = false;
   var scriptLoaded = false;
+  var timeTimer = null;
+  var pageStartTime = Date.now();              // ✅ উপরে define
+  var hiddenAt = null;
 
-  // ✅ Layer 1: JS Cooldown (24h)
+  // ✅ Layer 1: 24h cooldown check
   var last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0', 10);
   if ((Date.now() - last) < COOLDOWN_MS) {
-    console.log('[Popunder] Cooldown active — skip');
+    console.log('[Popunder] Cooldown active — skip (last fired:', new Date(last).toLocaleString(), ')');
     return;
   }
 
@@ -35,7 +37,7 @@ export function getArticlePopunderScript() {
     return;
   }
 
-  // ✅ Click blocker — শুধু article body allow
+  // ✅ Click blocker — শুধু article body allow, বাকি সব block
   (function installBlocker() {
     var ALLOW_SELECTORS = '.article-body, #articleBody, .article-h1, .article-img';
     ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'pointerdown', 'pointerup'].forEach(function(eventType) {
@@ -75,31 +77,49 @@ export function getArticlePopunderScript() {
     document.body.appendChild(s);
   }
 
-  // ✅ 70% scroll check
-  function checkScroll() {
+  // ✅ Fire popunder — one time only
+  function firePopunder(source) {
     if (fired) return;
-    var docHeight = document.documentElement.scrollHeight - window.innerHeight;
-    if (docHeight <= 0) return;
-    var scrolled = (window.pageYOffset || document.documentElement.scrollTop) / docHeight * 100;
+    fired = true;
+    sessionStorage.setItem(FIRED_KEY, '1');
+    localStorage.setItem(COOLDOWN_KEY, String(Date.now()));
+    console.log('[Popunder] Triggered by:', source);
+    loadPopunderScript();
+  }
 
-    if (scrolled >= SCROLL_TRIGGER) {
-      fired = true;
-      sessionStorage.setItem(FIRED_KEY, '1');
-      localStorage.setItem(COOLDOWN_KEY, String(Date.now())); // ✅ 24h cooldown set
-      console.log('[Popunder] 70% scrolled — loading script');
-      loadPopunderScript();
-      window.removeEventListener('scroll', onScroll);
+  // ✅ 60 seconds time-based trigger
+  timeTimer = setTimeout(function() {
+    firePopunder('60 seconds on page');
+  }, TIME_TRIGGER_MS);
+
+  // ✅ Tab hidden → timer pause; Tab visible → resume
+  document.addEventListener('visibilitychange', function() {
+    if (document.hidden) {
+      // Tab hidden — timer pause
+      if (timeTimer && !fired) {
+        clearTimeout(timeTimer);
+        timeTimer = null;
+        hiddenAt = Date.now();
+        console.log('[Popunder] Timer paused (tab hidden)');
+      }
+    } else {
+      // Tab visible — বাকি সময় গণনা করে আবার timer চালু
+      if (!fired && !timeTimer && hiddenAt) {
+        // কত সময় visible ছিল (hidden হওয়ার আগে)
+        var visibleBefore = hiddenAt - pageStartTime;
+        var remaining = Math.max(1000, TIME_TRIGGER_MS - visibleBefore);
+        console.log('[Popunder] Timer resumed — remaining:', Math.round(remaining / 1000), 's');
+        timeTimer = setTimeout(function() {
+          firePopunder('60 seconds on page (after resume)');
+        }, remaining);
+      }
     }
-  }
+  });
 
-  var timer = null;
-  function onScroll() {
-    if (timer) return;
-    timer = setTimeout(function() { timer = null; checkScroll(); }, 250);
+  // ✅ Initial check — user already 60s পার করেছে কিনা (edge case)
+  if (Date.now() - pageStartTime >= TIME_TRIGGER_MS) {
+    firePopunder('already past 60 seconds');
   }
-  window.addEventListener('scroll', onScroll, { passive: true });
-
-  setTimeout(checkScroll, 800);
 })();
 <\/script>`;
 }

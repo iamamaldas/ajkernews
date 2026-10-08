@@ -168,14 +168,12 @@ html body > div[id*="adsterra"] iframe {
   window.__POPUNDER_LOADED = false;
   window.__POPUNDER_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
   
-  // ✅ Trigger popunder — load Adsterra script + fire click
   window.__triggerPopunder = function() {
     if (window.__POPUNDER_LOADED) {
       console.log('[Popunder] Already loaded in this session');
       return;
     }
     
-    // Cooldown check (3 hours)
     var cooldownKey = 'popunder_last_fire';
     var cooldownMs = 3 * 60 * 60 * 1000;
     var last = parseInt(localStorage.getItem(cooldownKey) || '0', 10);
@@ -184,7 +182,6 @@ html body > div[id*="adsterra"] iframe {
       return;
     }
     
-    // Mobile skip
     var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
     if (isMobile) {
       console.log('[Popunder] Mobile skip');
@@ -202,7 +199,6 @@ html body > div[id*="adsterra"] iframe {
     s.setAttribute('data-cfasync', 'false');
     s.onload = function() {
       console.log('[Popunder] Script loaded ✅ — dispatching click');
-      // Adsterra এর click listener register হওয়ার পর একটা synthetic click fire
       setTimeout(function() {
         try {
           var evt = new MouseEvent('click', {
@@ -229,8 +225,6 @@ html body > div[id*="adsterra"] iframe {
 
 <!-- ✅ Adsterra Native Banner ✅ -->
 <script async="async" data-cfasync="false" src="https://bicea.org/21/25ee2c0a822da5cf3429cd2cb222524f"></script>
-
-<!-- ❌ Adsterra Popunder script — এখানে load হবে না! (dynamic load হবে) -->
 
 <!-- ✅ Ad Blocker (defer) -->
 <script src="/adblock.js" defer></script>
@@ -1202,17 +1196,32 @@ async function openCommentModal(id) {
   } catch (error) {}
 }
 
+// ✅ FIXED: Home page এর comment submit — deviceId যোগ করা হয়েছে
 async function submitComment(newsId) {
   const author = document.getElementById('commentAuthor').value.trim() || 'Guest';
   const text = document.getElementById('commentText').value.trim();
   if (!text) return alert('মন্তব্য লিখুন!');
+  
+  const deviceId = getDeviceId();
+  
   try {
-    await fetch(`${WORKER_BASE}/api/comments`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ newsId, author, text })
+    const response = await fetch(`${WORKER_BASE}/api/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ newsId, author, text, deviceId })
     });
-    await openCommentModal(newsId);
-  } catch (error) { alert('মন্তব্য পাঠানো যায়নি'); }
+    const data = await response.json();
+    
+    if (data.success) {
+      await openCommentModal(newsId);
+    } else if (data.code === 'ALREADY_COMMENTED') {
+      alert('⚠️ আপনি ইতিমধ্যে এই খবরে একটি মন্তব্য করেছেন।');
+    } else {
+      alert('❌ ' + (data.error || 'মন্তব্য পাঠানো যায়নি'));
+    }
+  } catch (error) { 
+    alert('❌ মন্তব্য পাঠানো যায়নি'); 
+  }
 }
 
 function setCategory(cat) {
@@ -1378,11 +1387,9 @@ document.addEventListener('click', function() {
 // ✅ NEWS CARD CLICK — Popunder trigger
 // ═══════════════════════════════════════════════════════════
 function openNewsWithPopunder(url) {
-  // Trigger popunder script (dynamically load Adsterra)
   if (typeof window.__triggerPopunder === 'function') {
     window.__triggerPopunder();
   }
-  // Navigate to article
   setTimeout(function() {
     window.location.href = url;
   }, 300);

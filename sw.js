@@ -1,10 +1,12 @@
 // sw.js
-// ✅ FINAL v32 — Maximum Free Plan Optimization
+// ✅ FINAL v33 — Offline Notification Queue + FCM + TTL Safe
 
-const CACHE_VERSION = "ajker-news-v2026-10-06-final9";
+const CACHE_VERSION = "ajker-news-v2026-10-08-final10";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
-// ===== FCM Setup =====
+// ═══════════════════════════════════════════════════════════
+// ✅ FCM Setup
+// ═══════════════════════════════════════════════════════════
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging-compat.js');
 
@@ -17,11 +19,14 @@ firebase.initializeApp({
   appId: "1:430988740362:web:ccb5e3cd2eeefc82345cf3"
 });
 
+// ═══════════════════════════════════════════════════════════
+// ✅ FCM Background Message Handler
+// ═══════════════════════════════════════════════════════════
 if (firebase.messaging.isSupported()) {
   const messaging = firebase.messaging();
 
   messaging.onBackgroundMessage((payload) => {
-    console.log('[SW-FCM] Background message received:', JSON.stringify(payload));
+    console.log('[SW-FCM] Background message:', JSON.stringify(payload));
 
     if (payload.data && payload.data.type === 'news_published') {
       return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
@@ -36,7 +41,7 @@ if (firebase.messaging.isSupported()) {
     }
 
     if (payload.notification) {
-      console.log('[SW-FCM] Notification payload detected. Browser will handle it.');
+      console.log('[SW-FCM] Notification payload — browser handles it.');
       return;
     }
 
@@ -61,7 +66,75 @@ if (firebase.messaging.isSupported()) {
   });
 }
 
-// ===== ✅ PUSH EVENT HANDLER (Offline Queue) =====
+// ═══════════════════════════════════════════════════════════
+// ✅ INDEXEDDB — Pending Notifications Queue
+// ═══════════════════════════════════════════════════════════
+const DB_NAME = 'ajker-news-notif-db';
+const DB_VERSION = 1;
+const STORE_NAME = 'pending_notifications';
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function savePendingNotification(notif) {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).add(notif);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (e) {
+    console.warn('[SW-QUEUE] Save failed:', e);
+    return false;
+  }
+}
+
+async function getPendingNotifications() {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const req = tx.objectStore(STORE_NAME).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (e) {
+    console.warn('[SW-QUEUE] Get failed:', e);
+    return [];
+  }
+}
+
+async function clearPendingNotifications() {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).clear();
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (e) {
+    console.warn('[SW-QUEUE] Clear failed:', e);
+    return false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// ✅ PUSH EVENT HANDLER — Offline Safe
+// ═══════════════════════════════════════════════════════════
 self.addEventListener('push', (event) => {
   console.log('[SW-PUSH] Push event received');
 
@@ -81,31 +154,90 @@ self.addEventListener('push', (event) => {
   console.log('[SW-PUSH] Payload:', JSON.stringify(payload));
 
   const data = payload.data || payload;
-  if (!data || !data.title) return;
+  if (!data || !data.title) {
+    console.log('[SW-PUSH] No title in payload — skip');
+    return;
+  }
 
-  const title = data.title || 'Ajker News';
-  const body = data.body || 'নতুন খবর এসেছে';
-  const image = data.image || undefined;
-  const url = data.url || 'https://ajkernews.in/';
-  const tag = data.notificationId || 'ajker-' + Date.now();
+  const notifData = {
+    title: data.title || 'Ajker News',
+    body: data.body || 'নতুন খবর এসেছে',
+    image: data.image || null,
+    url: data.url || 'https://ajkernews.in/',
+    tag: data.notificationId || 'ajker-' + Date.now(),
+    receivedAt: Date.now()
+  };
 
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body: body,
-      icon: '/logo.png',
-      badge: '/logo.png',
-      image: image,
-      vibrate: [200, 100, 200],
-      tag: tag,
-      renotify: true,
-      requireInteraction: true,
-      silent: false,
-      data: { url: url }
-    })
+    (async () => {
+      let isOnline = true;
+      try { isOnline = self.navigator.onLine; } catch (e) { isOnline = true; }
+
+      // Save to pending queue first
+      await savePendingNotification(notifData);
+
+      try {
+        await self.registration.showNotification(notifData.title, {
+          body: notifData.body,
+          icon: '/logo.png',
+          badge: '/logo.png',
+          image: notifData.image || undefined,
+          vibrate: [200, 100, 200],
+          tag: notifData.tag,
+          renotify: true,
+          requireInteraction: true,
+          silent: false,
+          data: { url: notifData.url }
+        });
+        // Successfully shown — remove from pending
+        await clearPendingNotifications();
+        console.log('[SW-PUSH] Notification shown ✅');
+      } catch (e) {
+        console.warn('[SW-PUSH] Show failed (will retry):', e);
+      }
+    })()
   );
 });
 
-// ===== ✅ NOTIFICATION CLICK FIX =====
+// ═══════════════════════════════════════════════════════════
+// ✅ FLUSH PENDING NOTIFICATIONS (when network returns)
+// ═══════════════════════════════════════════════════════════
+async function flushPendingNotifications() {
+  try {
+    const pending = await getPendingNotifications();
+    if (!pending || !pending.length) return;
+
+    console.log(`[SW-FLUSH] ${pending.length} pending notifications`);
+
+    for (const notif of pending) {
+      try {
+        await self.registration.showNotification(notif.title, {
+          body: notif.body,
+          icon: '/logo.png',
+          badge: '/logo.png',
+          image: notif.image || undefined,
+          vibrate: [200, 100, 200],
+          tag: notif.tag,
+          renotify: true,
+          requireInteraction: true,
+          silent: false,
+          data: { url: notif.url }
+        });
+      } catch (e) {
+        console.warn('[SW-FLUSH] Failed to show one:', e);
+      }
+    }
+
+    await clearPendingNotifications();
+    console.log('[SW-FLUSH] All pending flushed ✅');
+  } catch (e) {
+    console.warn('[SW-FLUSH] Failed:', e);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// ✅ NOTIFICATION CLICK
+// ═══════════════════════════════════════════════════════════
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
@@ -134,7 +266,32 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-// ===== Install / Activate =====
+// ═══════════════════════════════════════════════════════════
+// ✅ PUSH SUBSCRIPTION CHANGE
+// ═══════════════════════════════════════════════════════════
+self.addEventListener('pushsubscriptionchange', (event) => {
+  console.log('[SW-PUSHSUB] Subscription changed — syncing...');
+  event.waitUntil(
+    (async () => {
+      try {
+        await self.registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: event.oldSubscription ? event.oldSubscription.options.applicationServerKey : undefined
+        });
+        const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        allClients.forEach((client) => {
+          client.postMessage({ type: 'REFRESH_FCM_TOKEN' });
+        });
+      } catch (e) {
+        console.warn('[SW-PUSHSUB] Re-subscribe failed:', e);
+      }
+    })()
+  );
+});
+
+// ═══════════════════════════════════════════════════════════
+// ✅ Install / Activate
+// ═══════════════════════════════════════════════════════════
 self.addEventListener("install", event => {
   console.log("[SW] Installing", CACHE_VERSION);
   self.skipWaiting();
@@ -143,20 +300,26 @@ self.addEventListener("install", event => {
 self.addEventListener("activate", event => {
   console.log("[SW] Activating...");
   event.waitUntil(
-    caches.keys()
-      .then(keys => Promise.all(
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(
         keys
           .filter(k => k.startsWith("ajker-news-") && k !== STATIC_CACHE)
           .map(k => {
             console.log("[SW] Deleting old cache:", k);
             return caches.delete(k);
           })
-      ))
-      .then(() => self.clients.claim())
+      );
+      await self.clients.claim();
+      // Flush pending notifications from previous session
+      await flushPendingNotifications();
+    })()
   );
 });
 
-// ===== Fetch =====
+// ═══════════════════════════════════════════════════════════
+// ✅ FETCH HANDLER
+// ═══════════════════════════════════════════════════════════
 self.addEventListener("fetch", event => {
   const request = event.request;
   if (request.method !== "GET") return;
@@ -204,18 +367,29 @@ self.addEventListener("fetch", event => {
   );
 });
 
-// ===== ✅ MESSAGE HANDLER (SKIP_WAITING + NETWORK_ONLINE) =====
+// ═══════════════════════════════════════════════════════════
+// ✅ MESSAGE HANDLER
+// ═══════════════════════════════════════════════════════════
 self.addEventListener('message', (event) => {
   if (event.data === "SKIP_WAITING") {
     self.skipWaiting();
   }
   
   if (event.data && event.data.type === 'NETWORK_ONLINE') {
-    console.log('[SW] Network online — refreshing FCM token');
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      clients.forEach((client) => {
-        client.postMessage({ type: 'REFRESH_FCM_TOKEN' });
-      });
-    });
+    console.log('[SW] Network online — flushing pending notifications');
+    event.waitUntil(
+      (async () => {
+        await flushPendingNotifications();
+        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        clients.forEach((client) => {
+          client.postMessage({ type: 'REFRESH_FCM_TOKEN' });
+        });
+      })()
+    );
+  }
+
+  if (event.data && event.data.type === 'FLUSH_PENDING') {
+    console.log('[SW] Manual flush request');
+    event.waitUntil(flushPendingNotifications());
   }
 });

@@ -17,14 +17,10 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Ajker News">
-
-<!-- ✅ FAVICON -->
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
-<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-<link rel="icon" type="image/png" sizes="512x512" href="/logo.png">
-
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="dns-prefetch" href="https://www.gstatic.com">
 <meta property="og:title" content="Ajker News | আজকের নিউজ">
@@ -807,7 +803,7 @@ function buildNewsHtml(news) {
       <h2 class="news-title" onclick="openNewsWithPopunder('${articleUrl}')">${escapeHtml(headline)}</h2>
       ${summary ? `<p class="news-summary" onclick="openNewsWithPopunder('${articleUrl}')">${escapeHtml(summary)}</p>` : ''}
       <div class="news-meta">
-        <a href="${articleUrl}" class="news-source-link">${escapeHtml(source)}</a>
+        <a href="javascript:void(0)" class="news-source-link" onclick="openNewsWithPopunder('${articleUrl}'); return false;">${escapeHtml(source)}</a>
         <div>${escapeHtml(formattedTime)}</div>
       </div>
       <div class="news-actions">
@@ -1328,8 +1324,11 @@ document.addEventListener('click', function() {
 
 // ═══════════════════════════════════════════════════════════
 // ✅ HOME PAGE — Article click BLOCKED (Dead Click)
-// Home → Article যাওয়া বন্ধ | Article → Home আগের মতোই
-// Push notification / Share link / Direct URL → Article আগের মতোই
+// Home page থেকে article page-এ যাওয়া বন্ধ
+// Source link, image, title, summary — সব block
+// Article → Home আগের মতোই কাজ করবে
+// Push notification / Share link / Direct URL → Article আগের মতোই কাজ করবে
+// Comment / Love / Share button → আগের মতোই কাজ করবে
 // ═══════════════════════════════════════════════════════════
 function openNewsWithPopunder(url) {
   // Home page থেকে article page-এ যাওয়া block করা হয়েছে

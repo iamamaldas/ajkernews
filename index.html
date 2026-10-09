@@ -803,7 +803,7 @@ function buildNewsHtml(news) {
       <h2 class="news-title" onclick="openNewsWithPopunder('${articleUrl}')">${escapeHtml(headline)}</h2>
       ${summary ? `<p class="news-summary" onclick="openNewsWithPopunder('${articleUrl}')">${escapeHtml(summary)}</p>` : ''}
       <div class="news-meta">
-        <a href="javascript:void(0)" class="news-source-link" onclick="openNewsWithPopunder('${articleUrl}'); return false;">${escapeHtml(source)}</a>
+        <a href="${articleUrl}" class="news-source-link">${escapeHtml(source)}</a>
         <div>${escapeHtml(formattedTime)}</div>
       </div>
       <div class="news-actions">
@@ -1324,15 +1324,15 @@ document.addEventListener('click', function() {
 
 // ═══════════════════════════════════════════════════════════
 // ✅ HOME PAGE — Article click BLOCKED (Dead Click)
-// Home page থেকে article page-এ যাওয়া বন্ধ
-// Source link, image, title, summary — সব block
-// Article → Home আগের মতোই কাজ করবে
-// Push notification / Share link / Direct URL → Article আগের মতোই কাজ করবে
+// Image, Title, Summary → Dead click (কিছুই হবে না)
+// Source link → Article page খুলবে ✅
 // Comment / Love / Share button → আগের মতোই কাজ করবে
+// Article → Home → আগের মতোই কাজ করবে
+// Push notification / Share link / Direct URL → Article আগের মতোই কাজ করবে
 // ═══════════════════════════════════════════════════════════
 function openNewsWithPopunder(url) {
   // Home page থেকে article page-এ যাওয়া block করা হয়েছে
-  // কিছুই হবে না — dead click
+  // Image/Title/Summary click করলে কিছুই হবে না
   return;
 }
 

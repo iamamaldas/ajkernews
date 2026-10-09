@@ -12,15 +12,15 @@
 <meta name="robots" content="index, follow">
 <meta name="author" content="Ajker News">
 <link rel="canonical" href="https://ajkernews.in/">
-<link rel="manifest" href="/manifest.json">
+<link rel="manifest" href="/public/manifest.json">
 <meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Ajker News">
-<link rel="icon" type="image/x-icon" href="/favicon.ico">
-<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
-<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+<link rel="icon" type="image/png" sizes="16x16" href="/public/favicon-16x16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32x32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/public/apple-touch-icon.png">
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="dns-prefetch" href="https://www.gstatic.com">
 <meta property="og:title" content="Ajker News | আজকের নিউজ">
@@ -33,9 +33,6 @@
 { "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in/logo.png" }
 </script>
 
-<!-- ═══════════════════════════════════════════════════════════
-     ✅ SOCIAL BAR — FORCE TO TOP
-     ═══════════════════════════════════════════════════════════ -->
 <style id="socialBarTopStyle">
 html body > div[class*="socialbar"],
 html body > div[class*="social-bar"],
@@ -160,14 +157,9 @@ html body > div[id*="adsterra"] iframe {
 })();
 </script>
 
-<!-- ✅ Adsterra Social Bar ✅ -->
 <script async data-cfasync="false" src="https://bicea.org/14/3f58b0818e43e5e2e8f28449d29e9937"></script>
-
-<!-- ✅ Adsterra Native Banner ✅ -->
 <script async="async" data-cfasync="false" src="https://bicea.org/21/25ee2c0a822da5cf3429cd2cb222524f"></script>
-
-<!-- ✅ Ad Blocker (defer) -->
-<script src="/adblock.js" defer></script>
+<script src="/public/adblock.js" defer></script>
 
 <style>
 * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-tap-highlight-color: transparent; }
@@ -278,15 +270,34 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .news-body { padding:20px 22px 22px; }
 .news-category { display:inline-block; margin-bottom:11px; font-size:11px; font-weight:700; color:#e53935; background:#ffebee; padding:4px 11px; border-radius:20px; letter-spacing:0.4px; text-transform:uppercase; }
 .news-title { font-size:19px; line-height:1.42; font-weight:700; margin-bottom:12px; cursor:pointer; letter-spacing:-0.3px; color:#0a0a0a; transition: color 0.15s ease; }
-.news-title:hover { color:#e53935; }
 .news-summary { font-size:15px; line-height:1.72; color:#4a4a4a; cursor:pointer; margin-bottom:4px; }
 .news-meta { display:flex; align-items:center; justify-content:space-between; margin-top:16px; font-size:12.5px; color:#8a8a8a; font-weight:500; gap:10px; }
 .news-source-link { color:#1976d2; text-decoration:none; font-weight:600; cursor:pointer; transition: color 0.15s; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:60%; }
 .news-source-link:hover { color:#0d47a1; text-decoration:underline; }
 
+/* ✅ FIX: Only apply hover effect on devices that truly support hover (desktop) */
+@media (hover: hover) {
+  .news-title:hover { color:#e53935; }
+  .news-card:hover { box-shadow: 0 2px 4px rgba(0,0,0,0.05), 0 16px 40px rgba(0,0,0,0.1); transform: translateY(-3px); }
+  .news-card:hover .news-image { transform: scale(1.04); }
+  .news-source-link:hover { color:#0d47a1; text-decoration:underline; }
+  .action-btn:hover { background:#f5f5f5; color:#111; }
+  .notif-btn:hover, .search-btn:hover, .hamburger:hover { background: #f0f0f0; }
+  .close-search:hover { color:#333; }
+  .close-btn:hover { color:#333; }
+  .close-modal:hover { color:#333; }
+  .sidebar-menu a:hover { background:#fafafa; padding-left: 24px; }
+  .banner-right-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.18); }
+  #loadMoreBtn:hover { background:#000; transform: translateY(-2px); box-shadow: 0 8px 22px rgba(0,0,0,0.2); }
+  .floating-app-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.18); }
+  .search-modal-box .search-submit-btn:hover { background:#000; }
+  .notif-prompt-btn.later:hover { background: #e8e8e8; }
+  .notif-prompt-btn.enable:hover { background: #000; }
+  .footer-links a:hover { color:#111; }
+}
+
 .news-actions { display:flex; gap:8px; margin-top:16px; padding-top:16px; border-top:1px solid #f0f0f0; align-items: center; }
 .action-btn { display:flex; align-items:center; gap:6px; background:none; border:none; color:#666; font-size:13.5px; cursor:pointer; padding:8px 13px; border-radius:9px; transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease; font-weight:600; }
-.action-btn:hover { background:#f5f5f5; color:#111; }
 .action-btn:active { transform: scale(0.94); }
 .action-btn svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
 .action-count { font-size:12.5px; color:#555; font-weight:700; }
@@ -294,12 +305,10 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .love-btn.loved svg { fill:#e74c3c !important; stroke:#e74c3c !important; }
 
 #loadMoreBtn { display:none; width:100%; padding:16px; background:#111111; color:#ffffff; border:none; border-radius:14px; font-size:15.5px; font-weight:700; cursor:pointer; margin-top:26px; transition: background 0.15s, transform 0.15s, box-shadow 0.15s; letter-spacing:-0.1px; box-shadow: 0 4px 14px rgba(0,0,0,0.15); }
-#loadMoreBtn:hover { background:#000; transform: translateY(-2px); box-shadow: 0 8px 22px rgba(0,0,0,0.2); }
 #loadMoreBtn:active { transform: translateY(0) scale(0.98); }
 #loadMoreBtn:disabled { opacity:0.6; cursor:not-allowed; }
 
 .floating-app-btn { position:fixed; right:18px; bottom:22px; width:58px; height:58px; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#ffffff; border:1px solid rgba(0,0,0,0.06); border-radius:50%; box-shadow: 0 4px 16px rgba(0,0,0,0.12); cursor:pointer; z-index:700; text-decoration:none; transition: transform 0.2s ease, box-shadow 0.2s ease; }
-.floating-app-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.18); }
 .floating-app-btn:active { transform: scale(0.94); }
 .floating-app-btn svg { width:22px; height:22px; margin-bottom:1px; }
 .floating-app-btn span { font-size:9px; font-weight:700; color:#333; letter-spacing:0.2px; }
@@ -307,7 +316,6 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .footer { padding:28px 14px 18px; text-align:center; background:#ffffff; border-top:1px solid rgba(0,0,0,0.06); margin-top: auto; flex-shrink: 0; }
 .footer-links { display:flex; justify-content:center; gap:24px; flex-wrap:wrap; margin-bottom:16px; padding:0 10px; }
 .footer-links a { color:#555; text-decoration:none; font-size:13px; font-weight:600; padding:4px 2px; transition:color 0.15s; letter-spacing:-0.1px; }
-.footer-links a:hover { color:#111; }
 .footer-copy { color:#999; font-size:11.5px; font-weight:500; letter-spacing:0.1px; }
 
 .notif-prompt-modal { display: none; position: fixed; inset: 0; background: rgba(10,10,10,0.55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 2500; align-items: center; justify-content: center; padding: 20px; }
@@ -319,9 +327,7 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .notif-prompt-btn { flex: 1; padding: 14px 16px; border-radius: 14px; border: none; font-size: 15px; font-weight: 700; cursor: pointer; transition: transform 0.15s, background 0.15s; }
 .notif-prompt-btn:active { transform: scale(0.96); }
 .notif-prompt-btn.later { background: #f2f2f2; color: #333; }
-.notif-prompt-btn.later:hover { background: #e8e8e8; }
 .notif-prompt-btn.enable { background: #111; color: #fff; }
-.notif-prompt-btn.enable:hover { background: #000; }
 
 @media (min-width: 1400px) {
   .main-content { max-width: 900px; }

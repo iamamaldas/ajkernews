@@ -14,34 +14,85 @@
   "categories": ["news", "magazines"],
   "prefer_related_applications": false,
   "icons": [
-    { "src": "/logo.png", "sizes": "72x72", "type": "image/png", "purpose": "any" },
-    { "src": "/logo.png", "sizes": "96x96", "type": "image/png", "purpose": "any" },
-    { "src": "/logo.png", "sizes": "128x128", "type": "image/png", "purpose": "any" },
-    { "src": "/logo.png", "sizes": "144x144", "type": "image/png", "purpose": "any" },
-    { "src": "/logo.png", "sizes": "152x152", "type": "image/png", "purpose": "any" },
-    { "src": "/logo.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/logo.png", "sizes": "384x384", "type": "image/png", "purpose": "any" },
-    { "src": "/logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/logo.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "/favicon-16x16.png",
+      "sizes": "16x16",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon-32x32.png",
+      "sizes": "32x32",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ],
   "shortcuts": [
     {
       "name": "সেরা খবর",
       "short_name": "Top News",
       "url": "/?category=top",
-      "icons": [{ "src": "/logo.png", "sizes": "192x192", "type": "image/png" }]
+      "icons": [
+        {
+          "src": "/android-chrome-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     },
     {
       "name": "ট্রেন্ডিং",
       "short_name": "Trending",
       "url": "/?category=trending",
-      "icons": [{ "src": "/logo.png", "sizes": "192x192", "type": "image/png" }]
+      "icons": [
+        {
+          "src": "/android-chrome-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     },
     {
       "name": "সব খবর",
       "short_name": "All News",
       "url": "/?category=all",
-      "icons": [{ "src": "/logo.png", "sizes": "192x192", "type": "image/png" }]
+      "icons": [
+        {
+          "src": "/android-chrome-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     }
   ]
 }

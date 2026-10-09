@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v52.0: Popunder 35s | Favicon Redirects | Home→Article Dead Click
+// ✅ FINAL v53.0: Assets Direct Serve | Home→Article Dead Click
 // Article + Social Bar + 24h TTL + Image Push + Spam Filter + One Comment Per User
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
@@ -19,12 +19,12 @@ const API_PAGE_SIZE = 10;
 const API_CACHE_TTL = 300;
 
 const NOTIFICATION_CONFIG = {
-  TTL_SECONDS: 86400,           // ✅ 24 hours (was 7 days)
+  TTL_SECONDS: 86400,
   QUIET_START_HOUR: 23,
   QUIET_END_HOUR: 7,
   BREAKING_SCORE_THRESHOLD: 55,
-  BREAKING_TTL_SECONDS: 86400,  // ✅ 24 hours
-  REGULAR_TTL_SECONDS: 86400,   // ✅ 24 hours
+  BREAKING_TTL_SECONDS: 86400,
+  REGULAR_TTL_SECONDS: 86400,
   MAX_BATCH_SIZE: 500,
   DIGEST_NEWS_COUNT: 3,
   DIGEST_MIN_NEWS: 2,
@@ -35,9 +35,7 @@ const NOTIFICATION_CONFIG = {
 let tablesReadyPromise = null;
 
 // ═══════════════════════════════════════════════════════════
-// ✅ POPUNDER (Merged from article-popunder.js)
-// 35 seconds time-based trigger only (NO click blocker)
-// Daily once per user | Article page only
+// ✅ POPUNDER
 // ═══════════════════════════════════════════════════════════
 const POPUNDER_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
 
@@ -48,22 +46,20 @@ function getArticlePopunderScript() {
 
   var POPUNDER_URL = "${POPUNDER_URL}";
   var COOLDOWN_KEY = 'popunder_article_last_fire';
-  var COOLDOWN_MS = 24 * 60 * 60 * 1000;      // ✅ 24 hours = daily once
-  var TIME_TRIGGER_MS = 35 * 1000;             // ✅ 35 seconds trigger
+  var COOLDOWN_MS = 24 * 60 * 60 * 1000;
+  var TIME_TRIGGER_MS = 35 * 1000;
   var fired = false;
   var scriptLoaded = false;
   var timeTimer = null;
   var pageStartTime = Date.now();
   var hiddenAt = null;
 
-  // ✅ 24h cooldown check
   var last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0', 10);
   if ((Date.now() - last) < COOLDOWN_MS) {
     console.log('[Popunder] Cooldown active — skip');
     return;
   }
 
-  // ✅ Same article-এ session-এ একবারই
   var pathId = (window.location.pathname || '').split('/').filter(Boolean).pop() || '';
   var FIRED_KEY = 'popunder_fired_' + pathId;
   if (sessionStorage.getItem(FIRED_KEY) === '1') {
@@ -71,7 +67,6 @@ function getArticlePopunderScript() {
     return;
   }
 
-  // ✅ Adsterra script load
   function loadPopunderScript() {
     if (scriptLoaded) return;
     if (document.querySelector('script[data-ajker-popunder]')) {
@@ -94,7 +89,6 @@ function getArticlePopunderScript() {
     document.body.appendChild(s);
   }
 
-  // ✅ Fire popunder — one time only
   function firePopunder(source) {
     if (fired) return;
     fired = true;
@@ -104,12 +98,10 @@ function getArticlePopunderScript() {
     loadPopunderScript();
   }
 
-  // ✅ 35 seconds time-based trigger
   timeTimer = setTimeout(function() {
     firePopunder('35 seconds on page');
   }, TIME_TRIGGER_MS);
 
-  // ✅ Tab hidden → timer pause; Tab visible → resume
   document.addEventListener('visibilitychange', function() {
     if (document.hidden) {
       if (timeTimer && !fired) {
@@ -130,7 +122,6 @@ function getArticlePopunderScript() {
     }
   });
 
-  // ✅ Initial check — user already 35s পার করেছে কিনা
   if (Date.now() - pageStartTime >= TIME_TRIGGER_MS) {
     firePopunder('already past 35 seconds');
   }
@@ -222,7 +213,7 @@ function getNativeBannerContainer() {
 }
 
 function getAdultBlockerScript() {
-  return `<script src="/adblock.js" defer><\/script>`;
+  return `<script src="/public/adblock.js" defer><\/script>`;
 }
 
 function getSocialBarTopScript() {
@@ -481,24 +472,6 @@ export default {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders() });
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    // ✅ PUBLIC ASSETS REDIRECT (Logo, Favicon, Manifest)
-    // ═══════════════════════════════════════════════════════════
-    const publicRedirects = {
-      "/favicon.ico": "/public/favicon.ico",
-      "/favicon-16x16.png": "/public/favicon-16x16.png",
-      "/favicon-32x32.png": "/public/favicon-32x32.png",
-      "/apple-touch-icon.png": "/public/apple-touch-icon.png",
-      "/android-chrome-192x192.png": "/public/android-chrome-192x192.png",
-      "/android-chrome-512x512.png": "/public/android-chrome-512x512.png",
-      "/manifest.json": "/public/manifest.json",
-      "/adblock.js": "/public/adblock.js"
-    };
-
-    if (publicRedirects[url.pathname]) {
-      return Response.redirect(new URL(publicRedirects[url.pathname], url).toString(), 301);
     }
 
     try {
@@ -1126,7 +1099,7 @@ async function sendDigest(env, istHour) {
   const topNews = unsentNews[0];
   const body = unsentNews.map(n => `• ${n.headline}`).join('\n').slice(0, 200);
   const targetUrl = `https://ajkernews.in/news/${topNews.id}?from=push&digest=${digestType}`;
-  const tag = `digest-${digestType}`;  // ✅ Fixed tag (no Date.now())
+  const tag = `digest-${digestType}`;
 
   const result = await sendDigestPush(env, {
     title: label, body, image: topNews.image_url, url: targetUrl, tag,
@@ -1157,7 +1130,7 @@ async function sendDigest(env, istHour) {
 }
 
 async function sendBreakingAlert(env, news) {
-  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) return;  // ✅ Added FCM check
+  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) return;
 
   const subs = await env.DB.prepare(
     `SELECT token FROM push_subscriptions WHERE token IS NOT NULL AND token != '' ORDER BY created_at DESC LIMIT ${NOTIFICATION_CONFIG.MAX_BATCH_SIZE}`
@@ -1174,7 +1147,7 @@ async function sendBreakingAlert(env, news) {
   const title = `🔴 ব্রেকিং: ${String(news.headline || "").slice(0, 150)}`;
   const body = String(news.summary || "এখনই পড়ুন →").slice(0, 150);
   const targetUrl = `https://ajkernews.in/news/${news.id}?from=push&breaking=1`;
-  const tag = `breaking-${news.id}`;  // ✅ Fixed tag (no Date.now())
+  const tag = `breaking-${news.id}`;
 
   const result = await sendDigestPush(env, {
     title, body, image: news.image_url, url: targetUrl, tag,
@@ -1330,7 +1303,7 @@ async function sendSinglePush(env, news, tokens, isBreaking) {
   const title = String(news.headline || "নতুন খবর").slice(0, 180);
   const body = String(news.summary || "বিস্তারিত জানতে ক্লিক করুন").slice(0, 180);
   const targetUrl = `https://ajkernews.in/news/${news.id}?from=push`;
-  const tag = `${isBreaking ? 'breaking' : 'news'}-${news.id}`;  // ✅ Fixed tag (no Date.now())
+  const tag = `${isBreaking ? 'breaking' : 'news'}-${news.id}`;
 
   const result = await sendDigestPush(env, {
     title, body, image: news.image_url, url: targetUrl, tag,
@@ -2037,7 +2010,6 @@ ${adultBlocker}
     }
   } catch (e) {}
 
-  // SHARE BUTTON
   var shareBtn = document.getElementById('artShareBtn');
   if (shareBtn) {
     shareBtn.addEventListener('click', async function(e) {
@@ -2082,7 +2054,6 @@ ${adultBlocker}
     });
   }
 
-  // LOVE BUTTON
   var loveBtn = document.getElementById('artLoveBtn');
   if (loveBtn) {
     loveBtn.addEventListener('click', async function(e) {
@@ -2110,7 +2081,6 @@ ${adultBlocker}
     });
   }
 
-  // COMMENT BUTTON
   var commentModal = document.getElementById('artCommentModal');
   var commentBtn = document.getElementById('artCommentBtn');
   var modalClose = document.getElementById('artModalClose');

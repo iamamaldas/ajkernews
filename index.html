@@ -17,8 +17,14 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Ajker News">
-<link rel="apple-touch-icon" href="/logo.png">
+
+<!-- ✅ FAVICON -->
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="512x512" href="/logo.png">
+
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="dns-prefetch" href="https://www.gstatic.com">
 <meta property="og:title" content="Ajker News | আজকের নিউজ">
@@ -1321,11 +1327,14 @@ document.addEventListener('click', function() {
 }, { once: true, passive: true });
 
 // ═══════════════════════════════════════════════════════════
-// ✅ HOME PAGE — NO POPUNDER
-// শুধু navigate করবে, কোনো popunder trigger হবে না
+// ✅ HOME PAGE — Article click BLOCKED (Dead Click)
+// Home → Article যাওয়া বন্ধ | Article → Home আগের মতোই
+// Push notification / Share link / Direct URL → Article আগের মতোই
 // ═══════════════════════════════════════════════════════════
 function openNewsWithPopunder(url) {
-  window.location.href = url;
+  // Home page থেকে article page-এ যাওয়া block করা হয়েছে
+  // কিছুই হবে না — dead click
+  return;
 }
 
 (async function initApp() {

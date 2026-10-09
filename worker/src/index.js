@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v49.0: Popunder Merged into index.js | 45s Trigger | Home→Article Blocked | Favicon Added
+// ✅ FINAL v50.0: Popunder Merged | 45s Trigger | NO Click Blocker | Home→Article Dead Click | Favicon Updated
 // Article + Social Bar + 7-day TTL + Image Push + Spam Filter + One Comment Per User
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
@@ -36,8 +36,8 @@ let tablesReadyPromise = null;
 
 // ═══════════════════════════════════════════════════════════
 // ✅ POPUNDER (Merged from article-popunder.js)
-// 45 seconds time-based trigger only (high quality impression)
-// Daily once per user | Header, menu, button, share, comment — blocked
+// 45 seconds time-based trigger only (NO click blocker)
+// Daily once per user | Article page only
 // ═══════════════════════════════════════════════════════════
 const POPUNDER_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
 
@@ -49,17 +49,17 @@ function getArticlePopunderScript() {
   var POPUNDER_URL = "${POPUNDER_URL}";
   var COOLDOWN_KEY = 'popunder_article_last_fire';
   var COOLDOWN_MS = 24 * 60 * 60 * 1000;      // ✅ 24 hours = daily once
-  var TIME_TRIGGER_MS = 45 * 1000;             // ✅ 45 seconds = 45 second
+  var TIME_TRIGGER_MS = 45 * 1000;             // ✅ 45 seconds trigger
   var fired = false;
   var scriptLoaded = false;
   var timeTimer = null;
-  var pageStartTime = Date.now();              // ✅ উপরে define
+  var pageStartTime = Date.now();
   var hiddenAt = null;
 
-  // ✅ Layer 1: 24h cooldown check
+  // ✅ 24h cooldown check
   var last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0', 10);
   if ((Date.now() - last) < COOLDOWN_MS) {
-    console.log('[Popunder] Cooldown active — skip (last fired:', new Date(last).toLocaleString(), ')');
+    console.log('[Popunder] Cooldown active — skip');
     return;
   }
 
@@ -70,23 +70,6 @@ function getArticlePopunderScript() {
     console.log('[Popunder] Already fired in this session');
     return;
   }
-
-  // ✅ Click blocker — শুধু article body allow, বাকি সব block
-  (function installBlocker() {
-    var ALLOW_SELECTORS = '.article-body, #articleBody, .article-h1, .article-img';
-    ['click', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'pointerdown', 'pointerup'].forEach(function(eventType) {
-      document.addEventListener(eventType, function(e) {
-        if (!e.target || typeof e.target.closest !== 'function') {
-          e.stopImmediatePropagation();
-          e.stopPropagation();
-          return;
-        }
-        if (e.target.closest(ALLOW_SELECTORS)) return;
-        e.stopImmediatePropagation();
-        e.stopPropagation();
-      }, true);
-    });
-  })();
 
   // ✅ Adsterra script load
   function loadPopunderScript() {
@@ -129,7 +112,6 @@ function getArticlePopunderScript() {
   // ✅ Tab hidden → timer pause; Tab visible → resume
   document.addEventListener('visibilitychange', function() {
     if (document.hidden) {
-      // Tab hidden — timer pause
       if (timeTimer && !fired) {
         clearTimeout(timeTimer);
         timeTimer = null;
@@ -137,9 +119,7 @@ function getArticlePopunderScript() {
         console.log('[Popunder] Timer paused (tab hidden)');
       }
     } else {
-      // Tab visible — বাকি সময় গণনা করে আবার timer চালু
       if (!fired && !timeTimer && hiddenAt) {
-        // কত সময় visible ছিল (hidden হওয়ার আগে)
         var visibleBefore = hiddenAt - pageStartTime;
         var remaining = Math.max(1000, TIME_TRIGGER_MS - visibleBefore);
         console.log('[Popunder] Timer resumed — remaining:', Math.round(remaining / 1000), 's');
@@ -150,7 +130,7 @@ function getArticlePopunderScript() {
     }
   });
 
-  // ✅ Initial check — user already 45s পার করেছে কিনা (edge case)
+  // ✅ Initial check — user already 45s পার করেছে কিনা
   if (Date.now() - pageStartTime >= TIME_TRIGGER_MS) {
     firePopunder('already past 45 seconds');
   }
@@ -376,11 +356,9 @@ function isSpamComment(text) {
   
   var lower = text.toLowerCase().trim();
   
-  // URL / Link block
   var urlPattern = /(https?:\/\/|www\.|\.com|\.net|\.org|\.in|\.xyz|\.top|\.info|\.ru|\.tk|bit\.ly|tinyurl|t\.co)/i;
   if (urlPattern.test(lower)) return true;
   
-  // Spam keywords
   var spamWords = [
     'buy now', 'click here', 'free money', 'casino', 'viagra', 'cialis',
     'porn', 'sex', 'xxx', 'adult', 'escort', 'loan', 'bitcoin', 'crypto',
@@ -392,7 +370,6 @@ function isSpamComment(text) {
     if (lower.indexOf(spamWords[i]) !== -1) return true;
   }
   
-  // Bad words
   var badWords = [
     'fuck', 'shit', 'bitch', 'asshole', 'bastard', 'damn',
     'madarchod', 'bhenchod', 'chutiya', 'gandu', 'harami',
@@ -402,23 +379,17 @@ function isSpamComment(text) {
     if (lower.indexOf(badWords[j]) !== -1) return true;
   }
   
-  // Too many special characters
   var specialCount = (text.match(/[!@#$%^&*()_+={}\[\]|\\:;"'<>,.?\/~`]/g) || []).length;
   if (specialCount > text.length * 0.3) return true;
   
-  // Repeated characters
   if (/(.)\1{5,}/.test(text)) return true;
   
-  // Too short or too long
   if (lower.length < 2) return true;
   if (lower.length > 1000) return true;
   
   return false;
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ CHECK: User already commented?
-// ═══════════════════════════════════════════════════════════
 async function hasUserCommented(env, newsId, deviceId) {
   try {
     const row = await env.DB.prepare(
@@ -473,8 +444,9 @@ function gonePage(relatedNews = []) {
 <title>খবরটি আর নেই - Ajker News</title>
 <meta name="robots" content="noindex, follow">
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
-<link rel="icon" type="image/png" sizes="512x512" href="/logo.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/logo.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <style>
   * { margin:0; padding:0; box-sizing:border-box; font-family: Inter,-apple-system,BlinkMacSystemFont,sans-serif; }
   body { max-width: 600px; margin: 40px auto; padding: 20px; color: #111; }
@@ -1200,9 +1172,6 @@ async function sendBreakingAlert(env, news) {
   if (insertStmts.length) try { await env.DB.batch(insertStmts); } catch (e) {}
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ MAIN PUSH SENDER — Image Support (data-only payload)
-// ═══════════════════════════════════════════════════════════
 async function sendDigestPush(env, payload, tokens) {
   const result = {
     accessTokenObtained: false, tokenExchangeError: null,
@@ -1689,8 +1658,9 @@ async function serveListingPage(env, category, searchQuery, request) {
 <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1">
 <link rel="canonical" href="${escapeHtml(canonical)}">
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
-<link rel="icon" type="image/png" sizes="512x512" href="/logo.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/logo.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <meta property="og:type" content="website">
 <meta property="og:title" content="${escapeHtml(pageTitle)} | Ajker News">
 <meta property="og:description" content="${escapeHtml(pageDescription)}">
@@ -1865,8 +1835,9 @@ async function serveArticlePage(id, env, request) {
 <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1">
 <link rel="canonical" href="${escapeHtml(canonical)}">
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
-<link rel="icon" type="image/png" sizes="512x512" href="/logo.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/logo.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <meta property="og:type" content="article">
 <meta property="og:title" content="${escapeHtml(title)}">
 <meta property="og:description" content="${escapeHtml(description)}">
@@ -2267,8 +2238,9 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
 <meta name="description" content="${escapeHtml(description)}">
 <meta name="robots" content="noindex, nofollow">
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
-<link rel="icon" type="image/png" sizes="512x512" href="/logo.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/logo.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <meta property="og:title" content="${escapeHtml(title)}">
 <meta property="og:description" content="${escapeHtml(description)}">
 <meta property="og:image" content="${escapeHtml(image)}">

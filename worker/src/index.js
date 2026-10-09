@@ -1,6 +1,6 @@
 // worker/src/index.js
-// ✅ FINAL v51.0: Popunder 35s | Favicon Redirects | Home→Article Dead Click
-// Article + Social Bar + 7-day TTL + Image Push + Spam Filter + One Comment Per User
+// ✅ FINAL v52.0: Popunder 35s | Favicon Redirects | Home→Article Dead Click
+// Article + Social Bar + 24h TTL + Image Push + Spam Filter + One Comment Per User
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -19,12 +19,12 @@ const API_PAGE_SIZE = 10;
 const API_CACHE_TTL = 300;
 
 const NOTIFICATION_CONFIG = {
-  TTL_SECONDS: 604800,
+  TTL_SECONDS: 86400,           // ✅ 24 hours (was 7 days)
   QUIET_START_HOUR: 23,
   QUIET_END_HOUR: 7,
   BREAKING_SCORE_THRESHOLD: 55,
-  BREAKING_TTL_SECONDS: 604800,
-  REGULAR_TTL_SECONDS: 604800,
+  BREAKING_TTL_SECONDS: 86400,  // ✅ 24 hours
+  REGULAR_TTL_SECONDS: 86400,   // ✅ 24 hours
   MAX_BATCH_SIZE: 500,
   DIGEST_NEWS_COUNT: 3,
   DIGEST_MIN_NEWS: 2,
@@ -483,21 +483,22 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders() });
     }
 
-    // ✅ Favicon redirects — /public/ folder to root
-    if (url.pathname === "/favicon.ico") {
-      return Response.redirect(new URL("/public/favicon.ico", url).toString(), 301);
-    }
-    if (url.pathname === "/favicon-16x16.png") {
-      return Response.redirect(new URL("/public/favicon-16x16.png", url).toString(), 301);
-    }
-    if (url.pathname === "/favicon-32x32.png") {
-      return Response.redirect(new URL("/public/favicon-32x32.png", url).toString(), 301);
-    }
-    if (url.pathname === "/apple-touch-icon.png") {
-      return Response.redirect(new URL("/public/apple-touch-icon.png", url).toString(), 301);
-    }
-    if (url.pathname === "/android-chrome-192x192.png") {
-      return Response.redirect(new URL("/public/android-chrome-192x192.png", url).toString(), 301);
+    // ═══════════════════════════════════════════════════════════
+    // ✅ PUBLIC ASSETS REDIRECT (Logo, Favicon, Manifest)
+    // ═══════════════════════════════════════════════════════════
+    const publicRedirects = {
+      "/favicon.ico": "/public/favicon.ico",
+      "/favicon-16x16.png": "/public/favicon-16x16.png",
+      "/favicon-32x32.png": "/public/favicon-32x32.png",
+      "/apple-touch-icon.png": "/public/apple-touch-icon.png",
+      "/android-chrome-192x192.png": "/public/android-chrome-192x192.png",
+      "/android-chrome-512x512.png": "/public/android-chrome-512x512.png",
+      "/manifest.json": "/public/manifest.json",
+      "/adblock.js": "/public/adblock.js"
+    };
+
+    if (publicRedirects[url.pathname]) {
+      return Response.redirect(new URL(publicRedirects[url.pathname], url).toString(), 301);
     }
 
     try {
@@ -1125,7 +1126,7 @@ async function sendDigest(env, istHour) {
   const topNews = unsentNews[0];
   const body = unsentNews.map(n => `• ${n.headline}`).join('\n').slice(0, 200);
   const targetUrl = `https://ajkernews.in/news/${topNews.id}?from=push&digest=${digestType}`;
-  const tag = `digest-${digestType}-${new Date().toISOString().split('T')[0]}`;
+  const tag = `digest-${digestType}`;  // ✅ Fixed tag (no Date.now())
 
   const result = await sendDigestPush(env, {
     title: label, body, image: topNews.image_url, url: targetUrl, tag,
@@ -1156,7 +1157,7 @@ async function sendDigest(env, istHour) {
 }
 
 async function sendBreakingAlert(env, news) {
-  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) return;
+  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) return;  // ✅ Added FCM check
 
   const subs = await env.DB.prepare(
     `SELECT token FROM push_subscriptions WHERE token IS NOT NULL AND token != '' ORDER BY created_at DESC LIMIT ${NOTIFICATION_CONFIG.MAX_BATCH_SIZE}`
@@ -1173,7 +1174,7 @@ async function sendBreakingAlert(env, news) {
   const title = `🔴 ব্রেকিং: ${String(news.headline || "").slice(0, 150)}`;
   const body = String(news.summary || "এখনই পড়ুন →").slice(0, 150);
   const targetUrl = `https://ajkernews.in/news/${news.id}?from=push&breaking=1`;
-  const tag = `breaking-${news.id}-${Date.now()}`;
+  const tag = `breaking-${news.id}`;  // ✅ Fixed tag (no Date.now())
 
   const result = await sendDigestPush(env, {
     title, body, image: news.image_url, url: targetUrl, tag,
@@ -1216,7 +1217,7 @@ async function sendDigestPush(env, payload, tokens) {
     const title = String(payload.title || "Ajker News");
     const body = String(payload.body || "নতুন খবর এসেছে");
     const image = String(payload.image || "");
-    const notifTag = String(payload.tag || Date.now());
+    const notifTag = String(payload.tag || "ajker-news");
     const targetUrl = String(payload.url || "https://ajkernews.in/");
 
     const message = {
@@ -1329,7 +1330,7 @@ async function sendSinglePush(env, news, tokens, isBreaking) {
   const title = String(news.headline || "নতুন খবর").slice(0, 180);
   const body = String(news.summary || "বিস্তারিত জানতে ক্লিক করুন").slice(0, 180);
   const targetUrl = `https://ajkernews.in/news/${news.id}?from=push`;
-  const tag = `${isBreaking ? 'breaking' : 'news'}-${news.id}-${Date.now()}`;
+  const tag = `${isBreaking ? 'breaking' : 'news'}-${news.id}`;  // ✅ Fixed tag (no Date.now())
 
   const result = await sendDigestPush(env, {
     title, body, image: news.image_url, url: targetUrl, tag,

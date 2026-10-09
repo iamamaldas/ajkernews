@@ -1,7 +1,7 @@
 // sw.js
-// ✅ FINAL v34 — Offline Queue + FCM + Image Support + TTL Safe
+// ✅ FINAL v35 — Offline Queue + FCM + Image Support + TTL Safe
 
-const CACHE_VERSION = "ajker-news-v2026-10-08-final11";
+const CACHE_VERSION = "ajker-news-v2026-10-08-final12";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js');
@@ -38,7 +38,8 @@ if (firebase.messaging.isSupported()) {
     const body = payload.data?.body || payload.notification?.body || 'নতুন খবর এসেছে';
     const image = payload.data?.image || payload.notification?.image || undefined;
     const url = payload.data?.url || 'https://ajkernews.in/';
-    const tag = payload.data?.notificationId || 'ajker-' + Date.now();
+    // ✅ Fixed tag (no Date.now())
+    const tag = payload.data?.notificationId || 'ajker-news';
 
     return self.registration.showNotification(title, {
       body: body,
@@ -110,6 +111,9 @@ async function clearPendingNotifications() {
 }
 
 self.addEventListener('push', (event) => {
+  // ✅ First flush pending notifications
+  event.waitUntil(flushPendingNotifications());
+
   if (!event.data) return;
   let payload;
   try { payload = event.data.json(); } catch (e) { return; }
@@ -122,7 +126,8 @@ self.addEventListener('push', (event) => {
     body: data.body || 'নতুন খবর এসেছে',
     image: data.image || null,
     url: data.url || 'https://ajkernews.in/',
-    tag: data.notificationId || 'ajker-' + Date.now(),
+    // ✅ Fixed tag (no Date.now())
+    tag: data.notificationId || 'ajker-news',
     receivedAt: Date.now()
   };
 

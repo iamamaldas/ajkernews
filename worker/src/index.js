@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v53.0: Assets Direct Serve | Home→Article Dead Click
+// ✅ FINAL v54.0: Redirect + Assets Direct Serve | Home→Article Dead Click
 // Article + Social Bar + 24h TTL + Image Push + Spam Filter + One Comment Per User
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
@@ -472,6 +472,24 @@ export default {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders() });
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // ✅ PUBLIC ASSETS REDIRECT (Logo, Favicon, Manifest)
+    // ═══════════════════════════════════════════════════════════
+    const publicRedirects = {
+      "/favicon.ico": "/public/favicon.ico",
+      "/favicon-16x16.png": "/public/favicon-16x16.png",
+      "/favicon-32x32.png": "/public/favicon-32x32.png",
+      "/apple-touch-icon.png": "/public/apple-touch-icon.png",
+      "/android-chrome-192x192.png": "/public/android-chrome-192x192.png",
+      "/android-chrome-512x512.png": "/public/android-chrome-512x512.png",
+      "/manifest.json": "/public/manifest.json",
+      "/adblock.js": "/public/adblock.js"
+    };
+
+    if (publicRedirects[url.pathname]) {
+      return Response.redirect(new URL(publicRedirects[url.pathname], url).toString(), 301);
     }
 
     try {

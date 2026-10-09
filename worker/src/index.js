@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v50.0: Popunder Merged | 45s Trigger | NO Click Blocker | Home→Article Dead Click | Favicon Updated
+// ✅ FINAL v51.0: Popunder 35s | Favicon Redirects | Home→Article Dead Click
 // Article + Social Bar + 7-day TTL + Image Push + Spam Filter + One Comment Per User
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
@@ -36,7 +36,7 @@ let tablesReadyPromise = null;
 
 // ═══════════════════════════════════════════════════════════
 // ✅ POPUNDER (Merged from article-popunder.js)
-// 45 seconds time-based trigger only (NO click blocker)
+// 35 seconds time-based trigger only (NO click blocker)
 // Daily once per user | Article page only
 // ═══════════════════════════════════════════════════════════
 const POPUNDER_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
@@ -49,7 +49,7 @@ function getArticlePopunderScript() {
   var POPUNDER_URL = "${POPUNDER_URL}";
   var COOLDOWN_KEY = 'popunder_article_last_fire';
   var COOLDOWN_MS = 24 * 60 * 60 * 1000;      // ✅ 24 hours = daily once
-  var TIME_TRIGGER_MS = 45 * 1000;             // ✅ 45 seconds trigger
+  var TIME_TRIGGER_MS = 35 * 1000;             // ✅ 35 seconds trigger
   var fired = false;
   var scriptLoaded = false;
   var timeTimer = null;
@@ -104,9 +104,9 @@ function getArticlePopunderScript() {
     loadPopunderScript();
   }
 
-  // ✅ 45 seconds time-based trigger
+  // ✅ 35 seconds time-based trigger
   timeTimer = setTimeout(function() {
-    firePopunder('45 seconds on page');
+    firePopunder('35 seconds on page');
   }, TIME_TRIGGER_MS);
 
   // ✅ Tab hidden → timer pause; Tab visible → resume
@@ -124,15 +124,15 @@ function getArticlePopunderScript() {
         var remaining = Math.max(1000, TIME_TRIGGER_MS - visibleBefore);
         console.log('[Popunder] Timer resumed — remaining:', Math.round(remaining / 1000), 's');
         timeTimer = setTimeout(function() {
-          firePopunder('45 seconds on page (after resume)');
+          firePopunder('35 seconds on page (after resume)');
         }, remaining);
       }
     }
   });
 
-  // ✅ Initial check — user already 45s পার করেছে কিনা
+  // ✅ Initial check — user already 35s পার করেছে কিনা
   if (Date.now() - pageStartTime >= TIME_TRIGGER_MS) {
-    firePopunder('already past 45 seconds');
+    firePopunder('already past 35 seconds');
   }
 })();
 <\/script>`;
@@ -443,10 +443,10 @@ function gonePage(relatedNews = []) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>খবরটি আর নেই - Ajker News</title>
 <meta name="robots" content="noindex, follow">
-<link rel="icon" type="image/x-icon" href="/favicon.ico">
-<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
-<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+<link rel="icon" type="image/png" sizes="16x16" href="/public/favicon-16x16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32x32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/public/apple-touch-icon.png">
 <style>
   * { margin:0; padding:0; box-sizing:border-box; font-family: Inter,-apple-system,BlinkMacSystemFont,sans-serif; }
   body { max-width: 600px; margin: 40px auto; padding: 20px; color: #111; }
@@ -481,6 +481,23 @@ export default {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders() });
+    }
+
+    // ✅ Favicon redirects — /public/ folder to root
+    if (url.pathname === "/favicon.ico") {
+      return Response.redirect(new URL("/public/favicon.ico", url).toString(), 301);
+    }
+    if (url.pathname === "/favicon-16x16.png") {
+      return Response.redirect(new URL("/public/favicon-16x16.png", url).toString(), 301);
+    }
+    if (url.pathname === "/favicon-32x32.png") {
+      return Response.redirect(new URL("/public/favicon-32x32.png", url).toString(), 301);
+    }
+    if (url.pathname === "/apple-touch-icon.png") {
+      return Response.redirect(new URL("/public/apple-touch-icon.png", url).toString(), 301);
+    }
+    if (url.pathname === "/android-chrome-192x192.png") {
+      return Response.redirect(new URL("/public/android-chrome-192x192.png", url).toString(), 301);
     }
 
     try {
@@ -1657,10 +1674,10 @@ async function serveListingPage(env, category, searchQuery, request) {
 <meta name="description" content="${escapeHtml(pageDescription)}">
 <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1">
 <link rel="canonical" href="${escapeHtml(canonical)}">
-<link rel="icon" type="image/x-icon" href="/favicon.ico">
-<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
-<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+<link rel="icon" type="image/png" sizes="16x16" href="/public/favicon-16x16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32x32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/public/apple-touch-icon.png">
 <meta property="og:type" content="website">
 <meta property="og:title" content="${escapeHtml(pageTitle)} | Ajker News">
 <meta property="og:description" content="${escapeHtml(pageDescription)}">
@@ -1834,10 +1851,10 @@ async function serveArticlePage(id, env, request) {
 <meta name="description" content="${escapeHtml(description)}">
 <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1">
 <link rel="canonical" href="${escapeHtml(canonical)}">
-<link rel="icon" type="image/x-icon" href="/favicon.ico">
-<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
-<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+<link rel="icon" type="image/png" sizes="16x16" href="/public/favicon-16x16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32x32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/public/apple-touch-icon.png">
 <meta property="og:type" content="article">
 <meta property="og:title" content="${escapeHtml(title)}">
 <meta property="og:description" content="${escapeHtml(description)}">
@@ -2237,10 +2254,10 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
 <title>${escapeHtml(title)} - Ajker News</title>
 <meta name="description" content="${escapeHtml(description)}">
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" type="image/x-icon" href="/favicon.ico">
-<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
-<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+<link rel="icon" type="image/png" sizes="16x16" href="/public/favicon-16x16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32x32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/public/apple-touch-icon.png">
 <meta property="og:title" content="${escapeHtml(title)}">
 <meta property="og:description" content="${escapeHtml(description)}">
 <meta property="og:image" content="${escapeHtml(image)}">
@@ -2834,7 +2851,7 @@ function getAdminLoginHTML() {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin Login - Ajker News</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/x-icon" href="/public/favicon.ico">
 <style>
   * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, sans-serif; }
   body { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
@@ -2887,7 +2904,7 @@ function getAdminDashboardHTML() {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin Dashboard - Ajker News</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/x-icon" href="/public/favicon.ico">
 <style>
   * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, sans-serif; }
   body { background: #f0f2f5; color: #111; min-height: 100vh; }

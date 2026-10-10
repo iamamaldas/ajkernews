@@ -1,8 +1,8 @@
 // worker/src/fast-index.js
-// ✅ FIXED: Google Indexing API URL ঠিক করা হয়েছে
-// ✅ FIXED: btoa Unicode bug — utils.base64url ব্যবহার
-// ✅ FIXED: JWT code — jwt.js helper ব্যবহার
-// ✅ FIXED: GOOGLE_SERVICE_ACCOUNT_JSON ব্যবহার (FCM এর JSON না)
+// ✅ FIXED v2: Google Indexing API — Disabled but Ready for Future
+// ✅ Toggle Variable: ENABLE_GOOGLE_INDEXING_API
+// ✅ IndexNow, Bing, WebSub, PingOMatic সব Active
+// ✅ ভবিষ্যতে Google Permission পেলে শুধু true করলেই Automatic চালু
 
 import { submitToIndexNow } from "./indexnow.js";
 import { notifyWebSub } from "./websub.js";
@@ -11,6 +11,20 @@ import { createSignedJWT, getGoogleAccessToken } from "./jwt.js";
 const SITE = "https://ajkernews.in";
 const MAX_URLS_PER_BATCH = 100;
 const BING_MAX_URLS = 500;
+
+// ═══════════════════════════════════════════════════════════
+// ✅ GOOGLE INDEXING API TOGGLE — Master Switch
+// ═══════════════════════════════════════════════════════════
+// Google Indexing API শুধু JobPosting ও BroadcastEvent এর জন্য।
+// NewsArticle-এর জন্য Google অফিসিয়ালি সাপোর্ট করে না।
+//
+// 📌 যখন Google Permission দেবে (বা আপনি নিজে চেষ্টা করতে চান):
+//    শুধু নিচের লাইনটি false → true করে দিন
+//    এবং wrangler.toml-এ GOOGLE_SERVICE_ACCOUNT_JSON সেট করুন
+//
+// 👇 এই লাইনটি পরিবর্তন করুন:
+const ENABLE_GOOGLE_INDEXING_API = false;  // ← true করলেই Automatic চালু
+// ═══════════════════════════════════════════════════════════
 
 export async function fastIndexNews(env, ids) {
   const list = [...new Set((ids || []).map(id => String(id || "").trim()).filter(Boolean))];
@@ -21,8 +35,14 @@ export async function fastIndexNews(env, ids) {
 
   const urls = list.map(id => `${SITE}/news/${id}`);
 
+  // ✅ Google Indexing API — Toggle চেক
   const jobs = [
-    ["google_indexing_api", () => submitToGoogleIndexingAPI(env, urls)],
+    // ✅ Google Indexing API (শুধু ENABLE_GOOGLE_INDEXING_API = true হলে চলবে)
+    ...(ENABLE_GOOGLE_INDEXING_API 
+      ? [["google_indexing_api", () => submitToGoogleIndexingAPI(env, urls)]] 
+      : []),
+    
+    // ✅ Automatic Channels (সবসময় চালু — আপনার Automation)
     ["indexnow", () => submitIndexNowInChunks(env, urls)],
     ["bing", () => submitToBing(env, urls)],
     ["websub", () => notifyWebSub(env, `${SITE}/rss.xml`)],
@@ -51,6 +71,7 @@ export async function fastIndexNews(env, ids) {
 
   console.log("[FAST-INDEX] Summary:", JSON.stringify({
     urls: urls.length,
+    googleIndexingEnabled: ENABLE_GOOGLE_INDEXING_API,
     successfulChannels,
     channels
   }));
@@ -58,17 +79,21 @@ export async function fastIndexNews(env, ids) {
   return { ok, submitted: urls.length, successfulChannels, channels };
 }
 
-// ✅ FIXED: Google Indexing API — GOOGLE_SERVICE_ACCOUNT_JSON ব্যবহার
+// ═══════════════════════════════════════════════════════════
+// ✅ Google Indexing API — Complete Function (Disabled by Default)
+// ═══════════════════════════════════════════════════════════
+// ENABLE_GOOGLE_INDEXING_API = false হলে এই function কখনো কল হবে না।
+// true করলে Automatic কাজ করবে (Permission পেলে)।
+// ═══════════════════════════════════════════════════════════
 async function submitToGoogleIndexingAPI(env, urls) {
-  // ✅ Google Indexing API এর জন্য আলাদা secret
   if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+    console.log('[GOOGLE-INDEXING] SKIPPED — GOOGLE_SERVICE_ACCOUNT_JSON missing');
     return { ok: false, reason: "missing_google_service_account_json" };
   }
 
   try {
     const serviceAccount = JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON);
 
-    // ✅ সঠিক scope ও audience
     const signedJWT = await createSignedJWT(
       serviceAccount.client_email,
       serviceAccount.private_key,
@@ -78,37 +103,46 @@ async function submitToGoogleIndexingAPI(env, urls) {
 
     const tokenData = await getGoogleAccessToken(signedJWT);
     if (!tokenData.access_token) {
+      console.log('[GOOGLE-INDEXING] Token exchange failed');
       return { ok: false, error: "token_exchange_failed", details: tokenData };
     }
 
     const accessToken = tokenData.access_token;
     let successfulPings = 0;
 
-    // ✅ সঠিক endpoint
     for (const url of urls) {
-      const res = await fetch(
-        "https://indexing.googleapis.com/v3/urlNotifications:publish",
-        {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${accessToken}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            url: url,
-            type: "URL_UPDATED"
-          })
-        }
-      );
-      if (res.ok) successfulPings++;
+      try {
+        const res = await fetch(
+          "https://indexing.googleapis.com/v3/urlNotifications:publish",
+          {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${accessToken}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              url: url,
+              type: "URL_UPDATED"
+            })
+          }
+        );
+        if (res.ok) successfulPings++;
+      } catch (e) {
+        // Individual URL failure — continue
+      }
     }
 
+    console.log(`[GOOGLE-INDEXING] ${successfulPings}/${urls.length} submitted`);
     return { ok: successfulPings > 0, submitted: successfulPings, total: urls.length };
   } catch (error) {
+    console.log('[GOOGLE-INDEXING] Error:', error.message);
     return { ok: false, error: error.message };
   }
 }
 
+// ═══════════════════════════════════════════════════════════
+// ✅ IndexNow (Bing, Yandex, Naver, Seznam) — Always Active
+// ═══════════════════════════════════════════════════════════
 async function submitIndexNowInChunks(env, urls) {
   const chunks = [];
   for (let i = 0; i < urls.length; i += MAX_URLS_PER_BATCH) {
@@ -132,6 +166,9 @@ async function submitIndexNowInChunks(env, urls) {
   return { ok: submitted > 0, submitted, errors: errors.length ? errors : undefined };
 }
 
+// ═══════════════════════════════════════════════════════════
+// ✅ Bing Webmaster API — Always Active
+// ═══════════════════════════════════════════════════════════
 async function submitToBing(env, urls) {
   if (!env.BING_API_KEY) return { ok: false, reason: "no_key" };
   const siteUrl = `${SITE}/`;
@@ -150,6 +187,9 @@ async function submitToBing(env, urls) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════
+// ✅ Ping-O-Matic — Always Active
+// ═══════════════════════════════════════════════════════════
 async function pingPingOMatic() {
   const title = encodeURIComponent("Ajker News");
   const url = encodeURIComponent(SITE);

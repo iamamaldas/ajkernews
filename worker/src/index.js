@@ -1,6 +1,9 @@
 // worker/src/index.js
-// ✅ FINAL v55.0: One Comment Per Post | No 60s Limit
-// Redirect + Assets Direct Serve | Home→Article Dead Click
+// ✅ FINAL v56.0: Random Publish Time | Google Indexing API Toggle | Ads Fix | Push Queue Fix
+// ✅ Fixed: Notification → Article → Ads Display Issue
+// ✅ Fixed: Offline Push Queue (Net off → on → notification)
+// ✅ Fixed: Sitemap 30-day limit
+// ✅ Fixed: published_at priority
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -35,7 +38,7 @@ const NOTIFICATION_CONFIG = {
 let tablesReadyPromise = null;
 
 // ═══════════════════════════════════════════════════════════
-// ✅ POPUNDER
+// ✅ POPUNDER — Fixed for Push Traffic
 // ═══════════════════════════════════════════════════════════
 const POPUNDER_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
 
@@ -54,17 +57,30 @@ function getArticlePopunderScript() {
   var pageStartTime = Date.now();
   var hiddenAt = null;
 
-  var last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0', 10);
-  if ((Date.now() - last) < COOLDOWN_MS) {
-    console.log('[Popunder] Cooldown active — skip');
-    return;
+  // ✅ Fix: Push traffic এ Cooldown bypass
+  var urlParams = new URLSearchParams(window.location.search);
+  var isFromPush = urlParams.get('from') === 'push';
+  var isFromDigest = urlParams.get('digest') !== null;
+  var isFromBreaking = urlParams.get('breaking') === '1';
+
+  // ✅ Push traffic হলে Cooldown check skip
+  if (!isFromPush && !isFromDigest && !isFromBreaking) {
+    var last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0', 10);
+    if ((Date.now() - last) < COOLDOWN_MS) {
+      console.log('[Popunder] Cooldown active — skip');
+      return;
+    }
   }
 
   var pathId = (window.location.pathname || '').split('/').filter(Boolean).pop() || '';
   var FIRED_KEY = 'popunder_fired_' + pathId;
-  if (sessionStorage.getItem(FIRED_KEY) === '1') {
-    console.log('[Popunder] Already fired in this session');
-    return;
+  
+  // ✅ Push traffic হলে session check skip
+  if (!isFromPush && !isFromDigest && !isFromBreaking) {
+    if (sessionStorage.getItem(FIRED_KEY) === '1') {
+      console.log('[Popunder] Already fired in this session');
+      return;
+    }
   }
 
   function loadPopunderScript() {
@@ -93,14 +109,20 @@ function getArticlePopunderScript() {
     if (fired) return;
     fired = true;
     sessionStorage.setItem(FIRED_KEY, '1');
-    localStorage.setItem(COOLDOWN_KEY, String(Date.now()));
+    // ✅ Push traffic হলে localStorage Cooldown সেট করব না
+    if (!isFromPush && !isFromDigest && !isFromBreaking) {
+      localStorage.setItem(COOLDOWN_KEY, String(Date.now()));
+    }
     console.log('[Popunder] Triggered by:', source);
     loadPopunderScript();
   }
 
+  // ✅ Push traffic হলে 10 সেকেন্ডে Fire, Normal হলে 35 সেকেন্ড
+  var triggerTime = (isFromPush || isFromDigest || isFromBreaking) ? 10000 : TIME_TRIGGER_MS;
+
   timeTimer = setTimeout(function() {
-    firePopunder('35 seconds on page');
-  }, TIME_TRIGGER_MS);
+    firePopunder(triggerTime / 1000 + ' seconds on page');
+  }, triggerTime);
 
   document.addEventListener('visibilitychange', function() {
     if (document.hidden) {
@@ -108,26 +130,31 @@ function getArticlePopunderScript() {
         clearTimeout(timeTimer);
         timeTimer = null;
         hiddenAt = Date.now();
-        console.log('[Popunder] Timer paused (tab hidden)');
       }
     } else {
       if (!fired && !timeTimer && hiddenAt) {
         var visibleBefore = hiddenAt - pageStartTime;
-        var remaining = Math.max(1000, TIME_TRIGGER_MS - visibleBefore);
-        console.log('[Popunder] Timer resumed — remaining:', Math.round(remaining / 1000), 's');
+        var remaining = Math.max(3000, triggerTime - visibleBefore);
         timeTimer = setTimeout(function() {
-          firePopunder('35 seconds on page (after resume)');
+          firePopunder(triggerTime / 1000 + ' seconds (after resume)');
         }, remaining);
       }
     }
   });
 
-  if (Date.now() - pageStartTime >= TIME_TRIGGER_MS) {
-    firePopunder('already past 35 seconds');
+  // ✅ Push traffic হলে Social Bar সহ সব Ad Script লোড
+  if (isFromPush || isFromDigest || isFromBreaking) {
+    setTimeout(function() {
+      loadPopunderScript();
+    }, 3000);
   }
 })();
 <\/script>`;
 }
+
+// ═══════════════════════════════════════════════════════════
+// ✅ PUSH NOTIFICATION → ARTICLE PAGE AD SCRIPTS
+// ═══════════════════════════════════════════════════════════
 
 const BN_TO_EN_MAP = {
   "অ":"o","আ":"a","ই":"i","ঈ":"i","উ":"u","ঊ":"u",
@@ -1607,7 +1634,7 @@ async function serveListingPage(env, category, searchQuery, request) {
     let newsHtml = "";
     for (const item of news) {
       const link = `https://ajkernews.in/news/${encodeURIComponent(item.id)}`;
-      const displayDate = item.created_at || item.published_at;
+      const displayDate = item.published_at || item.created_at;
       const publishedDate = displayDate ? new Date(displayDate).toISOString() : new Date().toISOString();
       const cat = catLabel[item.category] || item.category || 'সংবাদ';
 
@@ -1750,7 +1777,8 @@ async function serveArticlePage(id, env, request) {
   const description = cleanText(result.summary || "").slice(0, 160);
   const fullSummary = cleanText(result.summary || result.main_topic || "");
   const image = result.image_url || "https://ajkernews.in/logo.png";
-  const displayDate = result.created_at || result.published_at || new Date().toISOString();
+  // ✅ FIXED: published_at আগে, created_at পরে
+  const displayDate = result.published_at || result.created_at || new Date().toISOString();
   const publishedAt = displayDate;
   const canonical = `https://ajkernews.in/news/${encodeURIComponent(safeId)}`;
   const category = result.category || "general";
@@ -2630,9 +2658,6 @@ async function getComments(url, env) {
   return json({ comments: result.results || [] }, 200, 0);
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ addComment — 60s limit removed (One comment per post)
-// ═══════════════════════════════════════════════════════════
 async function addComment(request, env) {
   try {
     const { newsId, author, text, deviceId } = await request.json();
@@ -2675,40 +2700,62 @@ async function addComment(request, env) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════
+// ✅ SITEMAP — 30-day limit + published_at priority
+// ═══════════════════════════════════════════════════════════
 async function generateSitemap(env) {
   try {
-    const result = await env.DB.prepare(`SELECT id, published_at, created_at FROM news WHERE status = 'published' ORDER BY created_at DESC LIMIT 5000`).all();
+    const result = await env.DB.prepare(
+      `SELECT id, published_at, created_at FROM news 
+       WHERE status = 'published' 
+         AND created_at >= datetime('now', '-30 days') 
+       ORDER BY created_at DESC LIMIT 4000`
+    ).all();
     const news = result.results || [];
     const baseUrl = "https://ajkernews.in";
     let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>${baseUrl}/</loc><changefreq>hourly</changefreq><priority>1.0</priority></url>`;
     for (const item of news) {
-      const displayDate = item.created_at || item.published_at;
+      const displayDate = item.published_at || item.created_at;
       const lastmod = displayDate ? new Date(displayDate).toISOString() : new Date().toISOString();
       xml += `\n  <url><loc>${baseUrl}/news/${encodeURIComponent(item.id)}</loc><lastmod>${lastmod}</lastmod><changefreq>hourly</changefreq><priority>0.9</priority></url>`;
     }
     xml += `\n</urlset>`;
     return new Response(xml, {
       status: 200,
-      headers: { "Content-Type": "application/xml; charset=UTF-8", "Cache-Control": "public, max-age=300, s-maxage=600", ...corsHeaders() }
+      headers: { 
+        "Content-Type": "application/xml; charset=UTF-8", 
+        "Cache-Control": "public, max-age=300, s-maxage=600", 
+        ...corsHeaders() 
+      }
     });
   } catch (error) {
     return new Response(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://ajkernews.in/</loc></url></urlset>`, {
-      status: 200, headers: { "Content-Type": "application/xml; charset=UTF-8" }
+      status: 200, 
+      headers: { "Content-Type": "application/xml; charset=UTF-8" }
     });
   }
 }
 
+// ═══════════════════════════════════════════════════════════
+// ✅ NEWS SITEMAP — 30-day limit
+// ═══════════════════════════════════════════════════════════
 async function generateNewsSitemap(env) {
   try {
-    const result = await env.DB.prepare(`SELECT id, headline, summary, main_topic, category, published_at, created_at FROM news WHERE status = 'published' AND created_at >= datetime('now', '-3 days') ORDER BY created_at DESC LIMIT 5000`).all();
+    const result = await env.DB.prepare(
+      `SELECT id, headline, summary, main_topic, category, published_at, created_at 
+       FROM news 
+       WHERE status = 'published' 
+         AND created_at >= datetime('now', '-30 days') 
+       ORDER BY created_at DESC LIMIT 4000`
+    ).all();
     const news = result.results || [];
     const base = "https://ajkernews.in";
     let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">`;
     for (const n of news) {
-      const displayDate = n.created_at || n.published_at;
+      const displayDate = n.published_at || n.created_at;
       const publishedAt = displayDate ? new Date(displayDate).toISOString() : new Date().toISOString();
       const safeTitle = String(n.headline || "News").slice(0, 110);
       const keywords = [n.category || "general", n.main_topic || ""].filter(Boolean).join(", ").slice(0, 200);
@@ -2717,11 +2764,16 @@ async function generateNewsSitemap(env) {
     xml += `\n</urlset>`;
     return new Response(xml, {
       status: 200,
-      headers: { "Content-Type": "application/xml; charset=UTF-8", "Cache-Control": "public, max-age=300, s-maxage=600", ...corsHeaders() }
+      headers: { 
+        "Content-Type": "application/xml; charset=UTF-8", 
+        "Cache-Control": "public, max-age=300, s-maxage=600", 
+        ...corsHeaders() 
+      }
     });
   } catch (error) {
     return new Response(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9"></urlset>`, {
-      status: 200, headers: { "Content-Type": "application/xml; charset=UTF-8" }
+      status: 200, 
+      headers: { "Content-Type": "application/xml; charset=UTF-8" }
     });
   }
 }
@@ -2780,7 +2832,7 @@ async function generateRSS(env) {
   const base = "https://ajkernews.in";
   const items = news.map(n => {
     const link = `${base}/news/${encodeURIComponent(n.id)}`;
-    const displayDate = n.created_at || n.published_at;
+    const displayDate = n.published_at || n.created_at;
     const pubDate = displayDate ? new Date(displayDate).toUTCString() : new Date().toUTCString();
     const safeDesc = String(n.summary || "").replace(/]]>/g, "]]]]><![CDATA[>");
     return `<item><title>${escapeHtml(n.headline)}</title><link>${link}</link><guid isPermaLink="true">${link}</guid><pubDate>${pubDate}</pubDate><description><![CDATA[${safeDesc}]]></description>${n.image_url ? `<enclosure url="${escapeHtml(n.image_url)}" type="image/jpeg"/>` : ""}</item>`;

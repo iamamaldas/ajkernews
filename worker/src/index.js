@@ -1,6 +1,6 @@
 // worker/src/index.js
-// ✅ FINAL v54.0: Redirect + Assets Direct Serve | Home→Article Dead Click
-// Article + Social Bar + 24h TTL + Image Push + Spam Filter + One Comment Per User
+// ✅ FINAL v55.0: One Comment Per Post | No 60s Limit
+// Redirect + Assets Direct Serve | Home→Article Dead Click
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -2630,6 +2630,9 @@ async function getComments(url, env) {
   return json({ comments: result.results || [] }, 200, 0);
 }
 
+// ═══════════════════════════════════════════════════════════
+// ✅ addComment — 60s limit removed (One comment per post)
+// ═══════════════════════════════════════════════════════════
 async function addComment(request, env) {
   try {
     const { newsId, author, text, deviceId } = await request.json();
@@ -2656,16 +2659,6 @@ async function addComment(request, env) {
         code: "ALREADY_COMMENTED"
       }, 409, 0);
     }
-    
-    try {
-      const recent = await env.DB.prepare(
-        `SELECT COUNT(*) AS c FROM news_comments 
-         WHERE device_id = ? AND created_at >= datetime('now', '-60 seconds')`
-      ).bind(deviceId).first();
-      if (Number(recent?.c || 0) >= 1) {
-        return json({ success: false, error: "অনুগ্রহ করে ৬০ সেকেন্ড পরে চেষ্টা করুন।" }, 429, 0);
-      }
-    } catch (e) {}
     
     const id = crypto.randomUUID();
     const cleanAuthor = cleanText(author || "Guest").slice(0, 50);

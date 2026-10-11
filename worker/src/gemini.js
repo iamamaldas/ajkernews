@@ -1,8 +1,9 @@
 // worker/src/gemini.js
-// ✅ FIXED: cleanText utils থেকে import
+// ✅ FIXED: cleanText utils থেকে import + facts.js prompt injection
 // ✅ Unchanged logic
 
 import { cleanText } from "./utils.js";
+import { buildFactsPromptBlock, hasForbiddenContent } from "./facts.js";
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -187,12 +188,6 @@ async function processOneArticle(article, models, apiKey) {
         lastError = new Error("validation_failed");
       } catch (error) {
         lastError = error;
-        const msg = String(error?.message || "");
-        if (msg.includes("404") || msg.includes("NOT_FOUND")) continue;
-        if (msg.includes("429")) continue;
-        if (msg.includes("api_500") || msg.includes("api_502") || msg.includes("api_503") || msg.includes("api_504")) continue;
-        if (msg.includes("timeout")) continue;
-        if (msg.includes("JSON") || msg.includes("parse")) continue;
         continue;
       }
     }
@@ -222,8 +217,13 @@ function buildPrompt(article, simplified = false) {
       : []
   };
 
+  // ✅ NEW: facts block (current office holders + forbidden names)
+  const factsBlock = buildFactsPromptBlock();
+
   if (simplified) {
-    return `Convert this news into Bengali. Return JSON array with exactly one object.
+    return `${factsBlock}
+
+Convert this news into Bengali. Return JSON array with exactly one object.
 
 REQUIRED:
 - id: "${sourceData.id}"
@@ -245,6 +245,8 @@ ${sourceData.additional_sources.length ? `Additional sources: ${JSON.stringify(s
   }
 
   return `You are a senior Bengali news editor for Ajker News, an Indian Bengali news website.
+
+${factsBlock}
 
 PRIMARY AUDIENCE: Bengali readers in India, especially West Bengal.
 
@@ -374,6 +376,12 @@ function validateGeminiResult(result, article, isRetry = false) {
 
   if (!headline) return null;
   if (!summary) return null;
+
+  // ✅ NEW: forbidden outdated-fact check (both headline & summary)
+  if (hasForbiddenContent(headline) || hasForbiddenContent(summary)) {
+    console.warn(`[GEMINI] Rejected ${article.id}: outdated/wrong fact detected → will retry`);
+    return null;
+  }
 
   const minWords = isRetry ? RETRY_MIN_WORDS : MIN_SUMMARY_WORDS;
   const wordCount = summary.split(/\s+/).filter(Boolean).length;

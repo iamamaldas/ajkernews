@@ -1,9 +1,7 @@
 // worker/src/index.js
-// ✅ FINAL v56.0: Random Publish Time | Google Indexing API Toggle | Ads Fix | Push Queue Fix
-// ✅ Fixed: Notification → Article → Ads Display Issue
-// ✅ Fixed: Offline Push Queue (Net off → on → notification)
-// ✅ Fixed: Sitemap 30-day limit
-// ✅ Fixed: published_at priority
+// ✅ FINAL v57.0: Uniform Popunder (25s + 24h cooldown, all traffic)
+// ✅ Fixed: Share page-এ popunder ছিল না — এখন আছে
+// ✅ Fixed: Push traffic-এ alada rule ছিল — এখন uniform
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -38,7 +36,7 @@ const NOTIFICATION_CONFIG = {
 let tablesReadyPromise = null;
 
 // ═══════════════════════════════════════════════════════════
-// ✅ POPUNDER — Fixed for Push Traffic
+// ✅ POPUNDER — Uniform: 25 seconds + 24h cooldown (all traffic)
 // ═══════════════════════════════════════════════════════════
 const POPUNDER_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
 
@@ -50,37 +48,24 @@ function getArticlePopunderScript() {
   var POPUNDER_URL = "${POPUNDER_URL}";
   var COOLDOWN_KEY = 'popunder_article_last_fire';
   var COOLDOWN_MS = 24 * 60 * 60 * 1000;
-  var TIME_TRIGGER_MS = 35 * 1000;
+  var TIME_TRIGGER_MS = 25 * 1000;
   var fired = false;
   var scriptLoaded = false;
   var timeTimer = null;
   var pageStartTime = Date.now();
   var hiddenAt = null;
 
-  // ✅ Fix: Push traffic এ Cooldown bypass
-  var urlParams = new URLSearchParams(window.location.search);
-  var isFromPush = urlParams.get('from') === 'push';
-  var isFromDigest = urlParams.get('digest') !== null;
-  var isFromBreaking = urlParams.get('breaking') === '1';
-
-  // ✅ Push traffic হলে Cooldown check skip
-  if (!isFromPush && !isFromDigest && !isFromBreaking) {
-    var last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0', 10);
-    if ((Date.now() - last) < COOLDOWN_MS) {
-      console.log('[Popunder] Cooldown active — skip');
-      return;
-    }
+  var last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0', 10);
+  if ((Date.now() - last) < COOLDOWN_MS) {
+    console.log('[Popunder] Cooldown active — skip');
+    return;
   }
 
   var pathId = (window.location.pathname || '').split('/').filter(Boolean).pop() || '';
   var FIRED_KEY = 'popunder_fired_' + pathId;
-  
-  // ✅ Push traffic হলে session check skip
-  if (!isFromPush && !isFromDigest && !isFromBreaking) {
-    if (sessionStorage.getItem(FIRED_KEY) === '1') {
-      console.log('[Popunder] Already fired in this session');
-      return;
-    }
+  if (sessionStorage.getItem(FIRED_KEY) === '1') {
+    console.log('[Popunder] Already fired in this session');
+    return;
   }
 
   function loadPopunderScript() {
@@ -109,20 +94,14 @@ function getArticlePopunderScript() {
     if (fired) return;
     fired = true;
     sessionStorage.setItem(FIRED_KEY, '1');
-    // ✅ Push traffic হলে localStorage Cooldown সেট করব না
-    if (!isFromPush && !isFromDigest && !isFromBreaking) {
-      localStorage.setItem(COOLDOWN_KEY, String(Date.now()));
-    }
+    localStorage.setItem(COOLDOWN_KEY, String(Date.now()));
     console.log('[Popunder] Triggered by:', source);
     loadPopunderScript();
   }
 
-  // ✅ Push traffic হলে 10 সেকেন্ডে Fire, Normal হলে 35 সেকেন্ড
-  var triggerTime = (isFromPush || isFromDigest || isFromBreaking) ? 10000 : TIME_TRIGGER_MS;
-
   timeTimer = setTimeout(function() {
-    firePopunder(triggerTime / 1000 + ' seconds on page');
-  }, triggerTime);
+    firePopunder('25 seconds on page');
+  }, TIME_TRIGGER_MS);
 
   document.addEventListener('visibilitychange', function() {
     if (document.hidden) {
@@ -134,20 +113,13 @@ function getArticlePopunderScript() {
     } else {
       if (!fired && !timeTimer && hiddenAt) {
         var visibleBefore = hiddenAt - pageStartTime;
-        var remaining = Math.max(3000, triggerTime - visibleBefore);
+        var remaining = Math.max(3000, TIME_TRIGGER_MS - visibleBefore);
         timeTimer = setTimeout(function() {
-          firePopunder(triggerTime / 1000 + ' seconds (after resume)');
+          firePopunder('25 seconds (after resume)');
         }, remaining);
       }
     }
   });
-
-  // ✅ Push traffic হলে Social Bar সহ সব Ad Script লোড
-  if (isFromPush || isFromDigest || isFromBreaking) {
-    setTimeout(function() {
-      loadPopunderScript();
-    }, 3000);
-  }
 })();
 <\/script>`;
 }
@@ -501,9 +473,6 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders() });
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // ✅ PUBLIC ASSETS REDIRECT (Logo, Favicon, Manifest)
-    // ═══════════════════════════════════════════════════════════
     const publicRedirects = {
       "/favicon.ico": "/public/favicon.ico",
       "/favicon-16x16.png": "/public/favicon-16x16.png",
@@ -552,7 +521,6 @@ export default {
         return new Response(JSON.stringify(data), { status, headers });
       }
 
-      // Admin routes
       if (url.pathname === "/admin" && request.method === "GET") {
         const session = await getAdminSession(request, env);
         if (session) return Response.redirect(new URL("/admin/dashboard", url).toString(), 302);
@@ -1777,7 +1745,6 @@ async function serveArticlePage(id, env, request) {
   const description = cleanText(result.summary || "").slice(0, 160);
   const fullSummary = cleanText(result.summary || result.main_topic || "");
   const image = result.image_url || "https://ajkernews.in/logo.png";
-  // ✅ FIXED: published_at আগে, created_at পরে
   const displayDate = result.published_at || result.created_at || new Date().toISOString();
   const publishedAt = displayDate;
   const canonical = `https://ajkernews.in/news/${encodeURIComponent(safeId)}`;
@@ -2248,6 +2215,7 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
   const adScripts = isBot ? "" : getAdsterraScripts();
   const adultBlocker = isBot ? "" : getAdultBlockerScript();
   const socialBarScript = isBot ? "" : getSocialBarTopScript();
+  const articlePopunder = isBot ? "" : getArticlePopunderScript();
 
   const title = cleanText(result.headline) || "Ajker News";
   const description = cleanText(result.summary || "").slice(0, 160);
@@ -2284,6 +2252,7 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
 <meta name="twitter:card" content="summary_large_image">
 ${adScripts}
 ${socialBarScript}
+${articlePopunder}
 <style>
   * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, sans-serif; }
   body { background: #f5f5f5; color: #111; padding: 0 0 40px; }
@@ -2700,9 +2669,6 @@ async function addComment(request, env) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ SITEMAP — 30-day limit + published_at priority
-// ═══════════════════════════════════════════════════════════
 async function generateSitemap(env) {
   try {
     const result = await env.DB.prepare(
@@ -2738,9 +2704,6 @@ async function generateSitemap(env) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ NEWS SITEMAP — 30-day limit
-// ═══════════════════════════════════════════════════════════
 async function generateNewsSitemap(env) {
   try {
     const result = await env.DB.prepare(

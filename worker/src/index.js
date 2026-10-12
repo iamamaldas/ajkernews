@@ -1,7 +1,8 @@
 // worker/src/index.js
-// ✅ FINAL v57.0: Uniform Popunder (25s + 24h cooldown, all traffic)
-// ✅ Fixed: Share page-এ popunder ছিল না — এখন আছে
-// ✅ Fixed: Push traffic-এ alada rule ছিল — এখন uniform
+// ✅ FINAL v58.0: Fixed Popunder (25s visible time + 24h cooldown, all traffic)
+// ✅ Home page এ popunder নেই — শুধু article page এ
+// ✅ Share page-এও popunder আছে
+// ✅ Push traffic-এ uniform rule
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -36,7 +37,7 @@ const NOTIFICATION_CONFIG = {
 let tablesReadyPromise = null;
 
 // ═══════════════════════════════════════════════════════════
-// ✅ POPUNDER — Uniform: 25 seconds + 24h cooldown (all traffic)
+// ✅ POPUNDER — Fixed: 25s visible time + 24h cooldown
 // ═══════════════════════════════════════════════════════════
 const POPUNDER_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
 
@@ -52,21 +53,25 @@ function getArticlePopunderScript() {
   var fired = false;
   var scriptLoaded = false;
   var timeTimer = null;
-  var pageStartTime = Date.now();
-  var hiddenAt = null;
+  var visibleTimeAccumulated = 0;
+  var visibleStartedAt = Date.now();
 
-  var last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0', 10);
-  if ((Date.now() - last) < COOLDOWN_MS) {
-    console.log('[Popunder] Cooldown active — skip');
-    return;
-  }
+  try {
+    var last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0', 10);
+    if (last && (Date.now() - last) < COOLDOWN_MS) {
+      console.log('[Popunder] 24h cooldown active — skip');
+      return;
+    }
+  } catch (e) {}
 
-  var pathId = (window.location.pathname || '').split('/').filter(Boolean).pop() || '';
+  var pathId = (window.location.pathname || '').split('/').filter(Boolean).pop() || 'unknown';
   var FIRED_KEY = 'popunder_fired_' + pathId;
-  if (sessionStorage.getItem(FIRED_KEY) === '1') {
-    console.log('[Popunder] Already fired in this session');
-    return;
-  }
+  try {
+    if (sessionStorage.getItem(FIRED_KEY) === '1') {
+      console.log('[Popunder] Already fired for this article in this session');
+      return;
+    }
+  } catch (e) {}
 
   function loadPopunderScript() {
     if (scriptLoaded) return;
@@ -87,39 +92,60 @@ function getArticlePopunderScript() {
     s.onerror = function() {
       console.warn('[Popunder] Script load failed ❌');
     };
-    document.body.appendChild(s);
+    (document.body || document.documentElement).appendChild(s);
   }
 
   function firePopunder(source) {
     if (fired) return;
     fired = true;
-    sessionStorage.setItem(FIRED_KEY, '1');
-    localStorage.setItem(COOLDOWN_KEY, String(Date.now()));
-    console.log('[Popunder] Triggered by:', source);
+    try {
+      sessionStorage.setItem(FIRED_KEY, '1');
+      localStorage.setItem(COOLDOWN_KEY, String(Date.now()));
+    } catch (e) {}
+    console.log('[Popunder] 🔥 Triggered by:', source);
     loadPopunderScript();
   }
 
-  timeTimer = setTimeout(function() {
-    firePopunder('25 seconds on page');
-  }, TIME_TRIGGER_MS);
+  function startTimer(ms) {
+    if (timeTimer) clearTimeout(timeTimer);
+    timeTimer = setTimeout(function() {
+      firePopunder('25s visible time reached');
+    }, ms);
+  }
+
+  function stopTimer() {
+    if (timeTimer) {
+      clearTimeout(timeTimer);
+      timeTimer = null;
+    }
+  }
+
+  startTimer(TIME_TRIGGER_MS);
 
   document.addEventListener('visibilitychange', function() {
+    if (fired) return;
+    var now = Date.now();
+
     if (document.hidden) {
-      if (timeTimer && !fired) {
-        clearTimeout(timeTimer);
-        timeTimer = null;
-        hiddenAt = Date.now();
-      }
+      visibleTimeAccumulated += (now - visibleStartedAt);
+      stopTimer();
+      console.log('[Popunder] Tab hidden. Visible so far:', Math.round(visibleTimeAccumulated / 1000), 's');
     } else {
-      if (!fired && !timeTimer && hiddenAt) {
-        var visibleBefore = hiddenAt - pageStartTime;
-        var remaining = Math.max(3000, TIME_TRIGGER_MS - visibleBefore);
-        timeTimer = setTimeout(function() {
-          firePopunder('25 seconds (after resume)');
-        }, remaining);
+      visibleStartedAt = now;
+      var remaining = TIME_TRIGGER_MS - visibleTimeAccumulated;
+      if (remaining <= 0) {
+        firePopunder('25s already accumulated');
+      } else {
+        console.log('[Popunder] Tab visible. Remaining:', Math.round(remaining / 1000), 's');
+        startTimer(remaining);
       }
     }
   });
+
+  window.addEventListener('pagehide', function() {
+    stopTimer();
+  });
+
 })();
 <\/script>`;
 }

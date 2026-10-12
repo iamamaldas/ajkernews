@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v58.0: Fixed Popunder (25s visible time + 24h cooldown, all traffic)
+// ✅ FINAL v58.1: RSS enclosure length fix + Fixed Popunder
 // ✅ Home page এ popunder নেই — শুধু article page এ
 // ✅ Share page-এও popunder আছে
 // ✅ Push traffic-এ uniform rule
@@ -2815,6 +2815,9 @@ Sitemap: https://ajkernews.in/news-sitemap.xml
   });
 }
 
+// ═══════════════════════════════════════════════════════════
+// ✅ RSS — FIXED: enclosure tag-এ length attribute যোগ করা হয়েছে
+// ═══════════════════════════════════════════════════════════
 async function generateRSS(env) {
   const result = await env.DB.prepare(`SELECT id, headline, summary, published_at, created_at, image_url, source_name FROM news WHERE status='published' ORDER BY created_at DESC LIMIT 50`).all();
   const news = result.results || [];
@@ -2824,7 +2827,11 @@ async function generateRSS(env) {
     const displayDate = n.published_at || n.created_at;
     const pubDate = displayDate ? new Date(displayDate).toUTCString() : new Date().toUTCString();
     const safeDesc = String(n.summary || "").replace(/]]>/g, "]]]]><![CDATA[>");
-    return `<item><title>${escapeHtml(n.headline)}</title><link>${link}</link><guid isPermaLink="true">${link}</guid><pubDate>${pubDate}</pubDate><description><![CDATA[${safeDesc}]]></description>${n.image_url ? `<enclosure url="${escapeHtml(n.image_url)}" type="image/jpeg"/>` : ""}</item>`;
+    // ✅ Fixed: length attribute added (required by RSS 2.0 spec)
+    const enclosureTag = n.image_url
+      ? `<enclosure url="${escapeHtml(n.image_url)}" length="0" type="image/jpeg"/>`
+      : "";
+    return `<item><title>${escapeHtml(n.headline)}</title><link>${link}</link><guid isPermaLink="true">${link}</guid><pubDate>${pubDate}</pubDate><description><![CDATA[${safeDesc}]]></description>${enclosureTag}</item>`;
   }).join("\n");
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">

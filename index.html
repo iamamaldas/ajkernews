@@ -275,7 +275,6 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .news-source-link { color:#1976d2; text-decoration:none; font-weight:600; cursor:pointer; transition: color 0.15s; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:60%; }
 .news-source-link:hover { color:#0d47a1; text-decoration:underline; }
 
-/* ✅ FIX: Only apply hover effect on devices that truly support hover (desktop) */
 @media (hover: hover) {
   .news-title:hover { color:#e53935; }
   .news-card:hover { box-shadow: 0 2px 4px rgba(0,0,0,0.05), 0 16px 40px rgba(0,0,0,0.1); transform: translateY(-3px); }
@@ -785,6 +784,29 @@ async function updateLoveCounts(normalized) {
   } catch (e) {}
 }
 
+// ═══════════════════════════════════════════════════════════
+// ✅ HOME PAGE — Source Link Handler
+// ✅ Source link click → Article page → Popunder (5s later)
+// ═══════════════════════════════════════════════════════════
+function goToArticleFromSource(event, el) {
+  event.preventDefault();
+  event.stopPropagation();
+
+  var articleUrl = el.getAttribute('data-article-url') || '';
+  if (!articleUrl) return false;
+
+  // ✅ Popunder flag set করুন
+  try {
+    sessionStorage.setItem('ajker_popunder_from_source', '1');
+    sessionStorage.setItem('ajker_popunder_ts', String(Date.now()));
+  } catch (e) {}
+
+  // ✅ Server article page-এ navigate করুন
+  window.location.href = articleUrl;
+
+  return false;
+}
+
 function buildNewsHtml(news) {
   const image = news.image_url || '/logo.png';
   const headline = news.headline || 'সংবাদ';
@@ -809,7 +831,10 @@ function buildNewsHtml(news) {
       <h2 class="news-title" onclick="openNewsWithPopunder('${articleUrl}')">${escapeHtml(headline)}</h2>
       ${summary ? `<p class="news-summary" onclick="openNewsWithPopunder('${articleUrl}')">${escapeHtml(summary)}</p>` : ''}
       <div class="news-meta">
-        <a href="${articleUrl}" class="news-source-link">${escapeHtml(source)}</a>
+        <a href="javascript:void(0)" 
+           class="news-source-link" 
+           data-article-url="${articleUrl}"
+           onclick="goToArticleFromSource(event, this);">${escapeHtml(source)}</a>
         <div>${escapeHtml(formattedTime)}</div>
       </div>
       <div class="news-actions">
@@ -1329,15 +1354,14 @@ document.addEventListener('click', function() {
 }, { once: true, passive: true });
 
 // ═══════════════════════════════════════════════════════════
-// ✅ HOME PAGE — Article click BLOCKED (Dead Click)
+// ✅ Home page article click → Article page (no popunder flag)
 // ═══════════════════════════════════════════════════════════
 function openNewsWithPopunder(url) {
-  // Home page থেকে article page-এ যাওয়া block করা হয়েছে
-  return;
+  window.location.href = url;
 }
 
 // ═══════════════════════════════════════════════════════════
-// ✅ FLUSH PENDING NOTIFICATIONS (NEW)
+// ✅ FLUSH PENDING NOTIFICATIONS
 // ═══════════════════════════════════════════════════════════
 function flushPendingNotifications() {
   if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
@@ -1373,8 +1397,6 @@ document.addEventListener('DOMContentLoaded', function() {
     } catch (err) {}
   }
   await checkNotificationStatus();
-  
-  // ✅ Flush pending notifications on init
   setTimeout(flushPendingNotifications, 3000);
 })();
 </script>

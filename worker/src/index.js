@@ -1,5 +1,6 @@
 // worker/src/index.js
-// ✅ FINAL v59.0: Popunder (source link only) + News Sitemap fix + Indexing API ready
+// ✅ FINAL v60.0: Popunder (source link only) + URL param + sessionStorage
+// ✅ News Sitemap fix + Indexing API ready + RSS enclosure length fix
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -34,8 +35,10 @@ const NOTIFICATION_CONFIG = {
 let tablesReadyPromise = null;
 
 // ═══════════════════════════════════════════════════════════
-// ✅ POPUNDER — Home page source link click → 5s later
-// ❌ No cooldown — প্রতিবার source click-এ popunder দেখাবে
+// ✅ POPUNDER — Article page (ONLY from source link)
+// ✅ 4-Layer Detection: URL param + sessionStorage + cleanup
+// ❌ Image/Title/Summary click থেকে আসলে fire হবে না
+// ❌ Direct URL / Bookmark / Share থেকে আসলে fire হবে না
 // ═══════════════════════════════════════════════════════════
 const POPUNDER_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
 
@@ -44,23 +47,60 @@ function getArticlePopunderScript() {
 (function() {
   'use strict';
 
+  // ═══════════════════════════════════════════════════════════
+  // ✅ 4-Layer Source Detection
+  // ═══════════════════════════════════════════════════════════
+  
   var fromSource = false;
+  var detectionMethod = 'none';
+
+  // ✅ Layer 1: URL Parameter (primary)
   try {
-    fromSource = sessionStorage.getItem('ajker_popunder_from_source') === '1';
+    var urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('from') === 'source') {
+      fromSource = true;
+      detectionMethod = 'url-param';
+    }
   } catch (e) {}
 
+  // ✅ Layer 2: sessionStorage with 30s timestamp (fallback)
   if (!fromSource) {
-    console.log('[Popunder] Not from source click — SKIP');
+    try {
+      var ts = parseInt(sessionStorage.getItem('ajker_src') || '0', 10);
+      if (ts && (Date.now() - ts) < 30000) {
+        fromSource = true;
+        detectionMethod = 'session-storage';
+      }
+    } catch (e) {}
+  }
+
+  // 🧹 Cleanup — সবসময় (যাতে পরের visit এ ভুল না হয়)
+  try {
+    sessionStorage.removeItem('ajker_src');
+  } catch (e) {}
+
+  // 🧹 URL Cleanup — share করলে param যাবে না (SEO + share safe)
+  if (fromSource && window.history && window.history.replaceState) {
+    try {
+      var cleanUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, cleanUrl);
+    } catch (e) {}
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // ❌ অন্য কোনো পথ থেকে এলে — popunder fire হবে না
+  // ═══════════════════════════════════════════════════════════
+  if (!fromSource) {
+    console.log('[Popunder] ❌ Not from source link — SKIP');
     return;
   }
 
-  try {
-    sessionStorage.removeItem('ajker_popunder_from_source');
-    sessionStorage.removeItem('ajker_popunder_ts');
-  } catch (e) {}
+  console.log('[Popunder] ✅ Source detected via:', detectionMethod, '— will fire in 5s');
 
-  console.log('[Popunder] ✅ Source click detected — will fire in 5s');
-
+  // ═══════════════════════════════════════════════════════════
+  // Popunder Firing Logic
+  // ═══════════════════════════════════════════════════════════
+  
   var POPUNDER_URL = "${POPUNDER_URL}";
   var TIME_TRIGGER_MS = 5 * 1000;
   var fired = false;
@@ -94,7 +134,7 @@ function getArticlePopunderScript() {
   function firePopunder(reason) {
     if (fired) return;
     fired = true;
-    console.log('[Popunder] 🔥 FIRED — reason:', reason);
+    console.log('[Popunder] 🔥 FIRED —', reason);
     loadPopunderScript();
   }
 
@@ -1727,7 +1767,7 @@ ${bannerContainer}
 }
 
 // ═══════════════════════════════════════════════════════════
-// ✅ ARTICLE PAGE — Popunder only from home source link
+// ✅ ARTICLE PAGE — Popunder only from source link
 // ═══════════════════════════════════════════════════════════
 async function serveArticlePage(id, env, request) {
   const safeId = String(id || "").trim();
@@ -2237,6 +2277,7 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
   const adScripts = isBot ? "" : getAdsterraScripts();
   const adultBlocker = isBot ? "" : getAdultBlockerScript();
   const socialBarScript = isBot ? "" : getSocialBarTopScript();
+  const articlePopunder = isBot ? "" : getArticlePopunderScript();
 
   const title = cleanText(result.headline) || "Ajker News";
   const description = cleanText(result.summary || "").slice(0, 160);
@@ -2273,6 +2314,7 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
 <meta name="twitter:card" content="summary_large_image">
 ${adScripts}
 ${socialBarScript}
+${articlePopunder}
 <style>
   * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, sans-serif; }
   body { background: #f5f5f5; color: #111; padding: 0 0 40px; }

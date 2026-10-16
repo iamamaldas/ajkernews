@@ -782,8 +782,7 @@ async function updateLoveCounts(normalized) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ✅ SOURCE LINK CLICK HANDLER — Popunder Signal
-// ✅ URL param + sessionStorage (dual layer)
+// ✅ SOURCE LINK CLICK HANDLER — Popunder Signal (Dual Layer)
 // ═══════════════════════════════════════════════════════════
 function goToArticleFromSource(event, el) {
   event.preventDefault();
@@ -819,7 +818,7 @@ function buildNewsHtml(news) {
   const safeSummary = summary.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
   const articleUrl = `/news/${encodeURIComponent(news.id)}`;
 
-  // ✅ Image, Title, Summary — NON-CLICKABLE (cursor:default)
+  // ✅ Image, Title, Summary — NON-CLICKABLE (cursor: default)
   // ✅ ONLY Source Link — CLICKABLE
   return `<article class="news-card" data-news-id="${escapeHtml(news.id)}">
     <div class="news-image-wrapper">

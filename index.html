@@ -263,22 +263,19 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   0% { box-shadow: 0 0 0 3px #ffeb3b, 0 6px 24px rgba(0,0,0,0.06); }
   100% { box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 6px 24px rgba(0,0,0,0.06); }
 }
-.news-image-wrapper { position:relative; width:100%; aspect-ratio:16/9; background:#f2f3f5; overflow:hidden; cursor:pointer; }
+.news-image-wrapper { position:relative; width:100%; aspect-ratio:16/9; background:#f2f3f5; overflow:hidden; cursor: default; }
 .news-image { display:block; width:100%; aspect-ratio:16/9; object-fit:cover; object-position:center center; transition: transform 0.6s cubic-bezier(0.4,0,0.2,1); }
-.news-card:hover .news-image { transform: scale(1.04); }
 
 .news-body { padding:20px 22px 22px; }
 .news-category { display:inline-block; margin-bottom:11px; font-size:11px; font-weight:700; color:#e53935; background:#ffebee; padding:4px 11px; border-radius:20px; letter-spacing:0.4px; text-transform:uppercase; }
-.news-title { font-size:19px; line-height:1.42; font-weight:700; margin-bottom:12px; cursor:pointer; letter-spacing:-0.3px; color:#0a0a0a; transition: color 0.15s ease; }
-.news-summary { font-size:15px; line-height:1.72; color:#4a4a4a; cursor:pointer; margin-bottom:4px; }
+.news-title { font-size:19px; line-height:1.42; font-weight:700; margin-bottom:12px; letter-spacing:-0.3px; color:#0a0a0a; cursor: default; }
+.news-summary { font-size:15px; line-height:1.72; color:#4a4a4a; margin-bottom:4px; cursor: default; }
 .news-meta { display:flex; align-items:center; justify-content:space-between; margin-top:16px; font-size:12.5px; color:#8a8a8a; font-weight:500; gap:10px; }
 .news-source-link { color:#1976d2; text-decoration:none; font-weight:600; cursor:pointer; transition: color 0.15s; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:60%; }
 .news-source-link:hover { color:#0d47a1; text-decoration:underline; }
 
 @media (hover: hover) {
-  .news-title:hover { color:#e53935; }
   .news-card:hover { box-shadow: 0 2px 4px rgba(0,0,0,0.05), 0 16px 40px rgba(0,0,0,0.1); transform: translateY(-3px); }
-  .news-card:hover .news-image { transform: scale(1.04); }
   .news-source-link:hover { color:#0d47a1; text-decoration:underline; }
   .action-btn:hover { background:#f5f5f5; color:#111; }
   .notif-btn:hover, .search-btn:hover, .hamburger:hover { background: #f0f0f0; }
@@ -785,8 +782,8 @@ async function updateLoveCounts(normalized) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ✅ HOME PAGE — Source Link Handler
-// ✅ Source link click → Article page → Popunder (5s later)
+// ✅ SOURCE LINK CLICK HANDLER — Popunder Signal
+// ✅ URL param + sessionStorage (dual layer)
 // ═══════════════════════════════════════════════════════════
 function goToArticleFromSource(event, el) {
   event.preventDefault();
@@ -795,14 +792,14 @@ function goToArticleFromSource(event, el) {
   var articleUrl = el.getAttribute('data-article-url') || '';
   if (!articleUrl) return false;
 
-  // ✅ Popunder flag set করুন
+  // ✅ Layer 1: sessionStorage backup (with timestamp)
   try {
-    sessionStorage.setItem('ajker_popunder_from_source', '1');
-    sessionStorage.setItem('ajker_popunder_ts', String(Date.now()));
+    sessionStorage.setItem('ajker_src', String(Date.now()));
   } catch (e) {}
 
-  // ✅ Server article page-এ navigate করুন
-  window.location.href = articleUrl;
+  // ✅ Layer 2: URL parameter (primary)
+  var separator = articleUrl.includes('?') ? '&' : '?';
+  window.location.href = articleUrl + separator + 'from=source';
 
   return false;
 }
@@ -822,16 +819,18 @@ function buildNewsHtml(news) {
   const safeSummary = summary.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
   const articleUrl = `/news/${encodeURIComponent(news.id)}`;
 
+  // ✅ Image, Title, Summary — NON-CLICKABLE (cursor:default)
+  // ✅ ONLY Source Link — CLICKABLE
   return `<article class="news-card" data-news-id="${escapeHtml(news.id)}">
-    <div class="news-image-wrapper" onclick="openNewsWithPopunder('${articleUrl}')">
+    <div class="news-image-wrapper">
       <img class="news-image" src="${escapeHtml(image)}" alt="${escapeHtml(headline)}" loading="lazy" decoding="async" width="800" height="450" onerror="this.onerror=null;this.src='/logo.png';">
     </div>
     <div class="news-body">
       <div class="news-category">${escapeHtml(category)}</div>
-      <h2 class="news-title" onclick="openNewsWithPopunder('${articleUrl}')">${escapeHtml(headline)}</h2>
-      ${summary ? `<p class="news-summary" onclick="openNewsWithPopunder('${articleUrl}')">${escapeHtml(summary)}</p>` : ''}
+      <h2 class="news-title">${escapeHtml(headline)}</h2>
+      ${summary ? `<p class="news-summary">${escapeHtml(summary)}</p>` : ''}
       <div class="news-meta">
-        <a href="javascript:void(0)" 
+        <a href="${articleUrl}" 
            class="news-source-link" 
            data-article-url="${articleUrl}"
            onclick="goToArticleFromSource(event, this);">${escapeHtml(source)}</a>
@@ -1352,13 +1351,6 @@ document.addEventListener('click', function() {
   if (sessionStorage.getItem(NOTIFICATION_SHOWN_KEY)) return;
   setTimeout(triggerNotificationPrompt, 5000);
 }, { once: true, passive: true });
-
-// ═══════════════════════════════════════════════════════════
-// ✅ Home page article click → Article page (no popunder flag)
-// ═══════════════════════════════════════════════════════════
-function openNewsWithPopunder(url) {
-  window.location.href = url;
-}
 
 // ═══════════════════════════════════════════════════════════
 // ✅ FLUSH PENDING NOTIFICATIONS

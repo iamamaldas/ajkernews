@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v61.0: Popunder Fixed + Social Bar Fixed
+// ✅ FINAL v62.0: Social Bar + Native Banner on all pages, Popunder only from source link
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -46,10 +46,6 @@ function getArticlePopunderScript() {
 (function() {
   'use strict';
 
-  // ═══════════════════════════════════════════════════════════
-  // ✅ 4-Layer Source Detection
-  // ═══════════════════════════════════════════════════════════
-  
   var fromSource = false;
   var detectionMethod = 'none';
 
@@ -86,9 +82,7 @@ function getArticlePopunderScript() {
     } catch (e) {}
   }
 
-  // ═══════════════════════════════════════════════════════════
   // ❌ অন্য কোনো পথ থেকে এলে — popunder fire হবে না
-  // ═══════════════════════════════════════════════════════════
   if (!fromSource) {
     console.log('[Popunder] ❌ Not from source link — SKIP');
     return;
@@ -96,9 +90,6 @@ function getArticlePopunderScript() {
 
   console.log('[Popunder] ✅ Source detected via:', detectionMethod, '— Loading Adsterra Script');
 
-  // ═══════════════════════════════════════════════════════════
-  // ✅ Adsterra Popunder সঠিক লোডিং পদ্ধতি
-  // ═══════════════════════════════════════════════════════════
   var s = document.createElement('script');
   s.type = 'text/javascript';
   s.async = true;
@@ -1414,8 +1405,8 @@ async function serveListingPage(env, category, searchQuery, request) {
     const bannerContainer = isBot ? "" : getNativeBannerContainer();
     const adultBlocker = isBot ? "" : getAdultBlockerScript();
     
-    // Social Bar script removed as per Adsterra policy
-    const socialBarScript = "";
+    // ✅ Social Bar — সব page এ (bot ছাড়া)
+    const socialBarScript = isBot ? "" : (ADS_CONFIG?.socialBarScript || "");
 
     const catLabel = {
       top:'সেরা খবর', trending:'ট্রেন্ডিং', west_bengal:'পশ্চিমবঙ্গ',
@@ -1575,7 +1566,7 @@ ${bannerContainer}
 }
 
 // ═══════════════════════════════════════════════════════════
-// ✅ ARTICLE PAGE — Popunder only from source link
+// ✅ ARTICLE PAGE — Social Bar + Native Banner + Popunder (source only)
 // ═══════════════════════════════════════════════════════════
 async function serveArticlePage(id, env, request) {
   const safeId = String(id || "").trim();
@@ -1588,8 +1579,9 @@ async function serveArticlePage(id, env, request) {
   const bannerContainer = isBot ? "" : getNativeBannerContainer();
   const adultBlocker = isBot ? "" : getAdultBlockerScript();
   
-  // Social Bar script removed
-  const socialBarScript = ""; 
+  // ✅ Social Bar — সব page এ (bot ছাড়া)
+  const socialBarScript = isBot ? "" : (ADS_CONFIG?.socialBarScript || "");
+  // ✅ Popunder — শুধু source link click থেকে
   const articlePopunder = isBot ? "" : getArticlePopunderScript();
 
   const result = await env.DB.prepare(
@@ -2087,7 +2079,9 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
   const adScripts = isBot ? "" : getAdsterraScripts();
   const adultBlocker = isBot ? "" : getAdultBlockerScript();
   
-  const socialBarScript = ""; // Removed
+  // ✅ Social Bar — share page এও show
+  const socialBarScript = isBot ? "" : (ADS_CONFIG?.socialBarScript || "");
+  // ✅ Popunder — share page এও শুধু source থেকে
   const articlePopunder = isBot ? "" : getArticlePopunderScript();
 
   const title = cleanText(result.headline) || "Ajker News";
@@ -2577,9 +2571,6 @@ async function generateSitemap(env) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ NEWS SITEMAP — Google News standard (48h + 1000 + PressRelease)
-// ═══════════════════════════════════════════════════════════
 async function generateNewsSitemap(env) {
   try {
     const result = await env.DB.prepare(

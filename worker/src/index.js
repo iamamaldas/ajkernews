@@ -1,6 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v60.0: Popunder (source link only) + URL param + sessionStorage
-// ✅ News Sitemap fix + Indexing API ready + RSS enclosure length fix
+// ✅ FINAL v61.0: Popunder Fixed + Social Bar Fixed
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -95,87 +94,17 @@ function getArticlePopunderScript() {
     return;
   }
 
-  console.log('[Popunder] ✅ Source detected via:', detectionMethod, '— will fire in 5s');
+  console.log('[Popunder] ✅ Source detected via:', detectionMethod, '— Loading Adsterra Script');
 
   // ═══════════════════════════════════════════════════════════
-  // Popunder Firing Logic
+  // ✅ Adsterra Popunder সঠিক লোডিং পদ্ধতি
   // ═══════════════════════════════════════════════════════════
-  
-  var POPUNDER_URL = "${POPUNDER_URL}";
-  var TIME_TRIGGER_MS = 5 * 1000;
-  var fired = false;
-  var scriptLoaded = false;
-  var timeTimer = null;
-  var visibleTimeAccumulated = 0;
-  var visibleStartedAt = Date.now();
-
-  function loadPopunderScript() {
-    if (scriptLoaded) return;
-    if (document.querySelector('script[data-ajker-popunder]')) {
-      scriptLoaded = true;
-      return;
-    }
-    console.log('[Popunder] 📥 Loading Adsterra script...');
-    var s = document.createElement('script');
-    s.async = true;
-    s.src = POPUNDER_URL;
-    s.setAttribute('data-cfasync', 'false');
-    s.setAttribute('data-ajker-popunder', '1');
-    s.onload = function() {
-      scriptLoaded = true;
-      console.log('[Popunder] ✅ Adsterra script loaded');
-    };
-    s.onerror = function() {
-      console.warn('[Popunder] ❌ Adsterra script failed');
-    };
-    (document.body || document.documentElement).appendChild(s);
-  }
-
-  function firePopunder(reason) {
-    if (fired) return;
-    fired = true;
-    console.log('[Popunder] 🔥 FIRED —', reason);
-    loadPopunderScript();
-  }
-
-  function startTimer(ms) {
-    if (timeTimer) clearTimeout(timeTimer);
-    timeTimer = setTimeout(function() {
-      firePopunder('5s visible time reached');
-    }, ms);
-  }
-
-  function stopTimer() {
-    if (timeTimer) {
-      clearTimeout(timeTimer);
-      timeTimer = null;
-    }
-  }
-
-  startTimer(TIME_TRIGGER_MS);
-
-  document.addEventListener('visibilitychange', function() {
-    if (fired) return;
-    var now = Date.now();
-    if (document.hidden) {
-      visibleTimeAccumulated += (now - visibleStartedAt);
-      stopTimer();
-      console.log('[Popunder] Tab hidden. Visible:', Math.round(visibleTimeAccumulated / 1000), 's');
-    } else {
-      visibleStartedAt = now;
-      var remaining = TIME_TRIGGER_MS - visibleTimeAccumulated;
-      if (remaining <= 0) {
-        firePopunder('5s already accumulated');
-      } else {
-        console.log('[Popunder] Tab visible. Remaining:', Math.round(remaining / 1000), 's');
-        startTimer(remaining);
-      }
-    }
-  });
-
-  window.addEventListener('pagehide', function() {
-    stopTimer();
-  });
+  var s = document.createElement('script');
+  s.type = 'text/javascript';
+  s.async = true;
+  s.setAttribute('data-cfasync', 'false');
+  s.src = "${POPUNDER_URL}";
+  (document.body || document.documentElement).appendChild(s);
 
 })();
 <\/script>`;
@@ -269,129 +198,6 @@ function getNativeBannerContainer() {
 
 function getAdultBlockerScript() {
   return `<script src="/public/adblock.js" defer><\/script>`;
-}
-
-function getSocialBarTopScript() {
-  return `<style id="socialBarTopStyle">
-html body > div[class*="socialbar"],
-html body > div[class*="social-bar"],
-html body > div[class*="adsterra"],
-html body > div[id*="socialbar"],
-html body > div[id*="social-bar"],
-html body > div[id*="adsterra"],
-html body > div[class*="sb-"],
-html body > iframe[class*="socialbar"],
-html body > iframe[class*="adsterra"],
-html body > iframe[id*="socialbar"],
-html body > iframe[id*="adsterra"],
-html body > div[style*="bottom: 0"],
-html body > div[style*="bottom:0"],
-html body > div[style*="bottom: 10"],
-html body > div[style*="bottom:10"],
-html body > div[style*="bottom: 15"],
-html body > div[style*="bottom:15"],
-html body > div[style*="bottom: 20"],
-html body > div[style*="bottom:20"] {
-  top: 0 !important;
-  bottom: auto !important;
-  left: 0 !important;
-  right: auto !important;
-  position: fixed !important;
-  z-index: 99999 !important;
-  transform: none !important;
-  margin: 0 !important;
-}
-html body > div[class*="socialbar"] iframe,
-html body > div[class*="adsterra"] iframe,
-html body > div[id*="socialbar"] iframe,
-html body > div[id*="adsterra"] iframe {
-  top: 0 !important;
-  bottom: auto !important;
-  left: 0 !important;
-  right: auto !important;
-  position: fixed !important;
-}
-</style>
-<script>
-(function() {
-  'use strict';
-  function moveSocialBarToTop() {
-    try {
-      var all = document.querySelectorAll('body > div, body > iframe, body > ins');
-      for (var i = 0; i < all.length; i++) {
-        var el = all[i];
-        if (el.id === 'artCommentModal') continue;
-        
-        var cls = (el.className || '').toString().toLowerCase();
-        var idn = (el.id || '').toString().toLowerCase();
-        var style = window.getComputedStyle(el);
-        
-        var isSocialBar = (
-          cls.indexOf('social') !== -1 ||
-          cls.indexOf('adsterra') !== -1 ||
-          cls.indexOf('sb-') !== -1 ||
-          idn.indexOf('social') !== -1 ||
-          idn.indexOf('adsterra') !== -1
-        );
-        
-        var isFixedBottom = (
-          style.position === 'fixed' &&
-          (style.bottom === '0px' || parseInt(style.bottom, 10) >= -5) &&
-          el.offsetHeight > 0 && el.offsetHeight < 250 &&
-          style.top !== '0px'
-        );
-        
-        if (isSocialBar || isFixedBottom) {
-          el.style.setProperty('top', '0', 'important');
-          el.style.setProperty('bottom', 'auto', 'important');
-          el.style.setProperty('left', '0', 'important');
-          el.style.setProperty('right', 'auto', 'important');
-          el.style.setProperty('position', 'fixed', 'important');
-          el.style.setProperty('z-index', '99999', 'important');
-          el.style.setProperty('transform', 'none', 'important');
-          el.style.setProperty('margin', '0', 'important');
-          
-          var iframes = el.querySelectorAll('iframe');
-          for (var j = 0; j < iframes.length; j++) {
-            iframes[j].style.setProperty('top', '0', 'important');
-            iframes[j].style.setProperty('bottom', 'auto', 'important');
-            iframes[j].style.setProperty('left', '0', 'important');
-            iframes[j].style.setProperty('right', 'auto', 'important');
-          }
-        }
-      }
-    } catch (e) {}
-  }
-  
-  var count = 0;
-  var interval = setInterval(function() {
-    moveSocialBarToTop();
-    count++;
-    if (count >= 200) clearInterval(interval);
-  }, 300);
-  
-  if (window.MutationObserver) {
-    try {
-      var observer = new MutationObserver(function() {
-        moveSocialBarToTop();
-      });
-      observer.observe(document.body || document.documentElement, {
-        childList: true,
-        subtree: false,
-        attributes: true,
-        attributeFilter: ['style', 'class']
-      });
-      setTimeout(function() { observer.disconnect(); }, 60000);
-    } catch (e) {}
-  }
-  
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', moveSocialBarToTop);
-  }
-  window.addEventListener('load', moveSocialBarToTop);
-  moveSocialBarToTop();
-})();
-<\/script>`;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1607,7 +1413,9 @@ async function serveListingPage(env, category, searchQuery, request) {
     const adScripts = isBot ? "" : getAdsterraScripts();
     const bannerContainer = isBot ? "" : getNativeBannerContainer();
     const adultBlocker = isBot ? "" : getAdultBlockerScript();
-    const socialBarScript = isBot ? "" : getSocialBarTopScript();
+    
+    // Social Bar script removed as per Adsterra policy
+    const socialBarScript = "";
 
     const catLabel = {
       top:'সেরা খবর', trending:'ট্রেন্ডিং', west_bengal:'পশ্চিমবঙ্গ',
@@ -1779,7 +1587,9 @@ async function serveArticlePage(id, env, request) {
   const adScripts = isBot ? "" : getAdsterraScripts();
   const bannerContainer = isBot ? "" : getNativeBannerContainer();
   const adultBlocker = isBot ? "" : getAdultBlockerScript();
-  const socialBarScript = isBot ? "" : getSocialBarTopScript();
+  
+  // Social Bar script removed
+  const socialBarScript = ""; 
   const articlePopunder = isBot ? "" : getArticlePopunderScript();
 
   const result = await env.DB.prepare(
@@ -2276,7 +2086,8 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
   const isBot = BOT_REGEX.test(userAgent);
   const adScripts = isBot ? "" : getAdsterraScripts();
   const adultBlocker = isBot ? "" : getAdultBlockerScript();
-  const socialBarScript = isBot ? "" : getSocialBarTopScript();
+  
+  const socialBarScript = ""; // Removed
   const articlePopunder = isBot ? "" : getArticlePopunderScript();
 
   const title = cleanText(result.headline) || "Ajker News";

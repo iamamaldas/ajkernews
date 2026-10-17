@@ -33,8 +33,11 @@
 { "@context": "https://schema.org", "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in", "logo": "https://ajkernews.in/logo.png" }
 </script>
 
-<script async data-cfasync="false" src="https://bicea.org/14/3f58b0818e43e5e2e8f28449d29e9937"></script>
+<!-- ✅ Adsterra — Native Banner -->
 <script async="async" data-cfasync="false" src="https://bicea.org/21/25ee2c0a822da5cf3429cd2cb222524f"></script>
+<!-- ✅ Adsterra — Social Bar -->
+<script type="text/javascript" src="https://bicea.org/14/3f58b0818e43e5e2e8f28449d29e9937"></script>
+<!-- ✅ Adult Blocker -->
 <script src="/adblock.js" defer></script>
 
 <style>
@@ -657,6 +660,9 @@ async function updateLoveCounts(normalized) {
   } catch (e) {}
 }
 
+// ═══════════════════════════════════════════════════════════
+// ✅ SOURCE LINK CLICK HANDLER — Popunder Signal (Dual Layer)
+// ═══════════════════════════════════════════════════════════
 function goToArticleFromSource(event, el) {
   event.preventDefault();
   event.stopPropagation();
@@ -664,10 +670,12 @@ function goToArticleFromSource(event, el) {
   var articleUrl = el.getAttribute('data-article-url') || '';
   if (!articleUrl) return false;
 
+  // ✅ Layer 1: sessionStorage backup (with timestamp)
   try {
     sessionStorage.setItem('ajker_src', String(Date.now()));
   } catch (e) {}
 
+  // ✅ Layer 2: URL parameter (primary)
   var separator = articleUrl.includes('?') ? '&' : '?';
   window.location.href = articleUrl + separator + 'from=source';
 
@@ -689,6 +697,8 @@ function buildNewsHtml(news) {
   const safeSummary = summary.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
   const articleUrl = `/news/${encodeURIComponent(news.id)}`;
 
+  // ✅ Image, Title, Summary — NON-CLICKABLE (cursor: default)
+  // ✅ ONLY Source Link — CLICKABLE
   return `<article class="news-card" data-news-id="${escapeHtml(news.id)}">
     <div class="news-image-wrapper">
       <img class="news-image" src="${escapeHtml(image)}" alt="${escapeHtml(headline)}" loading="lazy" decoding="async" width="800" height="450" onerror="this.onerror=null;this.src='/logo.png';">
@@ -1138,6 +1148,10 @@ async function loadNewNewsNow() {
   await loadNews('top', '', { showLoading: false, keepExisting: false });
 }
 
+// ═══════════════════════════════════════════════════════════
+// ✅ NOTIFICATION PROMPT — Multi-Trigger
+// ═══════════════════════════════════════════════════════════
+
 const NOTIFICATION_PROMPT_DELAY = 10000;
 const NOTIFICATION_LATER_DELAY = 6 * 60 * 60 * 1000;
 const NOTIFICATION_LATER_KEY = 'notifPromptLaterAt';
@@ -1216,6 +1230,9 @@ document.addEventListener('click', function() {
   setTimeout(triggerNotificationPrompt, 5000);
 }, { once: true, passive: true });
 
+// ═══════════════════════════════════════════════════════════
+// ✅ FLUSH PENDING NOTIFICATIONS
+// ═══════════════════════════════════════════════════════════
 function flushPendingNotifications() {
   if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
     navigator.serviceWorker.controller.postMessage({ type: 'FLUSH_PENDING' });
@@ -1234,6 +1251,9 @@ document.addEventListener('DOMContentLoaded', function() {
   setTimeout(flushPendingNotifications, 2000);
 });
 
+// ═══════════════════════════════════════════════════════════
+// ✅ INIT APP
+// ═══════════════════════════════════════════════════════════
 (async function initApp() {
   try { localStorage.removeItem('newsCache:v1'); } catch (e) {}
   await loadNews('top', '', { showLoading: true, keepExisting: false });

@@ -1,5 +1,4 @@
 // worker/src/cleanup.js
-// ✅ FINAL v2: 5000 পোস্ট সাপোর্ট
 
 const MAX_TOTAL_NEWS = 5000;
 const MAX_DELETE_PER_RUN = 500;
@@ -15,9 +14,7 @@ export async function getNewsCount(db) {
 
 export async function getOldestNews(db, limit = 10) {
   const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 1000);
-
-  const result = await db
-    .prepare(`
+  const result = await db.prepare(`
       SELECT id, source_url, status, created_at
       FROM news
       WHERE status = 'published'
@@ -25,10 +22,7 @@ export async function getOldestNews(db, limit = 10) {
         AND created_at != ''
       ORDER BY created_at ASC
       LIMIT ?
-    `)
-    .bind(safeLimit)
-    .all();
-
+    `).bind(safeLimit).all();
   return result.results || [];
 }
 
@@ -78,16 +72,8 @@ export async function cleanOldCandidates(db) {
       WHERE status = 'candidate' 
         AND created_at <= datetime('now', '-${CANDIDATE_MAX_AGE_HOURS} hours')
     `).run();
-
-    const deleted = Number(result?.meta?.changes || 0);
-    if (deleted > 0) {
-      console.log(`[CLEANUP] Deleted ${deleted} old candidates (${CANDIDATE_MAX_AGE_HOURS}h+)`);
-    }
-    return { deleted };
-  } catch (error) {
-    console.error("[CLEANUP] Candidate cleanup failed:", error?.message || String(error));
-    return { deleted: 0 };
-  }
+    return { deleted: Number(result?.meta?.changes || 0) };
+  } catch (error) { return { deleted: 0 }; }
 }
 
 export async function cleanRejectedNews(db) {
@@ -97,23 +83,14 @@ export async function cleanRejectedNews(db) {
       WHERE status = 'rejected' 
         AND created_at <= datetime('now', '-${REJECTED_MAX_AGE_HOURS} hours')
     `).run();
-
-    const deleted = Number(result?.meta?.changes || 0);
-    if (deleted > 0) {
-      console.log(`[CLEANUP] Deleted ${deleted} rejected news (${REJECTED_MAX_AGE_HOURS}h+)`);
-    }
-    return { deleted };
-  } catch (error) {
-    console.error("[CLEANUP] Rejected cleanup failed:", error?.message || String(error));
-    return { deleted: 0 };
-  }
+    return { deleted: Number(result?.meta?.changes || 0) };
+  } catch (error) { return { deleted: 0 }; }
 }
 
 export async function emergencyCleanup(db) {
   const result = await enforceNewsLimit(db);
   const candidateResult = await cleanOldCandidates(db);
   const rejectedResult = await cleanRejectedNews(db);
-  console.log("Full cleanup completed:", { ...result, ...candidateResult, ...rejectedResult });
   return { ...result, candidateDeleted: candidateResult.deleted, rejectedDeleted: rejectedResult.deleted };
 }
 

@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v63.1: Daily Quiz + News + SEO + Admin (Fixed Cron Date)
+// ✅ FINAL v63.2: Daily Quiz + News + SEO + Admin (Fixed Syntax Error)
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";

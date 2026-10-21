@@ -276,19 +276,17 @@ function renderQuestion() {
   let optsHtml = '';
   q.options.forEach((opt, i) => {
     const selectedClass = userAnswers[currentIndex] === i ? ' selected' : '';
-    optsHtml += `<button class="option-btn${selectedClass}" onclick="selectOption(${i})">${opt}</button>`;
+    optsHtml += '<button class="option-btn' + selectedClass + '" onclick="selectOption(' + i + ')">' + opt + '</button>';
   });
-  container.innerHTML = `
-    <div class="question-number">প্রশ্ন ${currentIndex + 1} / ${QUIZ_DATA.length}</div>
-    <div class="question-text">${q.question}</div>
-    <div class="options-list">${optsHtml}</div>
-    <div class="nav-buttons">
-      <button class="btn-prev" onclick="prevQuestion()" ${currentIndex === 0 ? 'disabled style="opacity:0.5;"' : ''}>পূর্ববর্তী</button>
-      ${currentIndex === QUIZ_DATA.length - 1 
-        ? '<button class="btn-submit" onclick="submitQuiz()">সাবমিট</button>' 
-        : '<button class="btn-next" onclick="nextQuestion()">পরবর্তী</button>'}
-    </div>
-  `;
+  container.innerHTML = '<div class="question-number">প্রশ্ন ' + (currentIndex + 1) + ' / ' + QUIZ_DATA.length + '</div>' +
+    '<div class="question-text">' + q.question + '</div>' +
+    '<div class="options-list">' + optsHtml + '</div>' +
+    '<div class="nav-buttons">' +
+    '<button class="btn-prev" onclick="prevQuestion()" ' + (currentIndex === 0 ? 'disabled style="opacity:0.5;"' : '') + '>পূর্ববর্তী</button>' +
+    (currentIndex === QUIZ_DATA.length - 1 
+      ? '<button class="btn-submit" onclick="submitQuiz()">সাবমিট</button>' 
+      : '<button class="btn-next" onclick="nextQuestion()">পরবর্তী</button>') +
+    '</div>';
   startTimer();
 }
 
@@ -344,16 +342,14 @@ function submitQuiz() {
     const userAns = userAnswers[i];
     const isCorrect = userAns === q.correct;
     if (isCorrect) score++;
-    resultHtml += `
-      <div class="result-item">
-        <div class="q">${i + 1}. ${q.question}</div>
-        <div class="ans" style="color:${isCorrect ? '#2e7d32' : '#c62828'};">
-          ${isCorrect ? '✅ সঠিক' : `❌ আপনার উত্তর: ${userAns !== null ? q.options[userAns] : 'দেননি'}`}
-        </div>
-        <div class="ans" style="color:#2e7d32;">সঠিক উত্তর: ${q.options[q.correct]}</div>
-        <div class="explain">${q.explanation || ''}</div>
-      </div>
-    `;
+    resultHtml += '<div class="result-item">' +
+      '<div class="q">' + (i + 1) + '. ' + q.question + '</div>' +
+      '<div class="ans" style="color:' + (isCorrect ? '#2e7d32' : '#c62828') + ';">' +
+      (isCorrect ? '✅ সঠিক' : '❌ আপনার উত্তর: ' + (userAns !== null ? q.options[userAns] : 'দেননি')) +
+      '</div>' +
+      '<div class="ans" style="color:#2e7d32;">সঠিক উত্তর: ' + q.options[q.correct] + '</div>' +
+      '<div class="explain">' + (q.explanation || '') + '</div>' +
+      '</div>';
   });
 
   document.getElementById('resultScore').textContent = score + ' / ' + QUIZ_DATA.length;
@@ -372,7 +368,7 @@ function closeResult() {
 
 function shareResult() {
   const score = document.getElementById('resultScore').textContent;
-  const text = `আমি আজকের কুইজে ${score} পেয়েছি! তুমি পারবে?`;
+  const text = 'আমি আজকের কুইজে ' + score + ' পেয়েছি! তুমি পারবে?';
   const url = window.location.href;
   if (navigator.share) {
     navigator.share({ title: 'Ajker News Quiz', text: text, url: url }).catch(() => {});

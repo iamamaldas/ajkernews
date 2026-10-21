@@ -1,6 +1,4 @@
 // worker/src/database.js
-// ✅ FIXED: Random Publish Time (Google Spam Pattern এড়ানোর জন্য)
-// ✅ Google Indexing API Safe (disable করা কিন্তু ভবিষ্যতে চালু করা যাবে)
 
 export async function getNewsById(db, id) {
   return await db.prepare(`SELECT * FROM news WHERE id = ? LIMIT 1`).bind(id).first();
@@ -12,9 +10,9 @@ export async function insertCandidate(db, article) {
       INSERT OR IGNORE INTO news (
         id, source_url, source_name, source_title, source_description,
         headline, summary, main_topic, category, language, image_url,
-        published_at, created_at, day_key, status, score
+        published_at, created_at, day_key, status, score, type
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidate', ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidate', ?, 'news')
     `)
     .bind(
       article.id,
@@ -36,21 +34,8 @@ export async function insertCandidate(db, article) {
     .run();
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ CRITICAL FIX: Random Publish Time
-// ═══════════════════════════════════════════════════════════
-// আগে: সব নিউজ একই সময়ে publish হতো (12:01:55, 12:01:54...)
-// এখন: প্রতিটি নিউজ random সময়ে (0-110 minutes ago) publish হবে
-// ফলাফল: Google স্বাভাবিক news flow দেখবে, Spam Pattern এড়াবে
-// ═══════════════════════════════════════════════════════════
 export async function publishNews(db, id, data) {
-  // ✅ Automatic Random Publish Time (0-110 minutes ago)
-  // Cron ২ ঘণ্টা (120 মিনিট) পর পর চলে, তাই 110 মিনিট = safe range
-  const now = new Date();
-  const randomMinutesAgo = Math.floor(Math.random() * 110);
-  const randomTime = new Date(now.getTime() - randomMinutesAgo * 60 * 1000);
-  const isoTimestamp = randomTime.toISOString();
-
+  const isoTimestamp = new Date().toISOString();
   await db
     .prepare(`
       UPDATE news
@@ -68,8 +53,7 @@ export async function publishNews(db, id, data) {
       id
     )
     .run();
-
-  console.log(`[PUBLISH] ${id} published at ${isoTimestamp} (random ${randomMinutesAgo}m ago)`);
+  console.log(`[PUBLISH] ${id} published at ${isoTimestamp}`);
 }
 
 export async function deleteNews(db, id) {
@@ -77,15 +61,53 @@ export async function deleteNews(db, id) {
 }
 
 export async function deleteOldestNews(db) {
-  await db
-    .prepare(`
-      DELETE FROM news
-      WHERE id IN (SELECT id FROM news ORDER BY created_at ASC LIMIT 1)
-    `)
-    .run();
+  await db.prepare(`DELETE FROM news WHERE id IN (SELECT id FROM news ORDER BY created_at ASC LIMIT 1)`).run();
 }
 
 export async function countNews(db) {
   const row = await db.prepare(`SELECT COUNT(*) AS total FROM news`).first();
   return Number(row?.total || 0);
+}
+
+// ✅ NEW: Quiz functions
+export async function insertDailyQuiz(db, quizData) {
+  const id = quizData.id || crypto.randomUUID();
+  const isoTimestamp = new Date().toISOString();
+  const dayKey = quizData.date || new Date().toISOString().slice(0, 10);
+  const headline = quizData.title || "আজকের কুইজ";
+
+  await db.prepare(`
+    INSERT OR REPLACE INTO news (
+      id, source_url, source_name, source_title, source_description,
+      headline, summary, main_topic, category, language, image_url,
+      published_at, created_at, day_key, status, score, type, quiz_data
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'published', ?, 'quiz', ?)
+  `).bind(
+    id,
+    `https://ajkernews.in/quiz/${dayKey}`,
+    "Ajker News Quiz",
+    headline,
+    headline,
+    headline,
+    "আজকের কুইজে অংশ নিন এবং আপনার জ্ঞান পরীক্ষা করুন।",
+    "Quiz",
+    "quiz",
+    "bn",
+    "https://ajkernews.in/logo.png",
+    isoTimestamp,
+    isoTimestamp,
+    dayKey,
+    50,
+    JSON.stringify(quizData.questions)
+  ).run();
+
+  return id;
+}
+
+export async function getQuizByDate(db, date) {
+  return await db.prepare(`
+    SELECT * FROM news 
+    WHERE type = 'quiz' AND day_key = ? AND status = 'published' 
+    LIMIT 1
+  `).bind(date).first();
 }

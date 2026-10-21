@@ -297,13 +297,15 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 </div>
 <div class="trending-banner">
   <span id="categoryTitle">সেরা খবর</span>
-  <button class="banner-right-btn" onclick="installApp()">
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="7" y="2" width="10" height="20" rx="2" ry="2"/>
-      <line x1="12" y1="18" x2="12" y2="18"/>
+  <!-- ✅ FIXED: Install App replaced with Daily Quiz -->
+  <a href="/quiz" class="banner-right-btn" style="text-decoration:none;">
+    <svg viewBox="0 0 24 24" aria-hidden="true" style="width:15px;height:15px;stroke:#111;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;">
+      <circle cx="12" cy="12" r="10"/>
+      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+      <line x1="12" y1="17" x2="12.01" y2="17"/>
     </svg>
-    Install App
-  </button>
+    Daily Quiz
+  </a>
 </div>
 
 <div id="newNewsBanner" class="new-news-banner" onclick="loadNewNewsNow()">
@@ -335,6 +337,8 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
     <button class="close-btn" onclick="toggleSidebar(false)">&times;</button>
   </div>
   <div class="sidebar-menu">
+    <!-- ✅ NEW: Daily Quiz menu item at top -->
+    <a href="/quiz" style="font-weight:800; color:#e53935;">🧠 Daily Quiz</a>
     <a href="javascript:void(0)" onclick="setCategory('top')">🔥 সেরা খবর</a>
     <a href="javascript:void(0)" onclick="setCategory('trending')">📈 ট্রেন্ডিং</a>
     <a href="javascript:void(0)" onclick="setCategory('all')">🗞️ সব খবর</a>
@@ -378,6 +382,8 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   </div>
   <div class="footer-copy">&copy; <span id="currentYear">2026</span> Ajker News. All rights reserved.</div>
 </footer>
+
+<!-- ✅ FLOATING APP BUTTON: UNCHANGED (Install App) -->
 <button class="floating-app-btn" onclick="installApp()">
   <svg viewBox="0 0 24 24" fill="none" stroke="#222222" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -1148,10 +1154,6 @@ async function loadNewNewsNow() {
   await loadNews('top', '', { showLoading: false, keepExisting: false });
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ NOTIFICATION PROMPT — Multi-Trigger
-// ═══════════════════════════════════════════════════════════
-
 const NOTIFICATION_PROMPT_DELAY = 10000;
 const NOTIFICATION_LATER_DELAY = 6 * 60 * 60 * 1000;
 const NOTIFICATION_LATER_KEY = 'notifPromptLaterAt';
@@ -1230,9 +1232,6 @@ document.addEventListener('click', function() {
   setTimeout(triggerNotificationPrompt, 5000);
 }, { once: true, passive: true });
 
-// ═══════════════════════════════════════════════════════════
-// ✅ FLUSH PENDING NOTIFICATIONS
-// ═══════════════════════════════════════════════════════════
 function flushPendingNotifications() {
   if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
     navigator.serviceWorker.controller.postMessage({ type: 'FLUSH_PENDING' });
@@ -1251,9 +1250,6 @@ document.addEventListener('DOMContentLoaded', function() {
   setTimeout(flushPendingNotifications, 2000);
 });
 
-// ═══════════════════════════════════════════════════════════
-// ✅ INIT APP
-// ═══════════════════════════════════════════════════════════
 (async function initApp() {
   try { localStorage.removeItem('newsCache:v1'); } catch (e) {}
   await loadNews('top', '', { showLoading: true, keepExisting: false });

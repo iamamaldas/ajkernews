@@ -1,6 +1,5 @@
 // worker/src/database.js
-// ✅ ADDED: Daily Quiz Insert & Retrieve functions
-// ✅ Google Spam Pattern এড়ানোর জন্য Random Publish Time
+// ✅ FIXED: Original News Logic + New Quiz Functions (12 Questions & Dynamic Image)
 
 export async function getNewsById(db, id) {
   return await db.prepare(`SELECT * FROM news WHERE id = ? LIMIT 1`).bind(id).first();
@@ -37,12 +36,15 @@ export async function insertCandidate(db, article) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ✅ QUIZ FUNCTIONS (NEW)
+// ✅ NEW: QUIZ FUNCTIONS (Added from v63.6)
 // ═══════════════════════════════════════════════════════════
 export async function insertDailyQuiz(db, data) {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   
+  // ✅ Quiz-themed image instead of default logo
+  const quizImage = "https://images.unsplash.com/photo-1606326608606-aa0b62935f2b?auto=format&fit=crop&w=800&q=80";
+
   await db.prepare(`
     INSERT INTO news (
       id, source_url, source_name, source_title, 
@@ -56,9 +58,9 @@ export async function insertDailyQuiz(db, data) {
     'Ajker News',
     data.title,
     data.title,
-    'আজকের কুইজে অংশ নিন এবং আপনার জ্ঞান পরীক্ষা করুন। ১৫টি প্রশ্ন, ৩০ সেকেন্ড টাইমার।',
+    'আজকের কুইজে অংশ নিন এবং আপনার জ্ঞান পরীক্ষা করুন। ১২টি প্রশ্ন, ৩০ সেকেন্ড টাইমার।', // ✅ 12 Questions
     'quiz',
-    '/logo.png',
+    quizImage, 
     now,
     now,
     data.date,
@@ -73,10 +75,10 @@ export async function getQuizByDate(db, dateStr) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ✅ CRITICAL FIX: Random Publish Time
+// ✅ YOUR ORIGINAL LOGIC: Random Publish Time
 // ═══════════════════════════════════════════════════════════
 export async function publishNews(db, id, data) {
-  // Random time between 0-110 minutes ago
+  // ✅ Automatic Random Publish Time (0-110 minutes ago)
   const now = new Date();
   const randomMinutesAgo = Math.floor(Math.random() * 110);
   const randomTime = new Date(now.getTime() - randomMinutesAgo * 60 * 1000);

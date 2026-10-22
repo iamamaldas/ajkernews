@@ -1,5 +1,5 @@
 // worker/src/quiz-generator.js
-// ✅ FINAL: Auto Model Discovery + 12-Question Validation
+// ✅ FINAL: Same Auto Model Discovery as gemini.js + 12-Question Validation
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const GEMINI_TIMEOUT_MS = 25000;
@@ -28,21 +28,22 @@ REQUIREMENTS:
 - Do NOT include any markdown or extra text. Return ONLY valid JSON.
 `;
 
-// Model cache (like gemini.js)
 let cachedModels = null;
 let cacheTime = 0;
-const MODEL_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+const MODEL_CACHE_TTL = 60 * 60 * 1000;
 
-// ✅ Auto Model Discovery
+// ✅ EXACT SAME LOGIC AS YOUR gemini.js
 async function discoverModels(apiKey) {
   if (cachedModels && (Date.now() - cacheTime) < MODEL_CACHE_TTL) {
     return cachedModels;
   }
 
+  // ✅ Using the exact fallback models that work in your gemini.js
   const FALLBACK_MODELS = [
-    "gemini-1.5-flash-latest",
-    "gemini-1.5-flash",
-    "gemini-pro"
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-001",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite"
   ];
 
   try {
@@ -88,8 +89,7 @@ async function discoverModels(apiKey) {
       return cachedModels;
     }
 
-    // Priority to newer versions
-    const priority = ["gemini-1.5-flash-latest", "gemini-1.5-flash"];
+    const priority = ["gemini-2.0-flash", "gemini-2.0-flash-001"];
     const priorityList = available.filter(m => priority.includes(m));
     const restList = available.filter(m => !priority.includes(m));
 
@@ -112,7 +112,7 @@ async function discoverModels(apiKey) {
     cacheTime = Date.now();
     return merged;
   } catch (error) {
-    console.warn("[QUIZ] Model discovery failed:", error?.message || String(error));
+    console.warn("[QUIZ] Discovery failed:", error?.message || String(error));
     cachedModels = FALLBACK_MODELS;
     cacheTime = Date.now();
     return cachedModels;
@@ -126,7 +126,7 @@ export async function generateDailyQuiz(apiKey) {
     return null;
   }
 
-  // Auto-discover models
+  // Auto-discover models (same as gemini.js)
   const models = await discoverModels(apiKey);
   
   for (const model of models) {

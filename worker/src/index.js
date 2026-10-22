@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v63.4: Restored 6 news per run + Added All Quizzes in Sidebar + IST Date Fix
+// ✅ FINAL v63.5: 12-Question Quiz + Dynamic Feed + 5-6 News per run + Popunder logic
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -33,6 +33,9 @@ const NOTIFICATION_CONFIG = {
 
 let tablesReadyPromise = null;
 
+// ═══════════════════════════════════════════════════════════
+// POPUNDER
+// ═══════════════════════════════════════════════════════════
 const POPUNDER_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
 
 function getArticlePopunderScript() {
@@ -65,6 +68,9 @@ function getArticlePopunderScript() {
 <\/script>`;
 }
 
+// ═══════════════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════════════
 const BN_TO_EN_MAP = { "অ":"o","আ":"a","ই":"i","ঈ":"i","উ":"u","ঊ":"u","ঋ":"ri","এ":"e","ঐ":"oi","ও":"o","ঔ":"ou","ক":"k","খ":"kh","গ":"g","ঘ":"gh","ঙ":"ng","চ":"ch","ছ":"chh","জ":"j","ঝ":"jh","ঞ":"n","ট":"t","ঠ":"th","ড":"d","ঢ":"dh","ণ":"n","ত":"t","থ":"th","দ":"d","ধ":"dh","ন":"n","প":"p","ফ":"ph","ব":"b","ভ":"bh","ম":"m","য":"j","র":"r","ল":"l","শ":"sh","ষ":"sh","স":"s","হ":"h","ড়":"r","ঢ়":"rh","য়":"y","ং":"ng","ঃ":"h","ঁ":"n","া":"a","ি":"i","ী":"i","ু":"u","ূ":"u","ৃ":"ri","ে":"e","ৈ":"oi","ো":"o","ৌ":"ou" };
 
 function toTransliterated(text) {
@@ -81,7 +87,6 @@ function getISTHour() {
   return istNow.getUTCHours();
 }
 
-// ✅ FIXED: Get Today's Date in IST
 function getTodayIST() {
   const istDate = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
   return istDate.toISOString().slice(0, 10);
@@ -188,7 +193,7 @@ function getQuizPageHtml(quiz, dateStr) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${pageTitle}</title>
-<meta name="description" content="আজকের কুইজে অংশ নিন এবং আপনার জ্ঞান পরীক্ষা করুন। ১৫টি প্রশ্ন, ৩০ সেকেন্ড টাইমার।">
+<meta name="description" content="আজকের কুইজে অংশ নিন এবং আপনার জ্ঞান পরীক্ষা করুন। ১২টি প্রশ্ন, ৩০ সেকেন্ড টাইমার।">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="${canonical}">
 <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
@@ -349,7 +354,7 @@ function submitQuiz() {
   });
 
   document.getElementById('resultScore').textContent = score + ' / ' + QUIZ_DATA.length;
-  document.getElementById('resultText').textContent = score >= 10 ? 'অসাধারণ! আপনি ভালো করেছেন।' : 'আরও চেষ্টা করুন!';
+  document.getElementById('resultText').textContent = score >= 8 ? 'অসাধারণ! আপনি ভালো করেছেন।' : 'আরও চেষ্টা করুন!';
   document.getElementById('resultList').innerHTML = resultHtml;
 }
 
@@ -379,6 +384,9 @@ renderQuestion();
 </html>`;
 }
 
+// ═══════════════════════════════════════════════════════════
+// MAIN FETCH HANDLER
+// ═══════════════════════════════════════════════════════════
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -541,7 +549,6 @@ export default {
         } catch (error) { return json({ success: false, error: error.message }, 500, 0); }
       }
 
-      // ✅ NEW: Manual Quiz Generation Endpoint
       if (url.pathname === "/api/admin/generate-quiz" && request.method === "POST") {
         const session = await getAdminSession(request, env);
         if (!session) return json({ success: false, error: "Unauthorized" }, 401, 0);
@@ -551,7 +558,7 @@ export default {
         if (existing) return json({ success: true, message: "Quiz already exists for " + todayStr });
         
         let questions = await generateDailyQuiz(env.GEMINI_API_KEY);
-        if (questions && questions.length === 15) {
+        if (questions && questions.length === 12) {
             const bnMonths = ['জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'];
             const dateObj = new Date(todayStr + 'T00:00:00+05:30');
             const bnDay = dateObj.getDate();
@@ -581,7 +588,6 @@ export default {
       const userAgent = request.headers.get("User-Agent") || "";
       const isBot = BOT_REGEX.test(userAgent);
 
-      // ✅ FIXED: Use IST for today's quiz
       if (url.pathname.startsWith("/quiz/") && request.method === "GET") {
         const dateStr = url.pathname.split("/")[2];
         if (!dateStr) return Response.redirect("https://ajkernews.in/", 302);
@@ -596,7 +602,7 @@ export default {
       }
 
       if (url.pathname === "/quiz" && request.method === "GET") {
-        const today = getTodayIST(); // ✅ FIXED: Use IST Date
+        const today = getTodayIST();
         const quiz = await getQuizByDate(env.DB, today);
         if (quiz) return Response.redirect(`https://ajkernews.in/quiz/${today}`, 302);
         return new Response("আজকের কুইজ এখনো তৈরি হয়নি। সকাল ৭টার পরে আসুন।", { status: 200, headers: { "Content-Type": "text/html; charset=UTF-8" } });
@@ -757,22 +763,21 @@ export default {
       }
 
       if (cron === "0 */2 * * *") {
-        // ✅ Generate Quiz (Runs at UTC 0, 2, 4, 6 - IST 5:30 AM to 11:30 AM)
         const utcHour = new Date().getUTCHours();
         if (utcHour >= 0 && utcHour <= 6) {
-          const todayStr = getTodayIST(); // ✅ FIXED: Use IST
+          const todayStr = getTodayIST();
           const existing = await getQuizByDate(env.DB, todayStr);
           if (!existing) {
             console.log(`[QUIZ] Attempting to generate daily quiz for ${todayStr} (UTC Hour: ${utcHour})...`);
             let questions = await generateDailyQuiz(env.GEMINI_API_KEY);
             
-            if (!questions || questions.length !== 15) {
+            if (!questions || questions.length !== 12) {
               console.log(`[QUIZ] First attempt failed. Retrying in 5 seconds...`);
               await new Promise(r => setTimeout(r, 5000));
               questions = await generateDailyQuiz(env.GEMINI_API_KEY);
             }
 
-            if (questions && questions.length === 15) {
+            if (questions && questions.length === 12) {
               const bnMonths = ['জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'];
               const dateObj = new Date(todayStr + 'T00:00:00+05:30');
               const bnDay = dateObj.getDate();
@@ -977,8 +982,6 @@ async function updateNews(env) {
   let selected = [];
   try { selected = selectBestCandidates(candidates, existingPublished); } catch (error) { return { success: false, fetched: batchResult.totalReceived, inserted: batchResult.totalInserted, candidates: candidates.length, selected: 0, published: 0, deleted: 0, gemini: false, newNewsIds: [], batches: batchResult.batches, message: "Selection failed" }; }
   
-  // ✅ FIXED: Removed MAX_PUBLISH_PER_RUN limit. news-selector.js handles the 6 news limit naturally.
-
   try {
     const selectedIds = new Set(selected.map(a => String(a.id)));
     const rejectedCandidates = candidates.filter(c => !selectedIds.has(String(c.id)));
@@ -1155,14 +1158,13 @@ async function handleGetNews(url, env, request) { return cacheNewsApi(request, a
 
 async function handleGetNewsInternal(url, env) {
   const category = url.searchParams.get("category") || "top";
-  const type = url.searchParams.get("type") || null; // ✅ Filter by type
+  const type = url.searchParams.get("type") || null; 
   const query = (url.searchParams.get("q") || "").trim();
   const specificId = url.searchParams.get("id");
   const offset = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10));
   const requestedLimit = parseInt(url.searchParams.get("limit") || "10", 10);
-  const limit = Math.min(Math.max(requestedLimit, 1), 1000); // ✅ Increased max limit to 1000 for fetching all quizzes
+  const limit = Math.min(Math.max(requestedLimit, 1), 1000);
   
-  // ✅ ADDED: news.type in select fields
   const selectFields = `news.id, news.headline, news.summary, news.main_topic, news.category, news.image_url, news.published_at, news.source_name, news.source_url, news.created_at, news.score, news.type, COUNT(nl.id) AS love_count`;
   
   if (specificId) { 
@@ -1170,7 +1172,6 @@ async function handleGetNewsInternal(url, env) {
     return json({ success: true, count: (result.results || []).length, news: result.results || [] }, 200, 0); 
   }
   
-  // ✅ Specific query for quizzes (Fetch ALL)
   if (type === 'quiz') {
     const result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.status = 'published' AND news.type = 'quiz' GROUP BY news.id ORDER BY news.created_at DESC LIMIT ? OFFSET ?`).bind(limit + 1, offset).all();
     const rawNews = result?.results || [];

@@ -1,13 +1,15 @@
 // worker/src/quiz-generator.js
-// ✅ FINAL: Same Auto Model Discovery as gemini.js + 12-Question Validation + Hot Topics
+// ✅ FINAL: Auto Model Discovery + Dynamic Trending Keyword Extraction
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const GEMINI_TIMEOUT_MS = 25000;
 
-// ✅ UPDATED PROMPT: Forces AI to pick today's trending topic
-const QUIZ_PROMPT = `You are an expert quiz master for a Bengali news website. Create exactly 12 multiple-choice questions for today's daily quiz.
+// ✅ UPDATED PROMPT: Asks AI to find today's top searched keyword
+const QUIZ_PROMPT = `You are an expert SEO Quiz Master for a Bengali news website. 
 
-TOPIC: Focus on the MOST TRENDING topics today in India and West Bengal (e.g., current politics, recent sports events, viral entertainment news, major business updates). 
+TASK:
+1. Identify the #1 most searched/trending news keyword today in India and West Bengal (e.g., "India vs Pakistan Match", "West Bengal Election Update", "Virat Kohli Century", "New Movie Release").
+2. Create exactly 12 multiple-choice questions based on this trending topic.
 
 REQUIREMENTS:
 - You MUST create exactly 12 questions.
@@ -19,6 +21,7 @@ REQUIREMENTS:
 [
   {
     "id": 1,
+    "mainTopic": "দিনের সেরা সার্চ কিওয়ার্ড (যেমন: Virat Kohli Century)",
     "question": "প্রশ্ন...",
     "options": ["অপশন A", "অপশন B", "অপশন C", "অপশন D"],
     "correct": 0,
@@ -62,7 +65,6 @@ async function discoverModels(apiKey) {
     }
 
     if (!response.ok) {
-      console.warn(`[QUIZ] ListModels ${response.status} — using fallback`);
       cachedModels = FALLBACK_MODELS;
       cacheTime = Date.now();
       return cachedModels;
@@ -82,7 +84,6 @@ async function discoverModels(apiKey) {
       .map(m => m.name);
 
     if (!available.length) {
-      console.warn("[QUIZ] No Flash from ListModels — using fallback");
       cachedModels = FALLBACK_MODELS;
       cacheTime = Date.now();
       return cachedModels;
@@ -105,13 +106,10 @@ async function discoverModels(apiKey) {
     });
 
     const merged = [...new Set([...priorityList, ...restList, ...FALLBACK_MODELS])];
-
-    console.log(`[QUIZ] Available models: ${merged.join(" → ")}`);
     cachedModels = merged;
     cacheTime = Date.now();
     return merged;
   } catch (error) {
-    console.warn("[QUIZ] Discovery failed:", error?.message || String(error));
     cachedModels = FALLBACK_MODELS;
     cacheTime = Date.now();
     return cachedModels;
@@ -119,23 +117,15 @@ async function discoverModels(apiKey) {
 }
 
 export async function generateDailyQuiz(apiKey) {
-  if (!apiKey) {
-    console.warn("[QUIZ] No Gemini API Key");
-    return null;
-  }
+  if (!apiKey) return null;
 
   const models = await discoverModels(apiKey);
   
   for (const model of models) {
     try {
-      console.log(`[QUIZ] Trying model: ${model}...`);
       const result = await callGemini(model, apiKey);
-      
       if (result && Array.isArray(result) && result.length >= 12) {
-        console.log(`[QUIZ] ✅ Success with model ${model} (${result.length} questions)`);
         return result.slice(0, 12); 
-      } else if (result && Array.isArray(result) && result.length > 0) {
-        console.warn(`[QUIZ] Model ${model} returned ${result.length} questions instead of 12.`);
       }
     } catch (error) {
       console.warn(`[QUIZ] Model ${model} failed:`, error.message);
@@ -170,14 +160,10 @@ async function callGemini(model, apiKey) {
       signal: controller.signal
     });
 
-    if (!response.ok) {
-      const errText = await response.text().catch(() => "");
-      throw new Error(`API ${response.status}: ${errText.slice(0, 150)}`);
-    }
-
+    if (!response.ok) throw new Error(`API ${response.status}`);
     const data = await response.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) throw new Error("Empty response from Gemini");
+    if (!text) throw new Error("Empty response");
 
     let parsed;
     try { parsed = JSON.parse(text); } catch {

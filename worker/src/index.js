@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v63.6: 12-Question Quiz Edit Support + Dynamic Feed + SEO/Fast Indexing intact
+// ✅ FINAL v63.7: Error logging + Ensure Tables + 12-Question Validation
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -549,31 +549,43 @@ export default {
         } catch (error) { return json({ success: false, error: error.message }, 500, 0); }
       }
 
+      // ✅ FIXED: Ensure tables & logging inside generate-quiz
       if (url.pathname === "/api/admin/generate-quiz" && request.method === "POST") {
         const session = await getAdminSession(request, env);
         if (!session) return json({ success: false, error: "Unauthorized" }, 401, 0);
         
-        const todayStr = getTodayIST();
-        const existing = await getQuizByDate(env.DB, todayStr);
-        if (existing) return json({ success: true, message: "Quiz already exists for " + todayStr });
-        
-        let questions = await generateDailyQuiz(env.GEMINI_API_KEY);
-        if (questions && questions.length === 12) {
-            const bnMonths = ['জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'];
-            const dateObj = new Date(todayStr + 'T00:00:00+05:30');
-            const bnDay = dateObj.getDate();
-            const bnMonth = bnMonths[dateObj.getMonth()];
-            const bnYear = dateObj.getFullYear();
-            const bnDateStr = `${bnDay} ${bnMonth} ${bnYear}`;
-            
-            await insertDailyQuiz(env.DB, {
-                date: todayStr,
-                title: `আজকের কুইজ: ${bnDateStr}`,
-                questions
-            });
-            return json({ success: true, message: "Quiz generated for " + todayStr });
+        try {
+          await ensureTablesOnce(env); // ✅ Ensure tables exist
+          
+          const todayStr = getTodayIST();
+          const existing = await getQuizByDate(env.DB, todayStr);
+          if (existing) return json({ success: true, message: "Quiz already exists for " + todayStr });
+          
+          let questions = await generateDailyQuiz(env.GEMINI_API_KEY);
+          
+          if (questions && Array.isArray(questions) && questions.length >= 12) {
+              // ✅ Fix: Ensure exactly 12 questions
+              const finalQuestions = questions.slice(0, 12);
+              
+              const bnMonths = ['জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'];
+              const dateObj = new Date(todayStr + 'T00:00:00+05:30');
+              const bnDay = dateObj.getDate();
+              const bnMonth = bnMonths[dateObj.getMonth()];
+              const bnYear = dateObj.getFullYear();
+              const bnDateStr = `${bnDay} ${bnMonth} ${bnYear}`;
+              
+              await insertDailyQuiz(env.DB, {
+                  date: todayStr,
+                  title: `আজকের কুইজ: ${bnDateStr}`,
+                  questions: finalQuestions
+              });
+              return json({ success: true, message: "Quiz generated for " + todayStr });
+          }
+          return json({ success: false, error: "Failed to generate quiz. AI did not return 12 questions. Try again." }, 500, 0);
+        } catch (error) {
+          console.error("[QUIZ-GEN-ERROR] Detailed error:", error.message || error);
+          return json({ success: false, error: error?.message || "Internal server error" }, 500, 0);
         }
-        return json({ success: false, error: "Failed to generate quiz. Check Gemini API Key." }, 500, 0);
       }
 
       if (url.pathname === "/sitemap.xml") return await generateSitemap(env);

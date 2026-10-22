@@ -39,3 +39,7 @@ persist = true
 [observability.traces]
 enabled = true
 persist = true
+
+# ✅ ISSUES FEATURE ENABLED
+[observability.issues]
+enabled = true

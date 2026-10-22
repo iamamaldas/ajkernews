@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v63.8: Full SEO (OG + Twitter + JSON-LD) for Home, Article & Quiz Pages
+// ✅ FINAL v63.9: Full SEO (OG + Twitter + JSON-LD) + Internal Linking for Quiz
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -182,27 +182,42 @@ function gonePage(relatedNews = []) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ✅ QUIZ PAGE SEO (Updated with OG, Twitter, JSON-LD)
+// ✅ QUIZ PAGE SEO (Updated with OG, Twitter, JSON-LD, Internal Links)
 // ═══════════════════════════════════════════════════════════
-function getQuizPageHtml(quiz, dateStr) {
+async function getQuizPageHtml(quiz, dateStr, env) {
   const quizJson = JSON.stringify(quiz.questions);
-  const headline = escapeHtml(quiz.headline || "আজকের কুইজ");
+  const headline = escapeHtml(quiz.headline || "কারেন্ট অ্যাফেয়ার্স কুইজ");
   const pageTitle = `${headline} - Ajker News`;
   const canonical = `https://ajkernews.in/quiz/${dateStr}`;
   const image = "https://images.unsplash.com/photo-1606326608606-aa0b62935f2b?auto=format&fit=crop&w=800&q=80"; // ✅ Quiz Image
   const publishedAt = new Date(dateStr + 'T00:00:00+05:30').toISOString();
-  const description = "আজকের কুইজে অংশ নিন এবং আপনার জ্ঞান পরীক্ষা করুন। ১২টি প্রশ্ন, ৩০ সেকেন্ড টাইমার।";
+  const metaTitle = quiz.headline || "কারেন্ট অ্যাফেয়ার্স কুইজ";
+  const metaDescription = quiz.summary || "কারেন্ট অ্যাফেয়ার্স ও সাধারণ জ্ঞান কুইজে অংশ নিন। ১২টি প্রশ্ন, ৩০ সেকেন্ড টাইমার।";
+
+  // ✅ Fetch Recent 3 News for Internal Linking
+  let relatedNewsHtml = "";
+  try {
+    const recent = await env.DB.prepare(`SELECT id, headline FROM news WHERE status = 'published' AND type = 'news' ORDER BY created_at DESC LIMIT 3`).all();
+    if (recent.results && recent.results.length) {
+      relatedNewsHtml = `<div style="margin-top:30px; padding:15px; background:#fff; border-radius:12px; border:1px solid #eee;">
+        <h3 style="font-size:16px; margin-bottom:10px; color:#111;">📰 দিনের সেরা খবর:</h3>
+        <ul style="list-style:none; padding:0;">
+          ${recent.results.map(n => `<li style="margin-bottom:8px;"><a href="/news/${encodeURIComponent(n.id)}" style="color:#1976d2; text-decoration:none; font-size:14px;">${escapeHtml(n.headline)}</a></li>`).join("")}
+        </ul>
+      </div>`;
+    }
+  } catch(e) {}
 
   const quizArticleLd = JSON.stringify({
     "@context": "https://schema.org",
     "@type": "NewsArticle",
     "mainEntityOfPage": { "@type": "WebPage", "@id": canonical },
-    "headline": headline,
-    "description": description,
+    "headline": metaTitle,
+    "description": metaDescription,
     "image": [image],
     "datePublished": publishedAt,
     "dateModified": publishedAt,
-    "author": { "@type": "Organization", "name": "Ajker News", "url": "https://ajkernews.in/" },
+    "author": { "@type": "Organization", "name": "Ajker News Desk", "url": "https://ajkernews.in/about" }, // ✅ E-E-A-T
     "publisher": { "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in/", "logo": { "@type": "ImageObject", "url": "https://ajkernews.in/logo.png", "width": 512, "height": 512 } },
     "articleSection": "Quiz",
     "inLanguage": "bn-IN",
@@ -216,7 +231,7 @@ function getQuizPageHtml(quiz, dateStr) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${pageTitle}</title>
-<meta name="description" content="${description}">
+<meta name="description" content="${escapeHtml(metaDescription)}">
 <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1">
 <link rel="canonical" href="${canonical}">
 <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
@@ -224,19 +239,17 @@ function getQuizPageHtml(quiz, dateStr) {
 
 <!-- ✅ Open Graph -->
 <meta property="og:type" content="article">
-<meta property="og:title" content="${headline}">
-<meta property="og:description" content="${description}">
+<meta property="og:title" content="${escapeHtml(metaTitle)}">
+<meta property="og:description" content="${escapeHtml(metaDescription)}">
 <meta property="og:url" content="${canonical}">
 <meta property="og:image" content="${image}">
 <meta property="og:site_name" content="Ajker News">
 <meta property="article:published_time" content="${publishedAt}">
-<meta property="article:modified_time" content="${publishedAt}">
-<meta property="article:section" content="Quiz">
 
 <!-- ✅ Twitter Card -->
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="${headline}">
-<meta name="twitter:description" content="${description}">
+<meta name="twitter:title" content="${escapeHtml(metaTitle)}">
+<meta name="twitter:description" content="${escapeHtml(metaDescription)}">
 <meta name="twitter:image" content="${image}">
 
 <script type="application/ld+json">${quizArticleLd}</script>
@@ -293,6 +306,7 @@ function getQuizPageHtml(quiz, dateStr) {
       <button class="btn-share" onclick="shareResult()">📤 শেয়ার করুন</button>
     </div>
   </div>
+  ${relatedNewsHtml} <!-- ✅ Internal Links -->
 </div>
 <script>
 const QUIZ_DATA = ${quizJson};
@@ -638,7 +652,8 @@ export default {
         if (!quiz) return new Response("Quiz not found", { status: 404 });
         let questions = [];
         try { questions = JSON.parse(quiz.quiz_data); } catch (e) {}
-        return new Response(getQuizPageHtml({ headline: quiz.headline, questions }, dateStr), {
+        // ✅ Pass env to getQuizPageHtml
+        return new Response(await getQuizPageHtml({ headline: quiz.headline, summary: quiz.summary, questions }, dateStr, env), {
           status: 200,
           headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" }
         });

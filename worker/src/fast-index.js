@@ -24,22 +24,16 @@ export async function fastIndexNews(env, ids) {
 
   // ✅ FIX: Detect if it's a Quiz URL or News URL
   const urls = list.map(id => {
-    // If the ID starts with "quiz/" or is a date format for quiz
     if (id.startsWith("quiz/")) {
       return `${SITE}/${id}`; // e.g., https://ajkernews.in/quiz/2026-10-22
     }
-    // Otherwise, treat it as a news ID
     return `${SITE}/news/${id}`;
   });
 
-  // ✅ Channels — সবগুলো parallel run করবে
   const jobs = [
-    // ✅ Google Indexing API (toggle true হলে চলবে)
     ...(ENABLE_GOOGLE_INDEXING_API 
       ? [["google_indexing_api", () => submitToGoogleIndexingAPI(env, urls)]] 
       : []),
-    
-    // ✅ Automatic Channels (সবসময় চালু)
     ["indexnow", () => submitIndexNowInChunks(env, urls)],
     ["bing", () => submitToBing(env, urls)],
     ["websub", () => notifyWebSub(env, `${SITE}/rss.xml`)],
@@ -76,12 +70,8 @@ export async function fastIndexNews(env, ids) {
   return { ok, submitted: urls.length, successfulChannels, channels };
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ Google Indexing API — Complete Function
-// ═══════════════════════════════════════════════════════════
 async function submitToGoogleIndexingAPI(env, urls) {
   if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) {
-    console.log('[GOOGLE-INDEXING] SKIPPED — GOOGLE_SERVICE_ACCOUNT_JSON missing');
     return { ok: false, reason: "missing_google_service_account_json" };
   }
 
@@ -90,12 +80,10 @@ async function submitToGoogleIndexingAPI(env, urls) {
     try {
       serviceAccount = JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON);
     } catch (e) {
-      console.error('[GOOGLE-INDEXING] Invalid JSON:', e.message);
       return { ok: false, error: "invalid_service_account_json" };
     }
 
     if (!serviceAccount.client_email || !serviceAccount.private_key) {
-      console.error('[GOOGLE-INDEXING] Missing client_email or private_key');
       return { ok: false, error: "missing_credentials_fields" };
     }
 
@@ -108,7 +96,6 @@ async function submitToGoogleIndexingAPI(env, urls) {
 
     const tokenData = await getGoogleAccessToken(signedJWT);
     if (!tokenData.access_token) {
-      console.log('[GOOGLE-INDEXING] Token exchange failed:', JSON.stringify(tokenData));
       return { ok: false, error: "token_exchange_failed", details: tokenData };
     }
 
@@ -126,10 +113,7 @@ async function submitToGoogleIndexingAPI(env, urls) {
               "Authorization": `Bearer ${accessToken}`,
               "Content-Type": "application/json"
             },
-            body: JSON.stringify({
-              url: url,
-              type: "URL_UPDATED"
-            })
+            body: JSON.stringify({ url: url, type: "URL_UPDATED" })
           }
         );
 
@@ -145,7 +129,6 @@ async function submitToGoogleIndexingAPI(env, urls) {
       }
     }
 
-    console.log(`[GOOGLE-INDEXING] ${successfulPings}/${urls.length} submitted`);
     return {
       ok: successfulPings > 0,
       submitted: successfulPings,
@@ -153,14 +136,10 @@ async function submitToGoogleIndexingAPI(env, urls) {
       errors: errors.length ? errors.slice(0, 5) : undefined
     };
   } catch (error) {
-    console.error('[GOOGLE-INDEXING] Error:', error.message);
     return { ok: false, error: error.message };
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ IndexNow (Bing, Yandex, Naver, Seznam) — Always Active
-// ═══════════════════════════════════════════════════════════
 async function submitIndexNowInChunks(env, urls) {
   const chunks = [];
   for (let i = 0; i < urls.length; i += MAX_URLS_PER_BATCH) {
@@ -184,9 +163,6 @@ async function submitIndexNowInChunks(env, urls) {
   return { ok: submitted > 0, submitted, errors: errors.length ? errors : undefined };
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ Bing Webmaster API — Always Active
-// ═══════════════════════════════════════════════════════════
 async function submitToBing(env, urls) {
   if (!env.BING_API_KEY) return { ok: false, reason: "no_key" };
   const siteUrl = `${SITE}/`;
@@ -210,16 +186,11 @@ async function submitToBing(env, urls) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ Ping-O-Matic — Always Active
-// ═══════════════════════════════════════════════════════════
 async function pingPingOMatic() {
   const title = encodeURIComponent("Ajker News");
   const url = encodeURIComponent(SITE);
   try {
-    const response = await fetch(`https://pingomatic.com/ping/?title=${title}&url=${url}`, { 
-      method: "GET" 
-    });
+    const response = await fetch(`https://pingomatic.com/ping/?title=${title}&url=${url}`, { method: "GET" });
     return { ok: response.ok, status: response.status };
   } catch (error) {
     return { ok: false, error: error?.message || String(error) };

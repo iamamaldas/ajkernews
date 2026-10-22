@@ -1,12 +1,13 @@
 // worker/src/quiz-generator.js
-// ✅ FINAL: Same Auto Model Discovery as gemini.js + 12-Question Validation
+// ✅ FINAL: Same Auto Model Discovery as gemini.js + 12-Question Validation + Hot Topics
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const GEMINI_TIMEOUT_MS = 25000;
 
-const QUIZ_PROMPT = `You are a quiz master for a Bengali news website. Create exactly 12 multiple-choice questions for today's daily quiz.
+// ✅ UPDATED PROMPT: Forces AI to pick today's trending topic
+const QUIZ_PROMPT = `You are an expert quiz master for a Bengali news website. Create exactly 12 multiple-choice questions for today's daily quiz.
 
-TOPIC: Based on Google Trends and recent news from India and West Bengal (Politics, Sports, Entertainment, Business, Technology).
+TOPIC: Focus on the MOST TRENDING topics today in India and West Bengal (e.g., current politics, recent sports events, viral entertainment news, major business updates). 
 
 REQUIREMENTS:
 - You MUST create exactly 12 questions.
@@ -32,13 +33,11 @@ let cachedModels = null;
 let cacheTime = 0;
 const MODEL_CACHE_TTL = 60 * 60 * 1000;
 
-// ✅ EXACT SAME LOGIC AS YOUR gemini.js
 async function discoverModels(apiKey) {
   if (cachedModels && (Date.now() - cacheTime) < MODEL_CACHE_TTL) {
     return cachedModels;
   }
 
-  // ✅ Using the exact fallback models that work in your gemini.js
   const FALLBACK_MODELS = [
     "gemini-2.0-flash",
     "gemini-2.0-flash-001",
@@ -119,14 +118,12 @@ async function discoverModels(apiKey) {
   }
 }
 
-// ✅ Main Quiz Generator
 export async function generateDailyQuiz(apiKey) {
   if (!apiKey) {
     console.warn("[QUIZ] No Gemini API Key");
     return null;
   }
 
-  // Auto-discover models (same as gemini.js)
   const models = await discoverModels(apiKey);
   
   for (const model of models) {
@@ -134,7 +131,6 @@ export async function generateDailyQuiz(apiKey) {
       console.log(`[QUIZ] Trying model: ${model}...`);
       const result = await callGemini(model, apiKey);
       
-      // ✅ Accept 12 or more questions, slice to exactly 12
       if (result && Array.isArray(result) && result.length >= 12) {
         console.log(`[QUIZ] ✅ Success with model ${model} (${result.length} questions)`);
         return result.slice(0, 12); 

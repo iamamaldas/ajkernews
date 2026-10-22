@@ -41,6 +41,7 @@
 <script src="/adblock.js" defer></script>
 
 <style>
+/* ... (CSS styles same as your previous index.html) ... */
 * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-tap-highlight-color: transparent; }
 html { scroll-behavior: smooth; font-size: 16px; -webkit-text-size-adjust: 100%; }
 body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; max-width: 100vw; overflow-x: hidden; min-height: 100vh; display: flex; flex-direction: column; padding-bottom: 0; }
@@ -297,7 +298,6 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 </div>
 <div class="trending-banner">
   <span id="categoryTitle">সেরা খবর</span>
-  <!-- ✅ FIXED: Install App replaced with Daily Quiz -->
   <a href="/quiz" class="banner-right-btn" style="text-decoration:none;">
     <svg viewBox="0 0 24 24" aria-hidden="true" style="width:15px;height:15px;stroke:#111;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;">
       <circle cx="12" cy="12" r="10"/>
@@ -337,8 +337,13 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
     <button class="close-btn" onclick="toggleSidebar(false)">&times;</button>
   </div>
   <div class="sidebar-menu">
-    <!-- ✅ NEW: Daily Quiz menu item at top -->
-    <a href="/quiz" style="font-weight:800; color:#e53935;">🧠 Daily Quiz</a>
+    <!-- ✅ DYNAMIC: Daily Quiz Section -->
+    <div style="padding: 16px 20px; border-bottom: 1px solid #f5f5f5; background:#fafafa;">
+        <div style="font-size: 15px; font-weight: 800; color: #e53935; margin-bottom: 8px; display:flex; align-items:center; gap:6px;">🧠 Daily Quiz</div>
+        <div id="quizMenuContainer">
+            <a href="/quiz" style="padding: 10px 0; font-size: 14px; display: block; color: #333; text-decoration: none;">আজকের কুইজ</a>
+        </div>
+    </div>
     <a href="javascript:void(0)" onclick="setCategory('top')">🔥 সেরা খবর</a>
     <a href="javascript:void(0)" onclick="setCategory('trending')">📈 ট্রেন্ডিং</a>
     <a href="javascript:void(0)" onclick="setCategory('all')">🗞️ সব খবর</a>
@@ -383,7 +388,6 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   <div class="footer-copy">&copy; <span id="currentYear">2026</span> Ajker News. All rights reserved.</div>
 </footer>
 
-<!-- ✅ FLOATING APP BUTTON: UNCHANGED (Install App) -->
 <button class="floating-app-btn" onclick="installApp()">
   <svg viewBox="0 0 24 24" fill="none" stroke="#222222" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -568,7 +572,8 @@ function normalizeNews(news) {
     source_url: news.source_url || news.url || '',
     created_at: news.created_at || '',
     score: Number(news.score || 0),
-    love_count: parseInt(news.love_count, 10) || 0
+    love_count: parseInt(news.love_count, 10) || 0,
+    type: news.type || 'news' // ✅ ADDED
   };
 }
 function getCategoryLabel(category) {
@@ -666,9 +671,7 @@ async function updateLoveCounts(normalized) {
   } catch (e) {}
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ SOURCE LINK CLICK HANDLER — Popunder Signal (Dual Layer)
-// ═══════════════════════════════════════════════════════════
+// ✅ FIXED: Bypass popunder for Quizzes
 function goToArticleFromSource(event, el) {
   event.preventDefault();
   event.stopPropagation();
@@ -676,12 +679,16 @@ function goToArticleFromSource(event, el) {
   var articleUrl = el.getAttribute('data-article-url') || '';
   if (!articleUrl) return false;
 
-  // ✅ Layer 1: sessionStorage backup (with timestamp)
+  // If it's an internal quiz link, just navigate directly
+  if (articleUrl.includes('/quiz/')) {
+      window.location.href = articleUrl;
+      return false;
+  }
+
   try {
     sessionStorage.setItem('ajker_src', String(Date.now()));
   } catch (e) {}
 
-  // ✅ Layer 2: URL parameter (primary)
   var separator = articleUrl.includes('?') ? '&' : '?';
   window.location.href = articleUrl + separator + 'from=source';
 
@@ -693,7 +700,7 @@ function buildNewsHtml(news) {
   const headline = news.headline || 'সংবাদ';
   const summary = news.summary || '';
   const category = getCategoryLabel(news.category);
-  const source = news.source_name || 'Ajker News';
+  const source = news.type === 'quiz' ? 'Daily Quiz' : (news.source_name || 'Ajker News');
   const displayDate = news.created_at || news.published_at || '';
   const formattedTime = formatDate(displayDate);
   const loved = isNewsLoved(news.id);
@@ -701,16 +708,22 @@ function buildNewsHtml(news) {
   const loveCount = Number(news.love_count || 0);
   const safeHeadline = headline.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
   const safeSummary = summary.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
-  const articleUrl = `/news/${encodeURIComponent(news.id)}`;
+  
+  // ✅ FIXED: Handle Quiz URLs
+  let articleUrl = `/news/${encodeURIComponent(news.id)}`;
+  let categoryLabel = category;
+  if (news.type === 'quiz') {
+      const dateStr = (news.created_at || news.published_at || '').slice(0, 10);
+      articleUrl = `/quiz/${dateStr}`;
+      categoryLabel = 'কুইজ';
+  }
 
-  // ✅ Image, Title, Summary — NON-CLICKABLE (cursor: default)
-  // ✅ ONLY Source Link — CLICKABLE
   return `<article class="news-card" data-news-id="${escapeHtml(news.id)}">
     <div class="news-image-wrapper">
       <img class="news-image" src="${escapeHtml(image)}" alt="${escapeHtml(headline)}" loading="lazy" decoding="async" width="800" height="450" onerror="this.onerror=null;this.src='/logo.png';">
     </div>
     <div class="news-body">
-      <div class="news-category">${escapeHtml(category)}</div>
+      <div class="news-category">${escapeHtml(categoryLabel)}</div>
       <h2 class="news-title">${escapeHtml(headline)}</h2>
       ${summary ? `<p class="news-summary">${escapeHtml(summary)}</p>` : ''}
       <div class="news-meta">
@@ -1250,9 +1263,29 @@ document.addEventListener('DOMContentLoaded', function() {
   setTimeout(flushPendingNotifications, 2000);
 });
 
+// ✅ NEW: Load ALL Quizzes for Sidebar
+async function loadSidebarQuizzes() {
+    try {
+        const res = await fetch(`${WORKER_BASE}/api/news?type=quiz&limit=1000`);
+        const data = await res.json();
+        if (data.success && data.news && data.news.length > 0) {
+            const container = document.getElementById('quizMenuContainer');
+            if (container) {
+                container.innerHTML = data.news.map(q => {
+                    const dateStr = (q.created_at || q.published_at || '').slice(0, 10);
+                    const d = new Date(dateStr);
+                    const formatted = d.toLocaleDateString('bn-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+                    return `<a href="/quiz/${dateStr}" style="padding: 8px 0; font-size: 14px; display: block; color: #333; text-decoration: none; border-bottom: 1px solid #f0f0f0;">📅 ${formatted}</a>`;
+                }).join('');
+            }
+        }
+    } catch(e) {}
+}
+
 (async function initApp() {
   try { localStorage.removeItem('newsCache:v1'); } catch (e) {}
   await loadNews('top', '', { showLoading: true, keepExisting: false });
+  await loadSidebarQuizzes(); // ✅ Load ALL Quizzes
   if ('serviceWorker' in navigator) {
     try {
       const mainReg = await navigator.serviceWorker.register('/sw.js', {

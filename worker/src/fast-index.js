@@ -1,7 +1,5 @@
 // worker/src/fast-index.js
-// ✅ FINAL v3: Google Indexing API ENABLED (true) + IndexNow + Bing + WebSub + PingOMatic
-// ✅ Google Permission পেলে সরাসরি কাজ করবে
-// ✅ Service Account JSON missing হলে gracefully skip করবে
+// ✅ FINAL v4: Google Indexing API + IndexNow + Bing + WebSub + Quiz URL Support
 
 import { submitToIndexNow } from "./indexnow.js";
 import { notifyWebSub } from "./websub.js";
@@ -14,21 +12,6 @@ const BING_MAX_URLS = 500;
 // ═══════════════════════════════════════════════════════════
 // ✅ GOOGLE INDEXING API — ENABLED
 // ═══════════════════════════════════════════════════════════
-// Google Indexing API officially শুধু JobPosting ও BroadcastEvent
-// support করে। কিন্তু Google News Publisher Center-এ approved
-// থাকলে NewsArticle-ও কাজ করে (experimental)।
-//
-// 📌 যদি Google permission না দেয় বা error আসে:
-//    এই লাইনটি false করে দিন — বাকি channels (IndexNow, Bing,
-//    WebSub, PingOMatic) সবসময় কাজ করবে।
-//
-// 📌 চালু করতে যা লাগবে:
-//    - Cloudflare Worker Environment Variable:
-//      GOOGLE_SERVICE_ACCOUNT_JSON = (Service Account JSON content)
-//    - Google Search Console-এ Service Account email → Owner add
-//    - Google Cloud Console-এ Indexing API → Enable
-//
-// 👇 Master Switch:
 const ENABLE_GOOGLE_INDEXING_API = true;
 // ═══════════════════════════════════════════════════════════
 
@@ -39,7 +22,15 @@ export async function fastIndexNews(env, ids) {
     return { ok: true, submitted: 0, successfulChannels: 0, channels: [] };
   }
 
-  const urls = list.map(id => `${SITE}/news/${id}`);
+  // ✅ FIX: Detect if it's a Quiz URL or News URL
+  const urls = list.map(id => {
+    // If the ID starts with "quiz/" or is a date format for quiz
+    if (id.startsWith("quiz/")) {
+      return `${SITE}/${id}`; // e.g., https://ajkernews.in/quiz/2026-10-22
+    }
+    // Otherwise, treat it as a news ID
+    return `${SITE}/news/${id}`;
+  });
 
   // ✅ Channels — সবগুলো parallel run করবে
   const jobs = [

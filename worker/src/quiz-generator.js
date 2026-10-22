@@ -1,13 +1,15 @@
 // worker/src/quiz-generator.js
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-const GEMINI_TIMEOUT_MS = 20000;
+const GEMINI_TIMEOUT_MS = 25000;
 
-const QUIZ_PROMPT = `You are a quiz master for a Bengali news website. Create 15 multiple-choice questions for today's daily quiz.
+// ✅ FIXED: Now generating exactly 12 questions
+const QUIZ_PROMPT = `You are a quiz master for a Bengali news website. Create exactly 12 multiple-choice questions for today's daily quiz.
 
 TOPIC: Based on Google Trends and recent news from India and West Bengal (Politics, Sports, Entertainment, Business, Technology).
 
 REQUIREMENTS:
+- You MUST create exactly 12 questions.
 - Each question must have 4 options.
 - Only 1 option is correct.
 - Provide a short explanation for the correct answer.
@@ -32,13 +34,16 @@ export async function generateDailyQuiz(apiKey) {
     return null;
   }
 
-  const models = ["gemini-2.0-flash", "gemini-1.5-flash"];
+  const models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
   
   for (const model of models) {
     try {
       const result = await callGemini(model, apiKey);
-      if (result && Array.isArray(result) && result.length === 15) {
+      // ✅ Check for exactly 12 questions
+      if (result && Array.isArray(result) && result.length === 12) {
         return result;
+      } else {
+        console.warn(`[QUIZ] Model ${model} returned ${result?.length || 0} questions instead of 12.`);
       }
     } catch (error) {
       console.warn(`[QUIZ] Model ${model} failed:`, error.message);

@@ -1,5 +1,5 @@
 // worker/src/database.js
-// ✅ FIXED: Original News Logic + New Quiz Functions (12 Questions & Dynamic Image)
+// ✅ FIXED: Dynamic SEO Title & Meta based on Daily Trending Keyword
 
 export async function getNewsById(db, id) {
   return await db.prepare(`SELECT * FROM news WHERE id = ? LIMIT 1`).bind(id).first();
@@ -36,14 +36,28 @@ export async function insertCandidate(db, article) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ✅ NEW: QUIZ FUNCTIONS (Added from v63.6)
+// ✅ QUIZ FUNCTIONS (SEO Optimized - No "আজকের কুইজ")
 // ═══════════════════════════════════════════════════════════
 export async function insertDailyQuiz(db, data) {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   
-  // ✅ Quiz-themed image instead of default logo
   const quizImage = "https://images.unsplash.com/photo-1606326608606-aa0b62935f2b?auto=format&fit=crop&w=800&q=80";
+
+  // ✅ Extract the Top Search Keyword from the first question
+  let trendingKeyword = "";
+  if (data.questions && data.questions.length > 0 && data.questions[0].mainTopic) {
+      trendingKeyword = data.questions[0].mainTopic;
+  }
+
+  // ✅ Format Date from "আজকের কুইজ: ২২ অক্টোবর ২০২৬" -> "২২ অক্টোবর ২০২৬"
+  let datePart = data.title.replace("আজকের কুইজ:", "").trim();
+
+  // ✅ Dynamic SEO Title
+  let dynamicTitle = `${datePart} কারেন্ট অ্যাফেয়ার্স: ${trendingKeyword || 'সাধারণ জ্ঞান'} | সাধারণ জ্ঞান ২০২৬`;
+
+  // ✅ Dynamic Meta Description
+  const dynamicDescription = `${datePart} কারেন্ট অ্যাফেয়ার্স ও সাধারণ জ্ঞান কুইজে অংশ নিন। ${trendingKeyword ? trendingKeyword + ' ' : ''}সংক্রান্ত ১২টি প্রশ্ন, ৩০ সেকেন্ড টাইমার। ২০২৬ সালের গুরুত্বপূর্ণ প্রশ্নোত্তর।`;
 
   await db.prepare(`
     INSERT INTO news (
@@ -56,9 +70,9 @@ export async function insertDailyQuiz(db, data) {
     id,
     `https://ajkernews.in/quiz/${data.date}`,
     'Ajker News',
-    data.title,
-    data.title,
-    'আজকের কুইজে অংশ নিন এবং আপনার জ্ঞান পরীক্ষা করুন। ১২টি প্রশ্ন, ৩০ সেকেন্ড টাইমার।', // ✅ 12 Questions
+    dynamicTitle, // ✅ SEO Title
+    dynamicTitle, // ✅ Headline
+    dynamicDescription, // ✅ Meta Description
     'quiz',
     quizImage, 
     now,
@@ -78,7 +92,6 @@ export async function getQuizByDate(db, dateStr) {
 // ✅ YOUR ORIGINAL LOGIC: Random Publish Time
 // ═══════════════════════════════════════════════════════════
 export async function publishNews(db, id, data) {
-  // ✅ Automatic Random Publish Time (0-110 minutes ago)
   const now = new Date();
   const randomMinutesAgo = Math.floor(Math.random() * 110);
   const randomTime = new Date(now.getTime() - randomMinutesAgo * 60 * 1000);
@@ -101,8 +114,6 @@ export async function publishNews(db, id, data) {
       id
     )
     .run();
-
-  console.log(`[PUBLISH] ${id} published at ${isoTimestamp} (random ${randomMinutesAgo}m ago)`);
 }
 
 export async function deleteNews(db, id) {

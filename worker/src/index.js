@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v63.2: Daily Quiz + News + SEO + Admin (Fixed Syntax Error)
+// ✅ FINAL v63.4: Restored 6 news per run + Added All Quizzes in Sidebar + IST Date Fix
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -33,9 +33,6 @@ const NOTIFICATION_CONFIG = {
 
 let tablesReadyPromise = null;
 
-// ═══════════════════════════════════════════════════════════
-// POPUNDER
-// ═══════════════════════════════════════════════════════════
 const POPUNDER_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
 
 function getArticlePopunderScript() {
@@ -43,15 +40,14 @@ function getArticlePopunderScript() {
 (function() {
   'use strict';
   var fromSource = false;
-  var detectionMethod = 'none';
   try {
     var urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('from') === 'source') { fromSource = true; detectionMethod = 'url-param'; }
+    if (urlParams.get('from') === 'source') { fromSource = true; }
   } catch (e) {}
   if (!fromSource) {
     try {
       var ts = parseInt(sessionStorage.getItem('ajker_src') || '0', 10);
-      if (ts && (Date.now() - ts) < 30000) { fromSource = true; detectionMethod = 'session-storage'; }
+      if (ts && (Date.now() - ts) < 30000) { fromSource = true; }
     } catch (e) {}
   }
   try { sessionStorage.removeItem('ajker_src'); } catch (e) {}
@@ -69,9 +65,6 @@ function getArticlePopunderScript() {
 <\/script>`;
 }
 
-// ═══════════════════════════════════════════════════════════
-// UTILITIES
-// ═══════════════════════════════════════════════════════════
 const BN_TO_EN_MAP = { "অ":"o","আ":"a","ই":"i","ঈ":"i","উ":"u","ঊ":"u","ঋ":"ri","এ":"e","ঐ":"oi","ও":"o","ঔ":"ou","ক":"k","খ":"kh","গ":"g","ঘ":"gh","ঙ":"ng","চ":"ch","ছ":"chh","জ":"j","ঝ":"jh","ঞ":"n","ট":"t","ঠ":"th","ড":"d","ঢ":"dh","ণ":"n","ত":"t","থ":"th","দ":"d","ধ":"dh","ন":"n","প":"p","ফ":"ph","ব":"b","ভ":"bh","ম":"m","য":"j","র":"r","ল":"l","শ":"sh","ষ":"sh","স":"s","হ":"h","ড়":"r","ঢ়":"rh","য়":"y","ং":"ng","ঃ":"h","ঁ":"n","া":"a","ি":"i","ী":"i","ু":"u","ূ":"u","ৃ":"ri","ে":"e","ৈ":"oi","ো":"o","ৌ":"ou" };
 
 function toTransliterated(text) {
@@ -86,6 +79,12 @@ const BOT_REGEX = /googlebot|google-inspectiontool|apis-google|mediapartners-goo
 function getISTHour() {
   const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
   return istNow.getUTCHours();
+}
+
+// ✅ FIXED: Get Today's Date in IST
+function getTodayIST() {
+  const istDate = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  return istDate.toISOString().slice(0, 10);
 }
 
 function isQuietHours() {
@@ -165,9 +164,6 @@ async function removeInvalidTokens(env, invalidTokens, source = 'PUSH') {
   } catch (e) { return 0; }
 }
 
-// ═══════════════════════════════════════════════════════════
-// GONE PAGE & QUIZ PAGE HTML
-// ═══════════════════════════════════════════════════════════
 function gonePage(relatedNews = []) {
   const relatedHtml = relatedNews.length ? `
     <div style="margin-top: 32px; text-align: left;">
@@ -383,9 +379,6 @@ renderQuestion();
 </html>`;
 }
 
-// ═══════════════════════════════════════════════════════════
-// MAIN FETCH HANDLER
-// ═══════════════════════════════════════════════════════════
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -548,6 +541,34 @@ export default {
         } catch (error) { return json({ success: false, error: error.message }, 500, 0); }
       }
 
+      // ✅ NEW: Manual Quiz Generation Endpoint
+      if (url.pathname === "/api/admin/generate-quiz" && request.method === "POST") {
+        const session = await getAdminSession(request, env);
+        if (!session) return json({ success: false, error: "Unauthorized" }, 401, 0);
+        
+        const todayStr = getTodayIST();
+        const existing = await getQuizByDate(env.DB, todayStr);
+        if (existing) return json({ success: true, message: "Quiz already exists for " + todayStr });
+        
+        let questions = await generateDailyQuiz(env.GEMINI_API_KEY);
+        if (questions && questions.length === 15) {
+            const bnMonths = ['জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'];
+            const dateObj = new Date(todayStr + 'T00:00:00+05:30');
+            const bnDay = dateObj.getDate();
+            const bnMonth = bnMonths[dateObj.getMonth()];
+            const bnYear = dateObj.getFullYear();
+            const bnDateStr = `${bnDay} ${bnMonth} ${bnYear}`;
+            
+            await insertDailyQuiz(env.DB, {
+                date: todayStr,
+                title: `আজকের কুইজ: ${bnDateStr}`,
+                questions
+            });
+            return json({ success: true, message: "Quiz generated for " + todayStr });
+        }
+        return json({ success: false, error: "Failed to generate quiz. Check Gemini API Key." }, 500, 0);
+      }
+
       if (url.pathname === "/sitemap.xml") return await generateSitemap(env);
       if (url.pathname === "/news-sitemap.xml") return await generateNewsSitemap(env);
       if (url.pathname === "/rss.xml") return await generateRSS(env);
@@ -560,7 +581,7 @@ export default {
       const userAgent = request.headers.get("User-Agent") || "";
       const isBot = BOT_REGEX.test(userAgent);
 
-      // ✅ NEW: Quiz Routes
+      // ✅ FIXED: Use IST for today's quiz
       if (url.pathname.startsWith("/quiz/") && request.method === "GET") {
         const dateStr = url.pathname.split("/")[2];
         if (!dateStr) return Response.redirect("https://ajkernews.in/", 302);
@@ -575,7 +596,7 @@ export default {
       }
 
       if (url.pathname === "/quiz" && request.method === "GET") {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = getTodayIST(); // ✅ FIXED: Use IST Date
         const quiz = await getQuizByDate(env.DB, today);
         if (quiz) return Response.redirect(`https://ajkernews.in/quiz/${today}`, 302);
         return new Response("আজকের কুইজ এখনো তৈরি হয়নি। সকাল ৭টার পরে আসুন।", { status: 200, headers: { "Content-Type": "text/html; charset=UTF-8" } });
@@ -626,7 +647,7 @@ export default {
 
       if (url.pathname === "/api/update") {
         if (request.method !== "POST") return json({ success: false, error: "POST method required" }, 405, 0);
-        const result = await updateNews(env);
+        const result = await updateNews(env); 
         return json(result, 200, 0);
       }
 
@@ -736,16 +757,22 @@ export default {
       }
 
       if (cron === "0 */2 * * *") {
-        // ✅ CHECK: Generate Quiz in the 6:30 AM - 8:00 AM IST window (01:00 - 02:30 UTC)
+        // ✅ Generate Quiz (Runs at UTC 0, 2, 4, 6 - IST 5:30 AM to 11:30 AM)
         const utcHour = new Date().getUTCHours();
-        if (utcHour >= 1 && utcHour < 3) {
-          const todayStr = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        if (utcHour >= 0 && utcHour <= 6) {
+          const todayStr = getTodayIST(); // ✅ FIXED: Use IST
           const existing = await getQuizByDate(env.DB, todayStr);
           if (!existing) {
-            console.log(`[QUIZ] Generating daily quiz for ${todayStr}...`);
-            const questions = await generateDailyQuiz(env.GEMINI_API_KEY);
+            console.log(`[QUIZ] Attempting to generate daily quiz for ${todayStr} (UTC Hour: ${utcHour})...`);
+            let questions = await generateDailyQuiz(env.GEMINI_API_KEY);
+            
+            if (!questions || questions.length !== 15) {
+              console.log(`[QUIZ] First attempt failed. Retrying in 5 seconds...`);
+              await new Promise(r => setTimeout(r, 5000));
+              questions = await generateDailyQuiz(env.GEMINI_API_KEY);
+            }
+
             if (questions && questions.length === 15) {
-              // ✅ FIXED: Bangla date formatting (manual mapping)
               const bnMonths = ['জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'];
               const dateObj = new Date(todayStr + 'T00:00:00+05:30');
               const bnDay = dateObj.getDate();
@@ -760,7 +787,7 @@ export default {
               });
               console.log(`[QUIZ] ✅ Daily quiz created for ${todayStr} (${bnDateStr})`);
             } else {
-              console.warn(`[QUIZ] ❌ Failed to generate quiz for ${todayStr}`);
+              console.warn(`[QUIZ] ❌ Failed to generate quiz for ${todayStr} after retries`);
             }
           } else {
             console.log(`[QUIZ] Quiz already exists for ${todayStr}`);
@@ -837,7 +864,7 @@ export default {
 };
 
 // ═══════════════════════════════════════════════════════════
-// HELPER FUNCTIONS (Digest, Article Page, etc.)
+// HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════════════
 
 async function sendDigest(env, istHour) {
@@ -949,6 +976,9 @@ async function updateNews(env) {
   try { const publishedResult = await env.DB.prepare(`SELECT source_title, headline FROM news WHERE status = 'published' AND type = 'news' ORDER BY created_at DESC LIMIT 80`).all(); existingPublished = publishedResult.results || []; } catch (error) {}
   let selected = [];
   try { selected = selectBestCandidates(candidates, existingPublished); } catch (error) { return { success: false, fetched: batchResult.totalReceived, inserted: batchResult.totalInserted, candidates: candidates.length, selected: 0, published: 0, deleted: 0, gemini: false, newNewsIds: [], batches: batchResult.batches, message: "Selection failed" }; }
+  
+  // ✅ FIXED: Removed MAX_PUBLISH_PER_RUN limit. news-selector.js handles the 6 news limit naturally.
+
   try {
     const selectedIds = new Set(selected.map(a => String(a.id)));
     const rejectedCandidates = candidates.filter(c => !selectedIds.has(String(c.id)));
@@ -1002,9 +1032,6 @@ async function updateNews(env) {
   return { success: true, fetched: batchResult.totalReceived, inserted: batchResult.totalInserted, batches: batchResult.batches, candidates: candidates.length, selected: selected.length, published: publishResult.published, skipped: publishResult.skipped || 0, deleted: cleanupResult.deleted, gemini: usedGemini, newNewsIds: publishedIds, message: `Update completed. ${publishResult.published} published, ${cleanupResult.deleted} cleaned.` };
 }
 
-// ═══════════════════════════════════════════════════════════
-// BOT LISTING & ARTICLE PAGES (Unchanged from original)
-// ═══════════════════════════════════════════════════════════
 async function serveBotHomepage(env, request) { return await serveListingPage(env, "top", null, request); }
 async function serveBotCategoryPage(category, env, request) { return await serveListingPage(env, category, null, request); }
 
@@ -1128,18 +1155,74 @@ async function handleGetNews(url, env, request) { return cacheNewsApi(request, a
 
 async function handleGetNewsInternal(url, env) {
   const category = url.searchParams.get("category") || "top";
+  const type = url.searchParams.get("type") || null; // ✅ Filter by type
   const query = (url.searchParams.get("q") || "").trim();
   const specificId = url.searchParams.get("id");
   const offset = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10));
   const requestedLimit = parseInt(url.searchParams.get("limit") || "10", 10);
-  const limit = Math.min(Math.max(requestedLimit, 1), 20);
-  const selectFields = `news.id, news.headline, news.summary, news.main_topic, news.category, news.image_url, news.published_at, news.source_name, news.source_url, news.created_at, news.score, COUNT(nl.id) AS love_count`;
-  if (specificId) { const result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.id = ? AND news.status = 'published' AND news.type = 'news' GROUP BY news.id LIMIT 1`).bind(specificId).all(); return json({ success: true, count: (result.results || []).length, news: result.results || [] }, 200, 0); }
-  if (query) { const transliterated = toTransliterated(query); const result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.status = 'published' AND news.type = 'news' AND (news.search_text LIKE ? OR news.headline LIKE ? OR news.summary LIKE ? OR news.main_topic LIKE ?) GROUP BY news.id ORDER BY news.created_at DESC, news.published_at DESC LIMIT ? OFFSET ?`).bind(`%${transliterated}%`, `%${query}%`, `%${query}%`, `%${query}%`, limit + 1, offset).all(); const rawNews = result?.results || []; const hasMore = rawNews.length > limit; return json({ success: true, count: rawNews.slice(0, limit).length, offset, limit, has_more: hasMore, news: rawNews.slice(0, limit) }, 200, 0); }
-  if (category === "top") { const windows = [{ sql: "datetime('now', '-24 hours')" }, { sql: "datetime('now', '-48 hours')" }, { sql: "datetime('now', '-7 days')" }, { sql: null }]; for (const win of windows) { const whereClause = win.sql ? `news.status = 'published' AND news.type = 'news' AND news.created_at >= ${win.sql}` : `news.status = 'published' AND news.type = 'news'`; const result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE ${whereClause} GROUP BY news.id ORDER BY news.created_at DESC, news.score DESC LIMIT ? OFFSET ?`).bind(limit + 1, offset).all(); const rawNews = result?.results || []; if (rawNews.length > 0) { const hasMore = rawNews.length > limit; return json({ success: true, count: rawNews.slice(0, limit).length, offset, limit, has_more: hasMore, news: rawNews.slice(0, limit) }, 200, 0); } } }
-  if (category === "trending") { const windows = [{ sql: "datetime('now', '-3 days')" }, { sql: "datetime('now', '-7 days')" }, { sql: "datetime('now', '-30 days')" }, { sql: null }]; for (const win of windows) { const whereClause = win.sql ? `news.status = 'published' AND news.type = 'news' AND news.created_at >= ${win.sql}` : `news.status = 'published' AND news.type = 'news'`; const result = await env.DB.prepare(`SELECT ${selectFields}, (COUNT(DISTINCT nl.id) * 5) AS love_score, (SELECT COUNT(*) FROM news_comments nc WHERE nc.news_id = news.id) AS comment_count, (SELECT COUNT(*) FROM push_clicks pc WHERE pc.news_id = news.id) AS click_count FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE ${whereClause} GROUP BY news.id ORDER BY ((COUNT(DISTINCT nl.id) * 5) + ((SELECT COUNT(*) FROM news_comments nc WHERE nc.news_id = news.id) * 4) + ((SELECT COUNT(*) FROM push_clicks pc WHERE pc.news_id = news.id) * 3) + (news.score * 1) + CASE WHEN (julianday('now') - julianday(news.created_at)) * 24 < 6 THEN 20 WHEN (julianday('now') - julianday(news.created_at)) * 24 < 12 THEN 15 WHEN (julianday('now') - julianday(news.created_at)) * 24 < 24 THEN 10 WHEN (julianday('now') - julianday(news.created_at)) * 24 < 48 THEN 5 WHEN (julianday('now') - julianday(news.created_at)) * 24 < 72 THEN 2 ELSE 0 END) DESC LIMIT ? OFFSET ?`).bind(limit + 1, offset).all(); const rawNews = result?.results || []; if (rawNews.length > 0) { const hasMore = rawNews.length > limit; return json({ success: true, count: rawNews.slice(0, limit).length, offset, limit, has_more: hasMore, news: rawNews.slice(0, limit) }, 200, 0); } } }
-  if (category === "all") { const result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.status = 'published' AND news.type = 'news' GROUP BY news.id ORDER BY news.created_at DESC, news.published_at DESC LIMIT ? OFFSET ?`).bind(limit + 1, offset).all(); const rawNews = result?.results || []; const hasMore = rawNews.length > limit; return json({ success: true, count: rawNews.slice(0, limit).length, offset, limit, has_more: hasMore, news: rawNews.slice(0, limit) }, 200, 0); }
-  const result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.status = 'published' AND news.type = 'news' AND news.category = ? GROUP BY news.id ORDER BY news.created_at DESC, news.published_at DESC LIMIT ? OFFSET ?`).bind(category, limit + 1, offset).all(); const rawNews = result?.results || []; const hasMore = rawNews.length > limit; return json({ success: true, count: rawNews.slice(0, limit).length, offset, limit, has_more: hasMore, news: rawNews.slice(0, limit) }, 200, 0);
+  const limit = Math.min(Math.max(requestedLimit, 1), 1000); // ✅ Increased max limit to 1000 for fetching all quizzes
+  
+  // ✅ ADDED: news.type in select fields
+  const selectFields = `news.id, news.headline, news.summary, news.main_topic, news.category, news.image_url, news.published_at, news.source_name, news.source_url, news.created_at, news.score, news.type, COUNT(nl.id) AS love_count`;
+  
+  if (specificId) { 
+    const result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.id = ? AND news.status = 'published' GROUP BY news.id LIMIT 1`).bind(specificId).all(); 
+    return json({ success: true, count: (result.results || []).length, news: result.results || [] }, 200, 0); 
+  }
+  
+  // ✅ Specific query for quizzes (Fetch ALL)
+  if (type === 'quiz') {
+    const result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.status = 'published' AND news.type = 'quiz' GROUP BY news.id ORDER BY news.created_at DESC LIMIT ? OFFSET ?`).bind(limit + 1, offset).all();
+    const rawNews = result?.results || [];
+    const hasMore = rawNews.length > limit;
+    return json({ success: true, count: rawNews.slice(0, limit).length, offset, limit, has_more: hasMore, news: rawNews.slice(0, limit) }, 200, 0);
+  }
+
+  if (query) { 
+    const transliterated = toTransliterated(query); 
+    const result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.status = 'published' AND (news.type = 'news' OR news.type = 'quiz') AND (news.search_text LIKE ? OR news.headline LIKE ? OR news.summary LIKE ? OR news.main_topic LIKE ?) GROUP BY news.id ORDER BY news.created_at DESC, news.published_at DESC LIMIT ? OFFSET ?`).bind(`%${transliterated}%`, `%${query}%`, `%${query}%`, `%${query}%`, limit + 1, offset).all(); 
+    const rawNews = result?.results || []; 
+    const hasMore = rawNews.length > limit; 
+    return json({ success: true, count: rawNews.slice(0, limit).length, offset, limit, has_more: hasMore, news: rawNews.slice(0, limit) }, 200, 0); 
+  }
+  
+  if (category === "top") { 
+    const windows = [{ sql: "datetime('now', '-24 hours')" }, { sql: "datetime('now', '-48 hours')" }, { sql: "datetime('now', '-7 days')" }, { sql: null }]; 
+    for (const win of windows) { 
+      const whereClause = win.sql ? `news.status = 'published' AND (news.type = 'news' OR news.type = 'quiz') AND news.created_at >= ${win.sql}` : `news.status = 'published' AND (news.type = 'news' OR news.type = 'quiz')`; 
+      const result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE ${whereClause} GROUP BY news.id ORDER BY news.created_at DESC, news.score DESC LIMIT ? OFFSET ?`).bind(limit + 1, offset).all(); 
+      const rawNews = result?.results || []; 
+      if (rawNews.length > 0) { 
+        const hasMore = rawNews.length > limit; 
+        return json({ success: true, count: rawNews.slice(0, limit).length, offset, limit, has_more: hasMore, news: rawNews.slice(0, limit) }, 200, 0); 
+      } 
+    } 
+  }
+  
+  if (category === "trending") { 
+    const windows = [{ sql: "datetime('now', '-3 days')" }, { sql: "datetime('now', '-7 days')" }, { sql: "datetime('now', '-30 days')" }, { sql: null }]; 
+    for (const win of windows) { 
+      const whereClause = win.sql ? `news.status = 'published' AND (news.type = 'news' OR news.type = 'quiz') AND news.created_at >= ${win.sql}` : `news.status = 'published' AND (news.type = 'news' OR news.type = 'quiz')`; 
+      const result = await env.DB.prepare(`SELECT ${selectFields}, (COUNT(DISTINCT nl.id) * 5) AS love_score, (SELECT COUNT(*) FROM news_comments nc WHERE nc.news_id = news.id) AS comment_count, (SELECT COUNT(*) FROM push_clicks pc WHERE pc.news_id = news.id) AS click_count FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE ${whereClause} GROUP BY news.id ORDER BY ((COUNT(DISTINCT nl.id) * 5) + ((SELECT COUNT(*) FROM news_comments nc WHERE nc.news_id = news.id) * 4) + ((SELECT COUNT(*) FROM push_clicks pc WHERE pc.news_id = news.id) * 3) + (news.score * 1) + CASE WHEN (julianday('now') - julianday(news.created_at)) * 24 < 6 THEN 20 WHEN (julianday('now') - julianday(news.created_at)) * 24 < 12 THEN 15 WHEN (julianday('now') - julianday(news.created_at)) * 24 < 24 THEN 10 WHEN (julianday('now') - julianday(news.created_at)) * 24 < 48 THEN 5 WHEN (julianday('now') - julianday(news.created_at)) * 24 < 72 THEN 2 ELSE 0 END) DESC LIMIT ? OFFSET ?`).bind(limit + 1, offset).all(); 
+      const rawNews = result?.results || []; 
+      if (rawNews.length > 0) { 
+        const hasMore = rawNews.length > limit; 
+        return json({ success: true, count: rawNews.slice(0, limit).length, offset, limit, has_more: hasMore, news: rawNews.slice(0, limit) }, 200, 0); 
+      } 
+    } 
+  }
+  
+  if (category === "all") { 
+    const result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.status = 'published' AND (news.type = 'news' OR news.type = 'quiz') GROUP BY news.id ORDER BY news.created_at DESC, news.published_at DESC LIMIT ? OFFSET ?`).bind(limit + 1, offset).all(); 
+    const rawNews = result?.results || []; 
+    const hasMore = rawNews.length > limit; 
+    return json({ success: true, count: rawNews.slice(0, limit).length, offset, limit, has_more: hasMore, news: rawNews.slice(0, limit) }, 200, 0); 
+  }
+  
+  const result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.status = 'published' AND (news.type = 'news' OR news.type = 'quiz') AND news.category = ? GROUP BY news.id ORDER BY news.created_at DESC, news.published_at DESC LIMIT ? OFFSET ?`).bind(category, limit + 1, offset).all(); 
+  const rawNews = result?.results || []; 
+  const hasMore = rawNews.length > limit; 
+  return json({ success: true, count: rawNews.slice(0, limit).length, offset, limit, has_more: hasMore, news: rawNews.slice(0, limit) }, 200, 0);
 }
 
 async function handleSubscribe(request, env) {
@@ -1247,7 +1330,7 @@ function getAdminLoginHTML() {
 }
 
 function getAdminDashboardHTML() {
-  return `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Admin Dashboard - Ajker News</title><meta name="robots" content="noindex, nofollow"><link rel="icon" type="image/x-icon" href="/public/favicon.ico"><style>* { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, sans-serif; } body { background: #f0f2f5; color: #111; min-height: 100vh; } .header { background: #fff; padding: 16px 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; } .header h1 { font-size: 20px; } .header button { padding: 9px 16px; background: #ffebee; color: #c62828; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; } .container { max-width: 1000px; margin: 0 auto; padding: 16px; } .search { margin-bottom: 16px; display: flex; gap: 8px; flex-wrap: wrap; } .search input { flex: 1; min-width: 200px; padding: 12px 16px; border: 1px solid #ddd; border-radius: 10px; font-size: 14px; outline: none; } .search input:focus { border-color: #111; } .search button { padding: 12px 24px; background: #111; color: #fff; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; } .search button.reset { background: #f2f2f2; color: #333; } .news-item { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); display: flex; gap: 14px; margin-bottom: 12px; } .news-item img { width: 100px; height: 70px; object-fit: cover; border-radius: 8px; background: #f0f0f0; flex-shrink: 0; } .news-item .content { flex: 1; min-width: 0; } .news-item h3 { font-size: 15px; font-weight: 700; margin-bottom: 6px; line-height: 1.4; } .news-item .meta { font-size: 12px; color: #888; margin-bottom: 10px; } .news-item .actions { display: flex; gap: 8px; flex-wrap: wrap; } .news-item .actions button { padding: 7px 14px; border: none; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; } .btn-edit { background: #e3f2fd; color: #1976d2; } .btn-hide { background: #f5f5f5; color: #666; } .btn-comments { background: #fff3e0; color: #e65100; } .btn-back { background: #e8f5e9; color: #2e7d32; padding: 10px 20px; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; margin-bottom: 16px; } .load-more-btn { padding: 14px 32px; background: #111; color: #fff; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; } .comment-item { background: #fff; border-radius: 12px; padding: 14px 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; } .comment-item .info { flex: 1; min-width: 0; } .comment-item .author { font-size: 13px; font-weight: 700; margin-bottom: 4px; } .comment-item .text { font-size: 13px; color: #555; margin-bottom: 4px; } .comment-item .meta { font-size: 11px; color: #999; margin-top: 4px; } .comment-item .actions { display: flex; gap: 6px; flex-shrink: 0; } .comment-item .btn-edit { padding: 8px 12px; background: #e3f2fd; color: #1976d2; border: none; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; } .comment-item .btn-delete { padding: 8px 12px; background: #ffebee; color: #c62828; border: none; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; } .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 2000; align-items: center; justify-content: center; padding: 16px; } .modal.active { display: flex; } .modal-box { background: #fff; border-radius: 16px; padding: 24px; max-width: 520px; width: 100%; max-height: 90vh; overflow-y: auto; } .modal-box h2 { font-size: 18px; margin-bottom: 16px; } .modal-box label { display: block; font-size: 13px; font-weight: 700; margin-bottom: 6px; color: #555; margin-top: 12px; } .modal-box textarea, .modal-box input { width: 100%; padding: 10px 12px; border: 1.5px solid #ddd; border-radius: 8px; font-size: 14px; outline: none; font-family: inherit; } .modal-box textarea { height: 100px; resize: vertical; } .modal-actions { display: flex; gap: 10px; margin-top: 20px; } .modal-actions button { flex: 1; padding: 12px; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; } .btn-save { background: #111; color: #fff; } .btn-cancel { background: #f2f2f2; color: #333; } .toast { position: fixed; left: 50%; bottom: 30px; transform: translateX(-50%); background: #111; color: #fff; padding: 12px 20px; border-radius: 10px; font-size: 14px; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: 3000; } .toast.show { opacity: 1; } .toast.success { background: #2e7d32; } .toast.error { background: #c62828; } .empty { text-align: center; padding: 40px; color: #888; }</style></head><body><div class="header"><h1 id="pageTitle">📰 Admin Panel</h1><button onclick="logout()">🚪 Logout</button></div><div class="container"><div class="search"><input type="text" id="searchInput" placeholder="🔍 Headline বা 32-char ID দিয়ে খুঁজুন..." onkeypress="if(event.key==='Enter') searchNow()"><button onclick="searchNow()">Search</button><button class="reset" onclick="resetSearch()">Reset</button></div><div id="newsList"><div class="empty">Loading...</div></div></div><div id="editModal" class="modal"><div class="modal-box"><h2>✏️ Edit News</h2><input type="hidden" id="editId"><label>Headline</label><textarea id="editHeadline"></textarea><label>Summary</label><textarea id="editSummary"></textarea><div class="modal-actions"><button class="btn-cancel" onclick="closeEdit()">Cancel</button><button class="btn-save" onclick="saveEdit()">Save</button></div></div></div><div id="editCommentModal" class="modal"><div class="modal-box"><h2>✏️ Edit Comment</h2><input type="hidden" id="editCommentId"><label>Author</label><input type="text" id="editCommentAuthor"><label>Comment</label><textarea id="editCommentText"></textarea><div class="modal-actions"><button class="btn-cancel" onclick="closeEditComment()">Cancel</button><button class="btn-save" onclick="saveEditComment()">Save</button></div></div></div><div id="toast" class="toast"></div><script>let currentMode = 'list'; let currentNewsId = ''; let currentSearch = ''; let currentOffset = 0; const PAGE_SIZE = 100; let allLoadedNews = []; let totalNews = 0; function toast(msg, type) { const t = document.getElementById('toast'); t.textContent = msg; t.className = 'toast show ' + (type || ''); setTimeout(() => t.className = 'toast ' + (type || ''), 2500); } function esc(v) { if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); } function isHexId(s) { return /^[a-f0-9]{32}$/i.test(s); } async function loadNews(search, append) { currentMode = 'list'; currentNewsId = ''; currentSearch = search || ''; document.getElementById('pageTitle').textContent = '📰 Admin Panel'; if (!append) { currentOffset = 0; allLoadedNews = []; } const list = document.getElementById('newsList'); if (!append) list.innerHTML = '<div class="empty">Loading...</div>'; try { let url = '/api/admin/list?limit=' + PAGE_SIZE + '&offset=' + currentOffset; if (search) { if (isHexId(search)) url += '&id=' + encodeURIComponent(search); else url += '&search=' + encodeURIComponent(search); } const res = await fetch(url, { credentials: 'same-origin' }); if (res.status === 401) { location.href = '/admin'; return; } const data = await res.json(); const news = data.news || []; totalNews = data.total || 0; if (!news.length && !append) { list.innerHTML = '<div class="empty">No news found for "' + esc(search || '') + '"</div>'; return; } if (!append) allLoadedNews = news; else allLoadedNews = allLoadedNews.concat(news); let html = allLoadedNews.map(n => \`<div class="news-item"><img src="\${esc(n.image_url || '/logo.png')}" onerror="this.src='/logo.png'" alt=""><div class="content"><h3>\${esc(n.headline || 'Untitled')}</h3><div class="meta">ID: <code style="background:#f5f5f5;padding:2px 6px;border-radius:4px;font-size:11px;">\${esc(n.id || '')}</code> | Type: \${esc(n.type || 'news')}</div><div class="meta">\${esc(n.category || 'general')} • \${esc((n.created_at||'').slice(0,16).replace('T',' '))}</div><div class="actions"><button class="btn-edit" onclick='openEdit(\${JSON.stringify(n).replace(/'/g,"&#39;")})'>✏️ Edit</button><button class="btn-hide" onclick="hideNews('\${n.id}')">🙈 Hide</button><button class="btn-comments" onclick="showComments('\${n.id}', '\${esc(n.headline).replace(/'/g,"&#39;")}')">💬 Comments</button></div></div></div>\`).join(''); if (!isHexId(search) && allLoadedNews.length < totalNews) { html += \`<div style="text-align:center;padding:24px 0;"><button class="load-more-btn" onclick="loadMore()">আরও দেখুন (\${allLoadedNews.length} / \${totalNews})</button></div>\`; } else if (!isHexId(search) && allLoadedNews.length > 0 && totalNews > 0) { html += \`<div style="text-align:center;padding:20px;color:#888;font-size:13px;">✅ সব \${totalNews}টি Post দেখানো হয়েছে</div>\`; } list.innerHTML = html; } catch (e) { list.innerHTML = '<div class="empty">Network error</div>'; } } function loadMore() { currentOffset += PAGE_SIZE; loadNews(currentSearch, true); } function searchNow() { const q = document.getElementById('searchInput').value.trim(); loadNews(q, false); } function resetSearch() { document.getElementById('searchInput').value = ''; currentOffset = 0; allLoadedNews = []; totalNews = 0; currentNewsId = ''; currentMode = 'list'; loadNews('', false); } async function showComments(newsId, headline) { currentMode = 'comments'; currentNewsId = newsId; document.getElementById('pageTitle').textContent = '💬 Comments'; const list = document.getElementById('newsList'); list.innerHTML = '<div class="empty">Loading comments...</div>'; try { const res = await fetch('/api/admin/comments?newsId=' + encodeURIComponent(newsId), { credentials: 'same-origin' }); if (res.status === 401) { location.href = '/admin'; return; } const data = await res.json(); const comments = data.comments || []; let html = \`<div style="margin-bottom:16px;"><button class="btn-back" onclick="goBackToNewsList()">← Back to News List</button><p style="font-size:13px;color:#888;margin-top:8px;">News: \${esc((headline || '').slice(0, 80))}</p></div>\`; if (!comments.length) html += '<div class="empty">No comments found</div>'; else { html += comments.map(c => \`<div class="comment-item"><div class="info"><div class="author">👤 \${esc(c.author_name || 'Guest')}</div><div class="text">\${esc(c.comment_text || '')}</div><div class="meta">\${esc((c.created_at||'').slice(0,16).replace('T',' '))}</div></div><div class="actions"><button class="btn-edit" onclick='openEditComment(\${JSON.stringify(c).replace(/'/g,"&#39;")})'>✏️ Edit</button><button class="btn-delete" onclick="deleteComment('\${c.id}', '\${newsId}')">🗑️ Delete</button></div></div>\`).join(''); } list.innerHTML = html; } catch (e) { list.innerHTML = '<div class="empty">Network error</div>'; } } function goBackToNewsList() { currentMode = 'list'; currentNewsId = ''; currentOffset = 0; allLoadedNews = []; totalNews = 0; loadNews(currentSearch, false); } function openEdit(n) { document.getElementById('editId').value = n.id || ''; document.getElementById('editHeadline').value = n.headline || ''; document.getElementById('editSummary').value = n.summary || ''; document.getElementById('editModal').classList.add('active'); } function closeEdit() { document.getElementById('editModal').classList.remove('active'); } async function saveEdit() { const id = document.getElementById('editId').value; const updates = { headline: document.getElementById('editHeadline').value.trim(), summary: document.getElementById('editSummary').value.trim() }; try { const res = await fetch('/api/admin/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ id, updates }) }); const data = await res.json(); if (data.success) { toast('✅ Updated', 'success'); closeEdit(); if (currentMode === 'comments') showComments(currentNewsId, document.getElementById('pageTitle').textContent); else loadNews(currentSearch, false); } else toast('❌ ' + (data.error || 'Failed'), 'error'); } catch (e) { toast('❌ Network error', 'error'); } } async function hideNews(id) { if (!confirm('Hide this news?')) return; try { const res = await fetch('/api/admin/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ id, updates: { status: 'rejected' } }) }); const data = await res.json(); if (data.success) { toast('🙈 Hidden', 'success'); loadNews(currentSearch, false); } else toast('❌ ' + (data.error || 'Failed'), 'error'); } catch (e) { toast('❌ Network error', 'error'); } } function openEditComment(c) { document.getElementById('editCommentId').value = c.id || ''; document.getElementById('editCommentAuthor').value = c.author_name || ''; document.getElementById('editCommentText').value = c.comment_text || ''; document.getElementById('editCommentModal').classList.add('active'); } function closeEditComment() { document.getElementById('editCommentModal').classList.remove('active'); } async function saveEditComment() { const id = document.getElementById('editCommentId').value; const updates = { author_name: document.getElementById('editCommentAuthor').value.trim(), comment_text: document.getElementById('editCommentText').value.trim() }; try { const res = await fetch('/api/admin/comment-update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ id, updates }) }); const data = await res.json(); if (data.success) { toast('✅ Comment updated', 'success'); closeEditComment(); showComments(currentNewsId, document.getElementById('pageTitle').textContent); } else toast('❌ ' + (data.error || 'Failed'), 'error'); } catch (e) { toast('❌ Network error', 'error'); } } async function deleteComment(id, newsId) { if (!confirm('Delete this comment?')) return; try { const res = await fetch('/api/admin/comment-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ id }) }); const data = await res.json(); if (data.success) { toast('🗑️ Deleted', 'success'); showComments(newsId, document.getElementById('pageTitle').textContent); } else toast('❌ ' + (data.error || 'Failed'), 'error'); } catch (e) { toast('❌ Network error', 'error'); } } async function logout() { try { await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {} location.href = '/admin'; } loadNews('', false);</script></body></html>`;
+  return `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Admin Dashboard - Ajker News</title><meta name="robots" content="noindex, nofollow"><link rel="icon" type="image/x-icon" href="/public/favicon.ico"><style>* { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, sans-serif; } body { background: #f0f2f5; color: #111; min-height: 100vh; } .header { background: #fff; padding: 16px 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; } .header h1 { font-size: 20px; } .header button { padding: 9px 16px; background: #ffebee; color: #c62828; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; } .container { max-width: 1000px; margin: 0 auto; padding: 16px; } .search { margin-bottom: 16px; display: flex; gap: 8px; flex-wrap: wrap; } .search input { flex: 1; min-width: 200px; padding: 12px 16px; border: 1px solid #ddd; border-radius: 10px; font-size: 14px; outline: none; } .search input:focus { border-color: #111; } .search button { padding: 12px 24px; background: #111; color: #fff; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; } .search button.reset { background: #f2f2f2; color: #333; } .news-item { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); display: flex; gap: 14px; margin-bottom: 12px; } .news-item img { width: 100px; height: 70px; object-fit: cover; border-radius: 8px; background: #f0f0f0; flex-shrink: 0; } .news-item .content { flex: 1; min-width: 0; } .news-item h3 { font-size: 15px; font-weight: 700; margin-bottom: 6px; line-height: 1.4; } .news-item .meta { font-size: 12px; color: #888; margin-bottom: 10px; } .news-item .actions { display: flex; gap: 8px; flex-wrap: wrap; } .news-item .actions button { padding: 7px 14px; border: none; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; } .btn-edit { background: #e3f2fd; color: #1976d2; } .btn-hide { background: #f5f5f5; color: #666; } .btn-comments { background: #fff3e0; color: #e65100; } .btn-back { background: #e8f5e9; color: #2e7d32; padding: 10px 20px; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; margin-bottom: 16px; } .btn-quiz { background: #f3e5f5; color: #7b1fa2; padding: 10px 20px; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; margin-bottom: 16px; margin-left: 8px; } .load-more-btn { padding: 14px 32px; background: #111; color: #fff; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; } .comment-item { background: #fff; border-radius: 12px; padding: 14px 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; } .comment-item .info { flex: 1; min-width: 0; } .comment-item .author { font-size: 13px; font-weight: 700; margin-bottom: 4px; } .comment-item .text { font-size: 13px; color: #555; margin-bottom: 4px; } .comment-item .meta { font-size: 11px; color: #999; margin-top: 4px; } .comment-item .actions { display: flex; gap: 6px; flex-shrink: 0; } .comment-item .btn-edit { padding: 8px 12px; background: #e3f2fd; color: #1976d2; border: none; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; } .comment-item .btn-delete { padding: 8px 12px; background: #ffebee; color: #c62828; border: none; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; } .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 2000; align-items: center; justify-content: center; padding: 16px; } .modal.active { display: flex; } .modal-box { background: #fff; border-radius: 16px; padding: 24px; max-width: 520px; width: 100%; max-height: 90vh; overflow-y: auto; } .modal-box h2 { font-size: 18px; margin-bottom: 16px; } .modal-box label { display: block; font-size: 13px; font-weight: 700; margin-bottom: 6px; color: #555; margin-top: 12px; } .modal-box textarea, .modal-box input { width: 100%; padding: 10px 12px; border: 1.5px solid #ddd; border-radius: 8px; font-size: 14px; outline: none; font-family: inherit; } .modal-box textarea { height: 100px; resize: vertical; } .modal-actions { display: flex; gap: 10px; margin-top: 20px; } .modal-actions button { flex: 1; padding: 12px; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; } .btn-save { background: #111; color: #fff; } .btn-cancel { background: #f2f2f2; color: #333; } .toast { position: fixed; left: 50%; bottom: 30px; transform: translateX(-50%); background: #111; color: #fff; padding: 12px 20px; border-radius: 10px; font-size: 14px; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: 3000; } .toast.show { opacity: 1; } .toast.success { background: #2e7d32; } .toast.error { background: #c62828; } .empty { text-align: center; padding: 40px; color: #888; }</style></head><body><div class="header"><h1 id="pageTitle">📰 Admin Panel</h1><button onclick="logout()">🚪 Logout</button></div><div class="container"><div style="margin-bottom:16px; display:flex; gap:10px; flex-wrap:wrap;"><button class="btn-back" onclick="generateQuiz()">🧠 Generate Today's Quiz</button></div><div class="search"><input type="text" id="searchInput" placeholder="🔍 Headline বা 32-char ID দিয়ে খুঁজুন..." onkeypress="if(event.key==='Enter') searchNow()"><button onclick="searchNow()">Search</button><button class="reset" onclick="resetSearch()">Reset</button></div><div id="newsList"><div class="empty">Loading...</div></div></div><div id="editModal" class="modal"><div class="modal-box"><h2>✏️ Edit News</h2><input type="hidden" id="editId"><label>Headline</label><textarea id="editHeadline"></textarea><label>Summary</label><textarea id="editSummary"></textarea><div class="modal-actions"><button class="btn-cancel" onclick="closeEdit()">Cancel</button><button class="btn-save" onclick="saveEdit()">Save</button></div></div></div><div id="editCommentModal" class="modal"><div class="modal-box"><h2>✏️ Edit Comment</h2><input type="hidden" id="editCommentId"><label>Author</label><input type="text" id="editCommentAuthor"><label>Comment</label><textarea id="editCommentText"></textarea><div class="modal-actions"><button class="btn-cancel" onclick="closeEditComment()">Cancel</button><button class="btn-save" onclick="saveEditComment()">Save</button></div></div></div><div id="toast" class="toast"></div><script>let currentMode = 'list'; let currentNewsId = ''; let currentSearch = ''; let currentOffset = 0; const PAGE_SIZE = 100; let allLoadedNews = []; let totalNews = 0; function toast(msg, type) { const t = document.getElementById('toast'); t.textContent = msg; t.className = 'toast show ' + (type || ''); setTimeout(() => t.className = 'toast ' + (type || ''), 2500); } function esc(v) { if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); } function isHexId(s) { return /^[a-f0-9]{32}$/i.test(s); } async function generateQuiz() { if(!confirm('Generate today\\'s quiz?')) return; toast('Generating quiz... this might take a minute.'); try { const res = await fetch('/api/admin/generate-quiz', { method: 'POST', credentials: 'same-origin' }); const data = await res.json(); if(data.success) toast('✅ ' + data.message, 'success'); else toast('❌ ' + data.error, 'error'); } catch(e) { toast('❌ Network error', 'error'); } } async function loadNews(search, append) { currentMode = 'list'; currentNewsId = ''; currentSearch = search || ''; document.getElementById('pageTitle').textContent = '📰 Admin Panel'; if (!append) { currentOffset = 0; allLoadedNews = []; } const list = document.getElementById('newsList'); if (!append) list.innerHTML = '<div class="empty">Loading...</div>'; try { let url = '/api/admin/list?limit=' + PAGE_SIZE + '&offset=' + currentOffset; if (search) { if (isHexId(search)) url += '&id=' + encodeURIComponent(search); else url += '&search=' + encodeURIComponent(search); } const res = await fetch(url, { credentials: 'same-origin' }); if (res.status === 401) { location.href = '/admin'; return; } const data = await res.json(); const news = data.news || []; totalNews = data.total || 0; if (!news.length && !append) { list.innerHTML = '<div class="empty">No news found for "' + esc(search || '') + '"</div>'; return; } if (!append) allLoadedNews = news; else allLoadedNews = allLoadedNews.concat(news); let html = allLoadedNews.map(n => \`<div class="news-item"><img src="\${esc(n.image_url || '/logo.png')}" onerror="this.src='/logo.png'" alt=""><div class="content"><h3>\${esc(n.headline || 'Untitled')}</h3><div class="meta">ID: <code style="background:#f5f5f5;padding:2px 6px;border-radius:4px;font-size:11px;">\${esc(n.id || '')}</code> | Type: \${esc(n.type || 'news')}</div><div class="meta">\${esc(n.category || 'general')} • \${esc((n.created_at||'').slice(0,16).replace('T',' '))}</div><div class="actions"><button class="btn-edit" onclick='openEdit(\${JSON.stringify(n).replace(/'/g,"&#39;")})'>✏️ Edit</button><button class="btn-hide" onclick="hideNews('\${n.id}')">🙈 Hide</button><button class="btn-comments" onclick="showComments('\${n.id}', '\${esc(n.headline).replace(/'/g,"&#39;")}')">💬 Comments</button></div></div></div>\`).join(''); if (!isHexId(search) && allLoadedNews.length < totalNews) { html += \`<div style="text-align:center;padding:24px 0;"><button class="load-more-btn" onclick="loadMore()">আরও দেখুন (\${allLoadedNews.length} / \${totalNews})</button></div>\`; } else if (!isHexId(search) && allLoadedNews.length > 0 && totalNews > 0) { html += \`<div style="text-align:center;padding:20px;color:#888;font-size:13px;">✅ সব \${totalNews}টি Post দেখানো হয়েছে</div>\`; } list.innerHTML = html; } catch (e) { list.innerHTML = '<div class="empty">Network error</div>'; } } function loadMore() { currentOffset += PAGE_SIZE; loadNews(currentSearch, true); } function searchNow() { const q = document.getElementById('searchInput').value.trim(); loadNews(q, false); } function resetSearch() { document.getElementById('searchInput').value = ''; currentOffset = 0; allLoadedNews = []; totalNews = 0; currentNewsId = ''; currentMode = 'list'; loadNews('', false); } async function showComments(newsId, headline) { currentMode = 'comments'; currentNewsId = newsId; document.getElementById('pageTitle').textContent = '💬 Comments'; const list = document.getElementById('newsList'); list.innerHTML = '<div class="empty">Loading comments...</div>'; try { const res = await fetch('/api/admin/comments?newsId=' + encodeURIComponent(newsId), { credentials: 'same-origin' }); if (res.status === 401) { location.href = '/admin'; return; } const data = await res.json(); const comments = data.comments || []; let html = \`<div style="margin-bottom:16px;"><button class="btn-back" onclick="goBackToNewsList()">← Back to News List</button><p style="font-size:13px;color:#888;margin-top:8px;">News: \${esc((headline || '').slice(0, 80))}</p></div>\`; if (!comments.length) html += '<div class="empty">No comments found</div>'; else { html += comments.map(c => \`<div class="comment-item"><div class="info"><div class="author">👤 \${esc(c.author_name || 'Guest')}</div><div class="text">\${esc(c.comment_text || '')}</div><div class="meta">\${esc((c.created_at||'').slice(0,16).replace('T',' '))}</div></div><div class="actions"><button class="btn-edit" onclick='openEditComment(\${JSON.stringify(c).replace(/'/g,"&#39;")})'>✏️ Edit</button><button class="btn-delete" onclick="deleteComment('\${c.id}', '\${newsId}')">🗑️ Delete</button></div></div>\`).join(''); } list.innerHTML = html; } catch (e) { list.innerHTML = '<div class="empty">Network error</div>'; } } function goBackToNewsList() { currentMode = 'list'; currentNewsId = ''; currentOffset = 0; allLoadedNews = []; totalNews = 0; loadNews(currentSearch, false); } function openEdit(n) { document.getElementById('editId').value = n.id || ''; document.getElementById('editHeadline').value = n.headline || ''; document.getElementById('editSummary').value = n.summary || ''; document.getElementById('editModal').classList.add('active'); } function closeEdit() { document.getElementById('editModal').classList.remove('active'); } async function saveEdit() { const id = document.getElementById('editId').value; const updates = { headline: document.getElementById('editHeadline').value.trim(), summary: document.getElementById('editSummary').value.trim() }; try { const res = await fetch('/api/admin/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ id, updates }) }); const data = await res.json(); if (data.success) { toast('✅ Updated', 'success'); closeEdit(); if (currentMode === 'comments') showComments(currentNewsId, document.getElementById('pageTitle').textContent); else loadNews(currentSearch, false); } else toast('❌ ' + (data.error || 'Failed'), 'error'); } catch (e) { toast('❌ Network error', 'error'); } } async function hideNews(id) { if (!confirm('Hide this news?')) return; try { const res = await fetch('/api/admin/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ id, updates: { status: 'rejected' } }) }); const data = await res.json(); if (data.success) { toast('🙈 Hidden', 'success'); loadNews(currentSearch, false); } else toast('❌ ' + (data.error || 'Failed'), 'error'); } catch (e) { toast('❌ Network error', 'error'); } } function openEditComment(c) { document.getElementById('editCommentId').value = c.id || ''; document.getElementById('editCommentAuthor').value = c.author_name || ''; document.getElementById('editCommentText').value = c.comment_text || ''; document.getElementById('editCommentModal').classList.add('active'); } function closeEditComment() { document.getElementById('editCommentModal').classList.remove('active'); } async function saveEditComment() { const id = document.getElementById('editCommentId').value; const updates = { author_name: document.getElementById('editCommentAuthor').value.trim(), comment_text: document.getElementById('editCommentText').value.trim() }; try { const res = await fetch('/api/admin/comment-update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ id, updates }) }); const data = await res.json(); if (data.success) { toast('✅ Comment updated', 'success'); closeEditComment(); showComments(currentNewsId, document.getElementById('pageTitle').textContent); } else toast('❌ ' + (data.error || 'Failed'), 'error'); } catch (e) { toast('❌ Network error', 'error'); } } async function deleteComment(id, newsId) { if (!confirm('Delete this comment?')) return; try { const res = await fetch('/api/admin/comment-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ id }) }); const data = await res.json(); if (data.success) { toast('🗑️ Deleted', 'success'); showComments(newsId, document.getElementById('pageTitle').textContent); } else toast('❌ ' + (data.error || 'Failed'), 'error'); } catch (e) { toast('❌ Network error', 'error'); } } async function logout() { try { await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {} location.href = '/admin'; } loadNews('', false);</script></body></html>`;
 }
 
 async function ensureTables(env) {

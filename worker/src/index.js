@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v63.7: Error logging + Ensure Tables + 12-Question Validation
+// ✅ FINAL v63.8: Full SEO (OG + Twitter + JSON-LD) for Home, Article & Quiz Pages
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -181,11 +181,34 @@ function gonePage(relatedNews = []) {
   return new Response(html, { status: 410, headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": "public, max-age=86400", "X-Robots-Tag": "noindex, follow" } });
 }
 
+// ═══════════════════════════════════════════════════════════
+// ✅ QUIZ PAGE SEO (Updated with OG, Twitter, JSON-LD)
+// ═══════════════════════════════════════════════════════════
 function getQuizPageHtml(quiz, dateStr) {
   const quizJson = JSON.stringify(quiz.questions);
   const headline = escapeHtml(quiz.headline || "আজকের কুইজ");
   const pageTitle = `${headline} - Ajker News`;
   const canonical = `https://ajkernews.in/quiz/${dateStr}`;
+  const image = "https://images.unsplash.com/photo-1606326608606-aa0b62935f2b?auto=format&fit=crop&w=800&q=80"; // ✅ Quiz Image
+  const publishedAt = new Date(dateStr + 'T00:00:00+05:30').toISOString();
+  const description = "আজকের কুইজে অংশ নিন এবং আপনার জ্ঞান পরীক্ষা করুন। ১২টি প্রশ্ন, ৩০ সেকেন্ড টাইমার।";
+
+  const quizArticleLd = JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "NewsArticle",
+    "mainEntityOfPage": { "@type": "WebPage", "@id": canonical },
+    "headline": headline,
+    "description": description,
+    "image": [image],
+    "datePublished": publishedAt,
+    "dateModified": publishedAt,
+    "author": { "@type": "Organization", "name": "Ajker News", "url": "https://ajkernews.in/" },
+    "publisher": { "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in/", "logo": { "@type": "ImageObject", "url": "https://ajkernews.in/logo.png", "width": 512, "height": 512 } },
+    "articleSection": "Quiz",
+    "inLanguage": "bn-IN",
+    "isAccessibleForFree": true,
+    "url": canonical
+  });
 
   return `<!DOCTYPE html>
 <html lang="bn">
@@ -193,21 +216,31 @@ function getQuizPageHtml(quiz, dateStr) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${pageTitle}</title>
-<meta name="description" content="আজকের কুইজে অংশ নিন এবং আপনার জ্ঞান পরীক্ষা করুন। ১২টি প্রশ্ন, ৩০ সেকেন্ড টাইমার।">
-<meta name="robots" content="index, follow">
+<meta name="description" content="${description}">
+<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1">
 <link rel="canonical" href="${canonical}">
 <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "NewsArticle",
-  "headline": "${headline.replace(/"/g, '\\"')}",
-  "datePublished": "${new Date().toISOString()}",
-  "dateModified": "${new Date().toISOString()}",
-  "author": { "@type": "Organization", "name": "Ajker News" },
-  "publisher": { "@type": "Organization", "name": "Ajker News", "logo": { "@type": "ImageObject", "url": "https://ajkernews.in/logo.png" } }
-}
-</script>
+<link rel="apple-touch-icon" sizes="180x180" href="/public/apple-touch-icon.png">
+
+<!-- ✅ Open Graph -->
+<meta property="og:type" content="article">
+<meta property="og:title" content="${headline}">
+<meta property="og:description" content="${description}">
+<meta property="og:url" content="${canonical}">
+<meta property="og:image" content="${image}">
+<meta property="og:site_name" content="Ajker News">
+<meta property="article:published_time" content="${publishedAt}">
+<meta property="article:modified_time" content="${publishedAt}">
+<meta property="article:section" content="Quiz">
+
+<!-- ✅ Twitter Card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${headline}">
+<meta name="twitter:description" content="${description}">
+<meta name="twitter:image" content="${image}">
+
+<script type="application/ld+json">${quizArticleLd}</script>
+
 <style>
   * { margin:0; padding:0; box-sizing:border-box; font-family: Inter,-apple-system,BlinkMacSystemFont,sans-serif; }
   body { background:#f4f5f7; color:#0a0a0a; min-height:100vh; display:flex; flex-direction:column; }
@@ -549,13 +582,12 @@ export default {
         } catch (error) { return json({ success: false, error: error.message }, 500, 0); }
       }
 
-      // ✅ FIXED: Ensure tables & logging inside generate-quiz
       if (url.pathname === "/api/admin/generate-quiz" && request.method === "POST") {
         const session = await getAdminSession(request, env);
         if (!session) return json({ success: false, error: "Unauthorized" }, 401, 0);
         
         try {
-          await ensureTablesOnce(env); // ✅ Ensure tables exist
+          await ensureTablesOnce(env); 
           
           const todayStr = getTodayIST();
           const existing = await getQuizByDate(env.DB, todayStr);
@@ -564,7 +596,6 @@ export default {
           let questions = await generateDailyQuiz(env.GEMINI_API_KEY);
           
           if (questions && Array.isArray(questions) && questions.length >= 12) {
-              // ✅ Fix: Ensure exactly 12 questions
               const finalQuestions = questions.slice(0, 12);
               
               const bnMonths = ['জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'];

@@ -1,4 +1,5 @@
 // worker/src/quiz-generator.js
+// ✅ FINAL: Auto Model Discovery + 12-Question Validation
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const GEMINI_TIMEOUT_MS = 25000;
@@ -27,20 +28,115 @@ REQUIREMENTS:
 - Do NOT include any markdown or extra text. Return ONLY valid JSON.
 `;
 
+// Model cache (like gemini.js)
+let cachedModels = null;
+let cacheTime = 0;
+const MODEL_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+// ✅ Auto Model Discovery
+async function discoverModels(apiKey) {
+  if (cachedModels && (Date.now() - cacheTime) < MODEL_CACHE_TTL) {
+    return cachedModels;
+  }
+
+  const FALLBACK_MODELS = [
+    "gemini-1.5-flash-latest",
+    "gemini-1.5-flash",
+    "gemini-pro"
+  ];
+
+  try {
+    const listUrl = `${GEMINI_API_BASE}?key=${encodeURIComponent(apiKey)}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+    let response;
+    try {
+      response = await fetch(listUrl, {
+        method: "GET",
+        headers: { accept: "application/json" },
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    if (!response.ok) {
+      console.warn(`[QUIZ] ListModels ${response.status} — using fallback`);
+      cachedModels = FALLBACK_MODELS;
+      cacheTime = Date.now();
+      return cachedModels;
+    }
+
+    const data = await response.json();
+    const allModels = Array.isArray(data?.models) ? data.models : [];
+
+    const available = allModels
+      .map(m => ({
+        name: String(m?.name || "").replace(/^models\//, ""),
+        methods: Array.isArray(m?.supportedGenerationMethods) ? m.supportedGenerationMethods : []
+      }))
+      .filter(m => m.name.includes("flash"))
+      .filter(m => m.methods.includes("generateContent"))
+      .filter(m => /^gemini-\d/.test(m.name))
+      .map(m => m.name);
+
+    if (!available.length) {
+      console.warn("[QUIZ] No Flash from ListModels — using fallback");
+      cachedModels = FALLBACK_MODELS;
+      cacheTime = Date.now();
+      return cachedModels;
+    }
+
+    // Priority to newer versions
+    const priority = ["gemini-1.5-flash-latest", "gemini-1.5-flash"];
+    const priorityList = available.filter(m => priority.includes(m));
+    const restList = available.filter(m => !priority.includes(m));
+
+    const versionRegex = /^gemini-(\d+)(?:\.(\d+))?/;
+    restList.sort((a, b) => {
+      const ma = a.match(versionRegex);
+      const mb = b.match(versionRegex);
+      const aMaj = ma ? Number(ma[1]) : 0;
+      const bMaj = mb ? Number(mb[1]) : 0;
+      const aMin = ma && ma[2] ? Number(ma[2]) : 0;
+      const bMin = mb && mb[2] ? Number(mb[2]) : 0;
+      if (aMaj !== bMaj) return bMaj - aMaj;
+      return bMin - aMin;
+    });
+
+    const merged = [...new Set([...priorityList, ...restList, ...FALLBACK_MODELS])];
+
+    console.log(`[QUIZ] Available models: ${merged.join(" → ")}`);
+    cachedModels = merged;
+    cacheTime = Date.now();
+    return merged;
+  } catch (error) {
+    console.warn("[QUIZ] Model discovery failed:", error?.message || String(error));
+    cachedModels = FALLBACK_MODELS;
+    cacheTime = Date.now();
+    return cachedModels;
+  }
+}
+
+// ✅ Main Quiz Generator
 export async function generateDailyQuiz(apiKey) {
   if (!apiKey) {
     console.warn("[QUIZ] No Gemini API Key");
     return null;
   }
 
-  const models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
+  // Auto-discover models
+  const models = await discoverModels(apiKey);
   
   for (const model of models) {
     try {
+      console.log(`[QUIZ] Trying model: ${model}...`);
       const result = await callGemini(model, apiKey);
       
-      // ✅ FIX: Accept 12 or more questions, but slice to exactly 12
+      // ✅ Accept 12 or more questions, slice to exactly 12
       if (result && Array.isArray(result) && result.length >= 12) {
+        console.log(`[QUIZ] ✅ Success with model ${model} (${result.length} questions)`);
         return result.slice(0, 12); 
       } else if (result && Array.isArray(result) && result.length > 0) {
         console.warn(`[QUIZ] Model ${model} returned ${result.length} questions instead of 12.`);
@@ -78,11 +174,14 @@ async function callGemini(model, apiKey) {
       signal: controller.signal
     });
 
-    if (!response.ok) throw new Error(`API ${response.status}`);
+    if (!response.ok) {
+      const errText = await response.text().catch(() => "");
+      throw new Error(`API ${response.status}: ${errText.slice(0, 150)}`);
+    }
 
     const data = await response.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) throw new Error("Empty response");
+    if (!text) throw new Error("Empty response from Gemini");
 
     let parsed;
     try { parsed = JSON.parse(text); } catch {

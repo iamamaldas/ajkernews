@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v63.9: Full SEO (OG + Twitter + JSON-LD) + Internal Linking for Quiz
+// ✅ FINAL v64.0: Fixed Quiz Share URL, Icons for PDF/Share, Instant Indexing
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -182,19 +182,18 @@ function gonePage(relatedNews = []) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ✅ QUIZ PAGE SEO (Updated with OG, Twitter, JSON-LD, Internal Links)
+// ✅ QUIZ PAGE SEO + Share Icons + PDF + Instant Index
 // ═══════════════════════════════════════════════════════════
 async function getQuizPageHtml(quiz, dateStr, env) {
   const quizJson = JSON.stringify(quiz.questions);
   const headline = escapeHtml(quiz.headline || "কারেন্ট অ্যাফেয়ার্স কুইজ");
   const pageTitle = `${headline} - Ajker News`;
   const canonical = `https://ajkernews.in/quiz/${dateStr}`;
-  const image = "https://images.unsplash.com/photo-1606326608606-aa0b62935f2b?auto=format&fit=crop&w=800&q=80"; // ✅ Quiz Image
+  const image = "https://images.unsplash.com/photo-1606326608606-aa0b62935f2b?auto=format&fit=crop&w=800&q=80";
   const publishedAt = new Date(dateStr + 'T00:00:00+05:30').toISOString();
   const metaTitle = quiz.headline || "কারেন্ট অ্যাফেয়ার্স কুইজ";
   const metaDescription = quiz.summary || "কারেন্ট অ্যাফেয়ার্স ও সাধারণ জ্ঞান কুইজে অংশ নিন। ১২টি প্রশ্ন, ৩০ সেকেন্ড টাইমার।";
 
-  // ✅ Fetch Recent 3 News for Internal Linking
   let relatedNewsHtml = "";
   try {
     const recent = await env.DB.prepare(`SELECT id, headline FROM news WHERE status = 'published' AND type = 'news' ORDER BY created_at DESC LIMIT 3`).all();
@@ -210,14 +209,14 @@ async function getQuizPageHtml(quiz, dateStr, env) {
 
   const quizArticleLd = JSON.stringify({
     "@context": "https://schema.org",
-    "@type": "NewsArticle",
+    "@type": ["NewsArticle", "Quiz"], // ✅ Fixed Schema for faster indexing
     "mainEntityOfPage": { "@type": "WebPage", "@id": canonical },
     "headline": metaTitle,
     "description": metaDescription,
     "image": [image],
     "datePublished": publishedAt,
     "dateModified": publishedAt,
-    "author": { "@type": "Organization", "name": "Ajker News Desk", "url": "https://ajkernews.in/about" }, // ✅ E-E-A-T
+    "author": { "@type": "Organization", "name": "Ajker News Desk", "url": "https://ajkernews.in/about" },
     "publisher": { "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in/", "logo": { "@type": "ImageObject", "url": "https://ajkernews.in/logo.png", "width": 512, "height": 512 } },
     "articleSection": "Quiz",
     "inLanguage": "bn-IN",
@@ -237,7 +236,6 @@ async function getQuizPageHtml(quiz, dateStr, env) {
 <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
 <link rel="apple-touch-icon" sizes="180x180" href="/public/apple-touch-icon.png">
 
-<!-- ✅ Open Graph -->
 <meta property="og:type" content="article">
 <meta property="og:title" content="${escapeHtml(metaTitle)}">
 <meta property="og:description" content="${escapeHtml(metaDescription)}">
@@ -246,7 +244,6 @@ async function getQuizPageHtml(quiz, dateStr, env) {
 <meta property="og:site_name" content="Ajker News">
 <meta property="article:published_time" content="${publishedAt}">
 
-<!-- ✅ Twitter Card -->
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${escapeHtml(metaTitle)}">
 <meta name="twitter:description" content="${escapeHtml(metaDescription)}">
@@ -285,8 +282,24 @@ async function getQuizPageHtml(quiz, dateStr, env) {
   .result-item .explain { font-size:14px; color:#666; background:#f9f9f9; padding:10px; border-radius:8px; margin-top:8px; }
   .result-actions { display:flex; gap:12px; margin-top:24px; }
   .result-actions button { flex:1; padding:14px; border:none; border-radius:10px; font-weight:700; cursor:pointer; }
-  .btn-share { background:#1976d2; color:#fff; }
+  
+  /* ✅ PDF & Share Icons CSS */
+  .result-actions .icon-btn { display: inline-flex; align-items: center; justify-content: center; padding: 0; height: 52px; color: #fff; border: none; border-radius: 10px; cursor: pointer; transition: transform .15s ease, filter .15s ease; }
+  .result-actions .icon-btn:active { transform: scale(.96); }
+  .result-actions .icon-btn:hover  { filter: brightness(1.08); }
+  .btn-share { background:#1976d2; }
+  .btn-pdf   { background:#e53935; }
+  
   .close-x { position:absolute; top:16px; right:16px; background:none; border:none; font-size:28px; cursor:pointer; color:#888; line-height:1; }
+  
+  /* ✅ Print to PDF Styles */
+  @media print {
+    body * { visibility: hidden; }
+    #resultCard, #resultCard * { visibility: visible; }
+    #resultCard { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none; }
+    .result-actions, .close-x, .header, .quiz-container > #quizCard { display: none !important; }
+    #resultCard .result-item { page-break-inside: avoid; }
+  }
 </style>
 </head>
 <body>
@@ -303,10 +316,26 @@ async function getQuizPageHtml(quiz, dateStr, env) {
     <div id="resultText" class="result-text"></div>
     <div id="resultList" class="result-list"></div>
     <div class="result-actions">
-      <button class="btn-share" onclick="shareResult()">📤 শেয়ার করুন</button>
+      <button class="btn-share icon-btn" onclick="shareResult()" aria-label="Share result" title="শেয়ার করুন">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="18" cy="5" r="3"/>
+          <circle cx="6" cy="12" r="3"/>
+          <circle cx="18" cy="19" r="3"/>
+          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+        </svg>
+      </button>
+      <button class="btn-pdf icon-btn" onclick="downloadResultPDF()" aria-label="Download PDF" title="PDF ডাউনলোড">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="12" y1="18" x2="12" y2="12"/>
+          <polyline points="9 15 12 18 15 15"/>
+        </svg>
+      </button>
     </div>
   </div>
-  ${relatedNewsHtml} <!-- ✅ Internal Links -->
+  ${relatedNewsHtml}
 </div>
 <script>
 const QUIZ_DATA = ${quizJson};
@@ -414,15 +443,25 @@ function closeResult() {
   renderQuestion();
 }
 
+// ✅ FIXED: Clean Share URL (No extra params like from=source)
 function shareResult() {
   const score = document.getElementById('resultScore').textContent;
   const text = 'আমি আজকের কুইজে ' + score + ' পেয়েছি! তুমি পারবে?';
-  const url = window.location.href;
+  const cleanUrl = window.location.href.split('?')[0]; // Removes ?from=source or any query params
   if (navigator.share) {
-    navigator.share({ title: 'Ajker News Quiz', text: text, url: url }).catch(() => {});
+    navigator.share({ title: 'Ajker News Quiz', text: text, url: cleanUrl }).catch(() => {});
   } else {
-    navigator.clipboard.writeText(text + ' ' + url).then(() => alert('লিংক কপি হয়েছে!'));
+    navigator.clipboard.writeText(text + ' ' + cleanUrl).then(() => alert('লিংক কপি হয়েছে!'));
   }
+}
+
+// ✅ ADDED: Download PDF via Print
+function downloadResultPDF() {
+  const scoreText = document.getElementById('resultScore').textContent;
+  const originalTitle = document.title;
+  document.title = 'Ajker News Quiz Result - ' + scoreText;
+  window.print();
+  setTimeout(function(){ document.title = originalTitle; }, 1000);
 }
 
 renderQuestion();
@@ -624,7 +663,16 @@ export default {
                   title: `আজকের কুইজ: ${bnDateStr}`,
                   questions: finalQuestions
               });
-              return json({ success: true, message: "Quiz generated for " + todayStr });
+
+              // ✅ ADDED: Instantly index the new quiz
+              try {
+                  console.log(`[QUIZ-INDEX] Instantly indexing quiz for ${todayStr}...`);
+                  await fastIndexNews(env, [`quiz/${todayStr}`]);
+              } catch (e) {
+                  console.error(`[QUIZ-INDEX] Failed:`, e.message);
+              }
+
+              return json({ success: true, message: "Quiz generated and submitted for indexing: " + todayStr });
           }
           return json({ success: false, error: "Failed to generate quiz. AI did not return 12 questions. Try again." }, 500, 0);
         } catch (error) {
@@ -652,7 +700,6 @@ export default {
         if (!quiz) return new Response("Quiz not found", { status: 404 });
         let questions = [];
         try { questions = JSON.parse(quiz.quiz_data); } catch (e) {}
-        // ✅ Pass env to getQuizPageHtml
         return new Response(await getQuizPageHtml({ headline: quiz.headline, summary: quiz.summary, questions }, dateStr, env), {
           status: 200,
           headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" }
@@ -848,7 +895,16 @@ export default {
                 title: `আজকের কুইজ: ${bnDateStr}`,
                 questions
               });
-              console.log(`[QUIZ] ✅ Daily quiz created for ${todayStr} (${bnDateStr})`);
+
+              // ✅ ADDED: Instantly index Cron-generated quiz
+              try {
+                  console.log(`[QUIZ-INDEX] Instantly indexing quiz for ${todayStr}...`);
+                  await fastIndexNews(env, [`quiz/${todayStr}`]);
+              } catch (e) {
+                  console.error(`[QUIZ-INDEX] Failed:`, e.message);
+              }
+
+              console.log(`[QUIZ] ✅ Daily quiz created and indexed for ${todayStr} (${bnDateStr})`);
             } else {
               console.warn(`[QUIZ] ❌ Failed to generate quiz for ${todayStr} after retries`);
             }
@@ -882,9 +938,23 @@ export default {
           } catch (e) { console.warn('[BREAKING] Failed:', e?.message); }
         }
 
+        // ✅ FIXED: Fetch News AND Quiz for reindexing
         try {
-          const recent = await env.DB.prepare(`SELECT id FROM news WHERE status = 'published' AND created_at >= datetime('now', '-6 hours') ORDER BY created_at DESC LIMIT 50`).all();
-          const ids = (recent.results || []).map(r => r.id);
+          const recent = await env.DB.prepare(`
+            SELECT id, type, created_at 
+            FROM news 
+            WHERE status = 'published' AND created_at >= datetime('now', '-6 hours') 
+            ORDER BY created_at DESC LIMIT 50
+          `).all();
+          
+          const ids = (recent.results || []).map(r => {
+            if (r.type === 'quiz') {
+              const date = r.created_at ? r.created_at.slice(0, 10) : new Date().toISOString().slice(0, 10);
+              return `quiz/${date}`;
+            }
+            return r.id;
+          });
+          
           if (ids.length) await fastIndexNews(env, ids);
         } catch (error) {}
 

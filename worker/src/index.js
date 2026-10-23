@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v64.0: Fixed Quiz Share URL, Icons for PDF/Share, Instant Indexing
+// ✅ FINAL v64.1: Fixed Quiz Title Date (IST) + All previous fixes intact
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -209,7 +209,7 @@ async function getQuizPageHtml(quiz, dateStr, env) {
 
   const quizArticleLd = JSON.stringify({
     "@context": "https://schema.org",
-    "@type": ["NewsArticle", "Quiz"], // ✅ Fixed Schema for faster indexing
+    "@type": ["NewsArticle", "Quiz"],
     "mainEntityOfPage": { "@type": "WebPage", "@id": canonical },
     "headline": metaTitle,
     "description": metaDescription,
@@ -283,7 +283,6 @@ async function getQuizPageHtml(quiz, dateStr, env) {
   .result-actions { display:flex; gap:12px; margin-top:24px; }
   .result-actions button { flex:1; padding:14px; border:none; border-radius:10px; font-weight:700; cursor:pointer; }
   
-  /* ✅ PDF & Share Icons CSS */
   .result-actions .icon-btn { display: inline-flex; align-items: center; justify-content: center; padding: 0; height: 52px; color: #fff; border: none; border-radius: 10px; cursor: pointer; transition: transform .15s ease, filter .15s ease; }
   .result-actions .icon-btn:active { transform: scale(.96); }
   .result-actions .icon-btn:hover  { filter: brightness(1.08); }
@@ -292,7 +291,6 @@ async function getQuizPageHtml(quiz, dateStr, env) {
   
   .close-x { position:absolute; top:16px; right:16px; background:none; border:none; font-size:28px; cursor:pointer; color:#888; line-height:1; }
   
-  /* ✅ Print to PDF Styles */
   @media print {
     body * { visibility: hidden; }
     #resultCard, #resultCard * { visibility: visible; }
@@ -443,11 +441,11 @@ function closeResult() {
   renderQuestion();
 }
 
-// ✅ FIXED: Clean Share URL (No extra params like from=source)
+// ✅ FIXED: Clean Share URL
 function shareResult() {
   const score = document.getElementById('resultScore').textContent;
   const text = 'আমি আজকের কুইজে ' + score + ' পেয়েছি! তুমি পারবে?';
-  const cleanUrl = window.location.href.split('?')[0]; // Removes ?from=source or any query params
+  const cleanUrl = window.location.href.split('?')[0]; 
   if (navigator.share) {
     navigator.share({ title: 'Ajker News Quiz', text: text, url: cleanUrl }).catch(() => {});
   } else {
@@ -651,11 +649,12 @@ export default {
           if (questions && Array.isArray(questions) && questions.length >= 12) {
               const finalQuestions = questions.slice(0, 12);
               
+              // ✅ FIXED: Always calculate date based on IST
+              const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000); 
               const bnMonths = ['জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'];
-              const dateObj = new Date(todayStr + 'T00:00:00+05:30');
-              const bnDay = dateObj.getDate();
-              const bnMonth = bnMonths[dateObj.getMonth()];
-              const bnYear = dateObj.getFullYear();
+              const bnDay = istNow.getUTCDate();
+              const bnMonth = bnMonths[istNow.getUTCMonth()];
+              const bnYear = istNow.getUTCFullYear();
               const bnDateStr = `${bnDay} ${bnMonth} ${bnYear}`;
               
               await insertDailyQuiz(env.DB, {
@@ -664,7 +663,6 @@ export default {
                   questions: finalQuestions
               });
 
-              // ✅ ADDED: Instantly index the new quiz
               try {
                   console.log(`[QUIZ-INDEX] Instantly indexing quiz for ${todayStr}...`);
                   await fastIndexNews(env, [`quiz/${todayStr}`]);
@@ -883,11 +881,12 @@ export default {
             }
 
             if (questions && questions.length === 12) {
+              // ✅ FIXED: Always calculate date based on IST
+              const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000); 
               const bnMonths = ['জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'];
-              const dateObj = new Date(todayStr + 'T00:00:00+05:30');
-              const bnDay = dateObj.getDate();
-              const bnMonth = bnMonths[dateObj.getMonth()];
-              const bnYear = dateObj.getFullYear();
+              const bnDay = istNow.getUTCDate();
+              const bnMonth = bnMonths[istNow.getUTCMonth()];
+              const bnYear = istNow.getUTCFullYear();
               const bnDateStr = `${bnDay} ${bnMonth} ${bnYear}`;
               
               await insertDailyQuiz(env.DB, {
@@ -896,7 +895,6 @@ export default {
                 questions
               });
 
-              // ✅ ADDED: Instantly index Cron-generated quiz
               try {
                   console.log(`[QUIZ-INDEX] Instantly indexing quiz for ${todayStr}...`);
                   await fastIndexNews(env, [`quiz/${todayStr}`]);
@@ -938,7 +936,6 @@ export default {
           } catch (e) { console.warn('[BREAKING] Failed:', e?.message); }
         }
 
-        // ✅ FIXED: Fetch News AND Quiz for reindexing
         try {
           const recent = await env.DB.prepare(`
             SELECT id, type, created_at 

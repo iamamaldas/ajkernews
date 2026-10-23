@@ -153,6 +153,12 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 .news-source-link { color:#1976d2; text-decoration:none; font-weight:600; cursor:pointer; transition: color 0.15s; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:60%; }
 .news-source-link:hover { color:#0d47a1; text-decoration:underline; }
 
+/* ✅ Quiz Card Specific CSS */
+.quiz-card { cursor: pointer; }
+.quiz-card .news-image-wrapper,
+.quiz-card .news-title,
+.quiz-card .news-summary { pointer-events: none; }
+
 @media (hover: hover) {
   .news-card:hover { box-shadow: 0 2px 4px rgba(0,0,0,0.05), 0 16px 40px rgba(0,0,0,0.1); transform: translateY(-3px); }
   .news-source-link:hover { color:#0d47a1; text-decoration:underline; }
@@ -336,7 +342,6 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
     <button class="close-btn" onclick="toggleSidebar(false)">&times;</button>
   </div>
   <div class="sidebar-menu">
-    <!-- ✅ FIXED: Single Daily Quiz Option -->
     <a href="javascript:void(0)" onclick="setCategory('quiz')" style="font-weight:800; color:#e53935; display:flex; align-items:center; gap:8px; padding:16px 20px;">
       🧠 Daily Quiz
     </a>
@@ -569,7 +574,7 @@ function normalizeNews(news) {
     created_at: news.created_at || '',
     score: Number(news.score || 0),
     love_count: parseInt(news.love_count, 10) || 0,
-    type: news.type || 'news' // ✅ ADDED
+    type: news.type || 'news'
   };
 }
 function getCategoryLabel(category) {
@@ -620,7 +625,6 @@ async function loadNewsNetwork(category, search) {
     try {
       const params = new URLSearchParams();
       
-      // ✅ FIXED: Handle quiz category logic
       if (category === 'quiz') {
         params.set('type', 'quiz');
         params.set('category', 'all'); 
@@ -676,7 +680,6 @@ async function updateLoveCounts(normalized) {
   } catch (e) {}
 }
 
-// ✅ FIXED: Bypass popunder for Quizzes
 function goToArticleFromSource(event, el) {
   event.preventDefault();
   event.stopPropagation();
@@ -684,7 +687,6 @@ function goToArticleFromSource(event, el) {
   var articleUrl = el.getAttribute('data-article-url') || '';
   if (!articleUrl) return false;
 
-  // If it's an internal quiz link, just navigate directly
   if (articleUrl.includes('/quiz/')) {
       window.location.href = articleUrl;
       return false;
@@ -700,6 +702,16 @@ function goToArticleFromSource(event, el) {
   return false;
 }
 
+// ✅ Quiz Card Click Handler
+function openQuizCard(event, url) {
+  if (event) {
+    const target = event.target;
+    if (target && target.closest && target.closest('a, button, .news-actions')) return;
+    if (event.defaultPrevented) return;
+  }
+  if (url) window.location.href = url;
+}
+
 function buildNewsHtml(news) {
   const image = news.image_url || '/logo.png';
   const headline = news.headline || 'সংবাদ';
@@ -711,19 +723,22 @@ function buildNewsHtml(news) {
   const loved = isNewsLoved(news.id);
   const fill = loved ? '#e74c3c' : 'none';
   const loveCount = Number(news.love_count || 0);
-  const safeHeadline = headline.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
-  const safeSummary = summary.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
   
-  // ✅ FIXED: Handle Quiz URLs
   let articleUrl = `/news/${encodeURIComponent(news.id)}`;
   let categoryLabel = category;
+  let isQuiz = false;
   if (news.type === 'quiz') {
+      isQuiz = true;
       const dateStr = (news.created_at || news.published_at || '').slice(0, 10);
       articleUrl = `/quiz/${dateStr}`;
       categoryLabel = 'কুইজ';
   }
 
-  return `<article class="news-card" data-news-id="${escapeHtml(news.id)}">
+  const quizClickAttr = isQuiz
+    ? ` onclick="openQuizCard(event, '${articleUrl}')" style="cursor:pointer;"`
+    : '';
+
+  return `<article class="news-card${isQuiz ? ' quiz-card' : ''}" data-news-id="${escapeHtml(news.id)}"${quizClickAttr}>
     <div class="news-image-wrapper">
       <img class="news-image" src="${escapeHtml(image)}" alt="${escapeHtml(headline)}" loading="lazy" decoding="async" width="800" height="450" onerror="this.onerror=null;this.src='/logo.png';">
     </div>
@@ -738,15 +753,15 @@ function buildNewsHtml(news) {
            onclick="goToArticleFromSource(event, this);">${escapeHtml(source)}</a>
         <div>${escapeHtml(formattedTime)}</div>
       </div>
-      <div class="news-actions">
-        <button class="action-btn" type="button" data-action="comment" onclick="openCommentModal('${news.id}')">
+      <div class="news-actions" onclick="event.stopPropagation();">
+        <button class="action-btn" type="button" data-action="comment" onclick="event.stopPropagation(); openCommentModal('${escapeHtml(news.id)}')">
           <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
         </button>
-        <button class="action-btn love-btn${loved ? ' loved' : ''}" type="button" data-action="love" data-love-button="${escapeHtml(news.id)}" onclick="toggleLove('${news.id}')">
+        <button class="action-btn love-btn${loved ? ' loved' : ''}" type="button" data-action="love" data-love-button="${escapeHtml(news.id)}" onclick="event.stopPropagation(); toggleLove('${escapeHtml(news.id)}')">
           <svg viewBox="0 0 24 24" fill="${fill}" stroke="#e74c3c" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
           <span class="action-count" data-love-count="${escapeHtml(news.id)}">${loveCount}</span>
         </button>
-        <button class="action-btn" type="button" data-action="share" onclick="shareNews('${news.id}', '${safeHeadline}', '${safeSummary}')">
+        <button class="action-btn" type="button" data-action="share" onclick="event.stopPropagation(); shareNews('${escapeHtml(news.id)}')">
           <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
         </button>
       </div>
@@ -897,17 +912,47 @@ async function toggleLove(id) {
   } catch (error) {}
 }
 
-async function shareNews(id, headline, summary) {
-  const shareUrl = `${SITE_URL}/news/${encodeURIComponent(id)}`;
+// ✅ FIXED: Share Function (Clean URL without ?from=source, reads DOM for text)
+async function shareNews(id) {
+  let headline = '';
+  let summary = '';
+  try {
+    const card = document.querySelector(`.news-card[data-news-id="${CSS.escape(String(id))}"]`);
+    if (card) {
+      const titleEl = card.querySelector('.news-title');
+      const summaryEl = card.querySelector('.news-summary');
+      if (titleEl) headline = titleEl.textContent.trim();
+      if (summaryEl) summary = summaryEl.textContent.trim();
+    }
+  } catch (e) {}
+  if (!headline) headline = 'সংবাদ';
+
+  const cardEl = document.querySelector(`.news-card[data-news-id="${CSS.escape(String(id))}"]`);
+  const isQuiz = cardEl && cardEl.classList.contains('quiz-card');
+  let shareUrl;
+  if (isQuiz) {
+    const dateStr = (currentNews.find(n => String(n.id) === String(id))?.created_at || '').slice(0, 10)
+      || new Date().toISOString().slice(0, 10);
+    shareUrl = `${SITE_URL}/quiz/${dateStr}`;
+  } else {
+    shareUrl = `${SITE_URL}/news/${encodeURIComponent(id)}`;
+  }
+
   const safeSummary = String(summary || '').trim();
   const shortSummary = safeSummary.slice(0, 100).trim();
   const summaryPart = shortSummary ? `${shortSummary}${safeSummary.length > 100 ? '...' : ''}\n\n` : '';
+
   if (navigator.share) {
     try {
-      await navigator.share({ title: headline, text: `${headline}\n\n${summaryPart}বিস্তারিত পড়ুন`, url: shareUrl });
+      await navigator.share({
+        title: headline,
+        text: `${headline}\n\n${summaryPart}বিস্তারিত পড়ুন`,
+        url: shareUrl
+      });
       return;
     } catch (err) { if (err && err.name === 'AbortError') return; }
   }
+
   const shareText = `${headline}\n\n${summaryPart}বিস্তারিত পড়ুন: ${shareUrl}`;
   if (navigator.clipboard && window.isSecureContext) {
     try { await navigator.clipboard.writeText(shareText); showCopyToast('লিংক কপি হয়েছে'); return; }
@@ -1274,8 +1319,6 @@ if ('serviceWorker' in navigator) {
 document.addEventListener('DOMContentLoaded', function() {
   setTimeout(flushPendingNotifications, 2000);
 });
-
-// ✅ Removed loadSidebarQuizzes since we handle quizzes via main feed
 
 (async function initApp() {
   try { localStorage.removeItem('newsCache:v1'); } catch (e) {}

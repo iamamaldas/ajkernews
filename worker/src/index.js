@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v64.1: Fixed Quiz Title Date (IST) + All previous fixes intact
+// ✅ FINAL v64.2: Added assetlinks.json redirect for TWA (Google Play / Amazon Appstore)
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -484,7 +484,10 @@ export default {
       "/android-chrome-192x192.png": "/public/android-chrome-192x192.png",
       "/android-chrome-512x512.png": "/public/android-chrome-512x512.png",
       "/manifest.json": "/public/manifest.json",
-      "/adblock.js": "/public/adblock.js"
+      "/adblock.js": "/public/adblock.js",
+      
+      // ✅ TWA / ANDROID APP LINK (Asset Links)
+      "/.well-known/assetlinks.json": "/public/assetlinks.json"
     };
 
     if (publicRedirects[url.pathname]) return Response.redirect(new URL(publicRedirects[url.pathname], url).toString(), 301);

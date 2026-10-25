@@ -1064,7 +1064,19 @@ async function sendDigestPush(env, payload, tokens) {
         token: token,
         data: { title, body, image, url: targetUrl, notificationId: notifTag, isBreaking: isBreaking ? "1" : "0" },
         android: { priority: "high", notification: { title, body, icon: "stock_ticker_update", color: "#e53935", tag: notifTag, sound: "default", image, click_action: "FCM_PLUGIN_ACTIVITY" } },
-        webpush: { headers: { Urgency: "high", TTL: String(ttl) }, fcmOptions: { link: targetUrl }, data: { title, body, image, url: targetUrl, notificationId: notifTag, isBreaking: isBreaking ? "1" : "0" } }
+        webpush: { 
+          headers: { Urgency: "high", TTL: String(ttl) }, 
+          fcmOptions: { link: targetUrl }, 
+          notification: { 
+            title: title, 
+            body: body, 
+            icon: '/logo.png', 
+            badge: '/logo.png', 
+            image: image || undefined, 
+            tag: notifTag 
+          }, 
+          data: { title, body, image, url: targetUrl, notificationId: notifTag, isBreaking: isBreaking ? "1" : "0" } 
+        }
       }
     };
     try {

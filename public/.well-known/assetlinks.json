@@ -2,7 +2,7 @@
   "relation": ["delegate_permission/common.handle_all_urls"],
   "target": {
     "namespace": "android_app",
-    "package_name": "in.ajkernews.twa",
+    "package_name": "in.ajkernews.app",
     "sha256_cert_fingerprints": [
       "YOUR_SHA256_FINGERPRINT_WILL_BE_ADDED_HERE"
     ]

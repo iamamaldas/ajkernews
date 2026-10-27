@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v76: Perfect PWA Install Logic (No Alerts, Show on Prompt Ready)
+// ✅ FINAL v77: 100% Working PWA Install with Chrome Fallback & Hide on Installed
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -99,34 +99,58 @@ function getPWAScript() {
       let deferredPrompt = null;
       const installBtn = document.getElementById('serverFloatingBtn');
 
+      // ✅ 1. Check if already installed (Hide button immediately)
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+      const isInstalled = localStorage.getItem('pwa_installed') === 'true';
+      
+      if (isStandalone || isInstalled) {
+        document.body.classList.add('pwa-installed');
+        if (installBtn) installBtn.style.display = 'none';
+      }
+
+      // ✅ 2. Register Service Worker
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', function() {
           navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(err => console.log('SW Reg Failed:', err));
         });
       }
 
+      // ✅ 3. Capture Prompt (Show button only when prompt is ready)
       window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
         deferredPrompt = e;
-        // ✅ প্রম্পট রেডি হলেই কেবল বাটনটি শো করাবো
         if (installBtn && !document.body.classList.contains('pwa-installed')) {
           installBtn.style.display = 'flex';
         }
       });
 
+      // ✅ 4. App Installed
       window.addEventListener('appinstalled', () => {
         document.body.classList.add('pwa-installed');
+        localStorage.setItem('pwa_installed', 'true');
         deferredPrompt = null;
         if (installBtn) installBtn.style.display = 'none';
       });
 
+      // ✅ 5. Click Handler
       window.triggerInstall = function(event) {
         if (event) { event.preventDefault(); event.stopPropagation(); }
+        
         if (deferredPrompt) {
           deferredPrompt.prompt();
           deferredPrompt.userChoice.then((choiceResult) => {
             deferredPrompt = null;
           });
+        } else {
+          // যদি ব্রাউজার সাপোর্ট না করে (In-app browser), তবে Chrome-এ রিডাইরেক্ট করবে
+          const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+          if (/android/i.test(userAgent)) {
+            const currentUrl = window.location.href;
+            const chromeIntent = 'intent://' + window.location.host + window.location.pathname + window.location.search + '#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' + encodeURIComponent(currentUrl) + ';end';
+            window.location.replace(chromeIntent);
+          } else {
+            alert('অনুগ্রহ করে আপনার ব্রাউজারের মেনু থেকে "Add to Home Screen" নির্বাচন করুন।');
+          }
         }
         return false;
       };

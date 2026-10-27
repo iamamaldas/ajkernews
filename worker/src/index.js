@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v68: Fixed Server Page PWA Install Issue & Big Icon Support
+// ✅ FINAL v70: Server Page PWA Install Button Fixed
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -126,7 +126,7 @@ function getFloatingButtonHtmlAndScript() {
         deferredPrompt = null;
       });
 
-      // ✅ Click Handler (Stops Refresh)
+      // ✅ Click Handler (Stops Refresh completely)
       window.triggerInstall = async function(event) {
         if (event) { event.preventDefault(); event.stopPropagation(); }
         

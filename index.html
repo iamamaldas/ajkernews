@@ -390,7 +390,7 @@ body.pwa-installed .floating-app-btn { display: none !important; }
 </footer>
 
 <!-- ✅ PWA Install Floating Button -->
-<a href="javascript:void(0)" onclick="installPWA()" class="floating-app-btn" aria-label="Install Ajker News App">
+<a href="javascript:void(0)" onclick="return triggerHomeInstall(event);" class="floating-app-btn" id="homeFloatingBtn" aria-label="Install Ajker News App" style="display:none;">
   <svg viewBox="0 0 24 24" fill="none" stroke="#222222" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
     <polyline points="7 10 12 15 17 10"/>
@@ -505,7 +505,59 @@ let isLoadingNews = false;
 let currentOffset = 0;
 const PAGE_SIZE = 15;
 let hasMoreNews = false;
-let deferredPrompt = null;
+
+// ✅ PWA Install Logic for Home Page
+let homeDeferredPrompt = null;
+const homeInstallBtn = document.getElementById('homeFloatingBtn');
+
+function checkIfPWAInstalledHome() {
+  const isStandalone =
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.matchMedia('(display-mode: minimal-ui)').matches ||
+    window.navigator.standalone === true;
+  if (isStandalone) {
+    document.body.classList.add('pwa-installed');
+    if (homeInstallBtn) homeInstallBtn.style.display = 'none';
+  }
+}
+checkIfPWAInstalledHome();
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  homeDeferredPrompt = e;
+  // ✅ প্রম্পট রেডি হলেই কেবল বাটনটি শো করাবো
+  if (homeInstallBtn && !document.body.classList.contains('pwa-installed')) {
+    homeInstallBtn.style.display = 'flex';
+  }
+});
+
+window.addEventListener('appinstalled', (evt) => {
+  console.log('Ajker News PWA installed successfully');
+  document.body.classList.add('pwa-installed');
+  homeDeferredPrompt = null;
+  if (homeInstallBtn) homeInstallBtn.style.display = 'none';
+});
+
+window.triggerHomeInstall = function(event) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+  if (isStandalone) { 
+    alert('অ্যাপটি ইতিমধ্যে ইনস্টল করা আছে!'); 
+    return false; 
+  }
+  
+  if (homeDeferredPrompt) {
+    homeDeferredPrompt.prompt();
+    homeDeferredPrompt.userChoice.then((choiceResult) => {
+      if (choiceResult.outcome === 'accepted') {
+        console.log('User accepted the install prompt');
+      }
+      homeDeferredPrompt = null;
+    });
+  }
+  return false;
+};
 
 function sortByLatest(newsArray) {
   if (!Array.isArray(newsArray)) return [];
@@ -581,72 +633,6 @@ function normalizeNews(news) {
 function getCategoryLabel(category) {
   const labels = { top: 'সেরা খবর', trending: 'ট্রেন্ডিং', all: 'সব খবর', quiz: 'ডেইলি কুইজ', entertainment: 'বিনোদন', general: 'সাধারণ', india: 'ভারত', technology: 'প্রযুক্তি', west_bengal: 'পশ্চিমবঙ্গ', business: 'ব্যবসা', sports: 'খেলা', politics: 'রাজনীতি', world: 'বিশ্ব', kolkata: 'কলকাতা', district: 'জেলা', crime: 'অপরাধ' };
   return labels[category] || category || 'সাধারণ';
-}
-
-// ✅ PWA Install Logic & Floating Button Hide
-function checkIfPWAInstalled() {
-  const isStandalone =
-    window.matchMedia('(display-mode: standalone)').matches ||
-    window.matchMedia('(display-mode: minimal-ui)').matches ||
-    window.navigator.standalone === true;
-  if (isStandalone) {
-    document.body.classList.add('pwa-installed');
-  }
-}
-
-window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  deferredPrompt = e;
-  checkIfPWAInstalled();
-});
-
-checkIfPWAInstalled();
-
-if (window.matchMedia) {
-  const standaloneQuery = window.matchMedia('(display-mode: standalone)');
-  if (standaloneQuery.addEventListener) {
-    standaloneQuery.addEventListener('change', checkIfPWAInstalled);
-  }
-}
-
-window.addEventListener('appinstalled', (evt) => {
-  console.log('Ajker News PWA installed successfully');
-  document.body.classList.add('pwa-installed');
-  deferredPrompt = null;
-});
-
-// ✅ SMART INSTALL LOGIC
-async function installPWA() {
-  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
-  
-  if (isStandalone) {
-    alert('অ্যাপটি ইতিমধ্যে ইনস্টল করা আছে!');
-    return;
-  }
-
-  if (deferredPrompt) {
-    // ✅ যদি ব্রাউজার PWA ইনস্টল সাপোর্ট করে (Chrome, Edge)
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      console.log('User accepted the install prompt');
-    }
-    deferredPrompt = null;
-  } else {
-    // ❌ যদি ব্রাউজার সাপোর্ট না করে (UC Browser, Opera Mini, In-app browser)
-    // 🚀 অটোমেটিক Google Chrome-এ রিডাইরেক্ট করবে
-    const userAgent = navigator.userAgent || navigator.vendor || window.opera;
-    
-    if (/android/i.test(userAgent)) {
-      const currentUrl = window.location.href;
-      const chromeIntent = `intent://${window.location.host}${window.location.pathname}${window.location.search}#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(currentUrl)};end`;
-      
-      // সরাসরি Chrome-এ রিডাইরেক্ট (কোনো অ্যালার্ট ছাড়া)
-      window.location.href = chromeIntent;
-    } else {
-      alert('অনুগ্রহ করে আপনার ব্রাউজার মেনু থেকে "Add to Home Screen" নির্বাচন করুন।');
-    }
-  }
 }
 
 function showSkeleton(container, count = 3) {
@@ -1385,7 +1371,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   await checkNotificationStatus();
   setTimeout(flushPendingNotifications, 3000);
-  checkIfPWAInstalled();
+  checkIfPWAInstalledHome();
 })();
 </script>
 </body>

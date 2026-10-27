@@ -1,7 +1,7 @@
 // sw.js
-// ✅ FINAL v36 — Offline Queue + FCM + Image Support + Pending Retry
+// ✅ FINAL v37 — Offline Queue + FCM + No Duplicate Notifications + Adsterra Safe
 
-const CACHE_VERSION = "ajker-news-v2026-10-12-final13";
+const CACHE_VERSION = "ajker-news-v2026-10-27-final14";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
 importScripts('https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js');
@@ -46,9 +46,9 @@ async function savePendingNotification(notif) {
       tx.oncomplete = () => resolve(true);
       tx.onerror = () => reject(tx.error);
     });
-  } catch (e) { 
+  } catch (e) {
     console.warn('[SW] savePendingNotification failed:', e);
-    return false; 
+    return false;
   }
 }
 
@@ -61,9 +61,9 @@ async function getPendingNotifications() {
       req.onsuccess = () => resolve(req.result || []);
       req.onerror = () => reject(req.error);
     });
-  } catch (e) { 
+  } catch (e) {
     console.warn('[SW] getPendingNotifications failed:', e);
-    return []; 
+    return [];
   }
 }
 
@@ -79,20 +79,8 @@ async function deletePendingNotification(id) {
   } catch (e) { return false; }
 }
 
-async function clearPendingNotifications() {
-  try {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      tx.objectStore(STORE_NAME).clear();
-      tx.oncomplete = () => resolve(true);
-      tx.onerror = () => reject(tx.error);
-    });
-  } catch (e) { return false; }
-}
-
 // ═══════════════════════════════════════════════════════════
-// ✅ Show notification helper — returns true if shown
+// ✅ Show notification helper
 // ═══════════════════════════════════════════════════════════
 async function showNotificationSafe(notif) {
   try {
@@ -116,7 +104,7 @@ async function showNotificationSafe(notif) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ✅ Flush pending — ONLY delete from DB if notification shown
+// ✅ Flush pending notifications
 // ═══════════════════════════════════════════════════════════
 async function flushPendingNotifications() {
   try {
@@ -147,7 +135,10 @@ async function flushPendingNotifications() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ✅ FCM Background Message Handler
+// ✅ FCM Background Handler — ONLY news_published type
+// ⚠️ IMPORTANT: Do NOT call showNotification here.
+// The 'push' event handler below handles notification display.
+// This prevents DUPLICATE notifications.
 // ═══════════════════════════════════════════════════════════
 if (firebase.messaging.isSupported()) {
   const messaging = firebase.messaging();
@@ -155,7 +146,7 @@ if (firebase.messaging.isSupported()) {
   messaging.onBackgroundMessage((payload) => {
     console.log('[SW-FCM] Background message:', JSON.stringify(payload));
 
-    // Custom event: news_published
+    // ✅ Only handle news_published signal — notify open clients
     if (payload.data && payload.data.type === 'news_published') {
       return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
         clients.forEach((client) => {
@@ -168,47 +159,46 @@ if (firebase.messaging.isSupported()) {
       });
     }
 
-    const title = payload.data?.title || payload.notification?.title || 'Ajker News';
-    const body = payload.data?.body || payload.notification?.body || 'নতুন খবর এসেছে';
-    const image = payload.data?.image || payload.notification?.image || undefined;
-    const url = payload.data?.url || 'https://ajkernews.in/';
-    const tag = payload.data?.notificationId || 'ajker-news';
-
-    return self.registration.showNotification(title, {
-      body: body,
-      icon: '/logo.png',
-      badge: '/logo.png',
-      image: image,
-      vibrate: [200, 100, 200],
-      tag: tag,
-      renotify: true,
-      requireInteraction: true,
-      silent: false,
-      data: { url: url }
-    });
+    // ⚠️ For all other notifications, DO NOTHING here.
+    // The 'push' event handler will save + show them.
+    return;
   });
 }
 
 // ═══════════════════════════════════════════════════════════
-// ✅ Push Event — Save FIRST, then try to show
-// ✅ Only delete from DB if notification actually shown
+// ✅ Push Event — Save FIRST, then show
 // ═══════════════════════════════════════════════════════════
 self.addEventListener('push', (event) => {
   event.waitUntil(
     (async () => {
-      // 1️⃣ First, try to flush any old pending notifications
+      // 1️⃣ First flush old pending
       await flushPendingNotifications();
 
       if (!event.data) return;
 
       let payload;
-      try { payload = event.data.json(); } catch (e) { 
+      try { payload = event.data.json(); } catch (e) {
         console.warn('[SW] push json parse failed:', e);
-        return; 
+        return;
       }
 
       const data = payload.data || payload;
-      if (!data || !data.title) return;
+      if (!data) return;
+
+      // ⚠️ Skip news_published signal — no notification needed
+      if (data.type === 'news_published') {
+        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        clients.forEach((client) => {
+          client.postMessage({
+            type: 'news_published',
+            count: parseInt(data.count || '0', 10),
+            ids: (data.ids || '').split(',').filter(Boolean)
+          });
+        });
+        return;
+      }
+
+      if (!data.title) return;
 
       const notifData = {
         title: data.title || 'Ajker News',
@@ -219,21 +209,17 @@ self.addEventListener('push', (event) => {
         receivedAt: Date.now()
       };
 
-      // 2️⃣ Save to IndexedDB FIRST (so it survives if show fails)
+      // 2️⃣ Save to IndexedDB FIRST
       const saved = await savePendingNotification(notifData);
       if (!saved) {
-        // If save failed, try to show directly
         await showNotificationSafe(notifData);
         return;
       }
 
-      // 3️⃣ Try to show the new notification
+      // 3️⃣ Try to show
       const shown = await showNotificationSafe(notifData);
       if (shown) {
-        // Success → delete from DB by id
-        // Note: savePendingNotification with autoIncrement gives us an id
         const allPending = await getPendingNotifications();
-        // Find the most recent matching one (by tag + receivedAt)
         const match = allPending
           .filter(n => n.tag === notifData.tag && n.receivedAt === notifData.receivedAt)
           .sort((a, b) => b.id - a.id)[0];
@@ -308,22 +294,24 @@ self.addEventListener("activate", event => {
           .map(k => caches.delete(k))
       );
       await self.clients.claim();
-      // Flush pending on activate
       await flushPendingNotifications();
     })()
   );
 });
 
 // ═══════════════════════════════════════════════════════════
-// ✅ Fetch Handler
+// ✅ Fetch Handler — Adsterra-safe (external domains skipped)
 // ═══════════════════════════════════════════════════════════
 self.addEventListener("fetch", event => {
   const request = event.request;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
   if (!url.protocol.startsWith("http")) return;
+
+  // ⚠️ Skip external domains (Adsterra, etc.) — let browser handle
   if (url.origin !== self.location.origin && !url.hostname.includes("gstatic")) return;
 
+  // Network-first for API, navigation, documents
   if (
     url.pathname.startsWith("/api/") ||
     url.pathname.startsWith("/go/") ||
@@ -342,6 +330,7 @@ self.addEventListener("fetch", event => {
     return;
   }
 
+  // Cache-first for static assets
   event.respondWith(
     caches.match(request).then(cached => {
       if (cached) return cached;
@@ -356,7 +345,7 @@ self.addEventListener("fetch", event => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// ✅ Message Handler — FLUSH_PENDING, NETWORK_ONLINE, SKIP_WAITING
+// ✅ Message Handler
 // ═══════════════════════════════════════════════════════════
 self.addEventListener('message', (event) => {
   if (event.data === "SKIP_WAITING") {

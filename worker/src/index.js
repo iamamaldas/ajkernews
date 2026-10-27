@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v67: Mini PWA Engine added to Article Pages
+// ✅ FINAL v68: Fixed Server Page PWA Install Issue & Big Icon Support
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -75,7 +75,7 @@ function getFloatingButtonHtmlAndScript() {
   return `
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#ffffff">
-  <a href="javascript:void(0)" onclick="installPWA()" class="floating-app-btn" id="serverFloatingBtn" aria-label="Install Ajker News App" style="display:none;">
+  <a href="javascript:void(0)" onclick="return triggerInstall(event);" class="floating-app-btn" id="serverFloatingBtn" aria-label="Install Ajker News App" style="display:none;">
     <svg viewBox="0 0 24 24" fill="none" stroke="#222222" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
       <polyline points="7 10 12 15 17 10"/>
@@ -100,19 +100,19 @@ function getFloatingButtonHtmlAndScript() {
       let deferredPrompt = null;
       const btn = document.getElementById('serverFloatingBtn');
       
-      // ✅ 1. Register Service Worker (Chrome needs this for install prompt)
+      // ✅ Register Service Worker
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none', scope: '/' }).catch(err => console.log('SW Reg Failed:', err));
       }
 
-      // ✅ 2. Detect if app is already installed
+      // ✅ Detect Standalone Mode
       function checkIfPWAInstalled() {
         const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
         if (isStandalone) document.body.classList.add('pwa-installed');
       }
       checkIfPWAInstalled();
       
-      // ✅ 3. Capture Install Prompt (Android Chrome)
+      // ✅ Capture Prompt
       window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
         deferredPrompt = e;
@@ -121,19 +121,24 @@ function getFloatingButtonHtmlAndScript() {
         }
       });
 
-      // ✅ 4. Hide button on successful install
       window.addEventListener('appinstalled', () => {
         document.body.classList.add('pwa-installed');
+        deferredPrompt = null;
       });
 
-      // ✅ 5. Smart Install Logic
-      window.installPWA = async function() {
+      // ✅ Click Handler (Stops Refresh)
+      window.triggerInstall = async function(event) {
+        if (event) { event.preventDefault(); event.stopPropagation(); }
+        
         const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
-        if (isStandalone) { alert('অ্যাপটি ইতিমধ্যে ইনস্টল করা আছে!'); return; }
+        if (isStandalone) { alert('অ্যাপটি ইতিমধ্যে ইনস্টল করা আছে!'); return false; }
         
         if (deferredPrompt) {
           deferredPrompt.prompt();
-          await deferredPrompt.userChoice;
+          const choiceResult = await deferredPrompt.userChoice;
+          if (choiceResult.outcome === 'accepted') {
+            console.log('User accepted the install prompt');
+          }
           deferredPrompt = null;
         } else {
           const userAgent = navigator.userAgent || navigator.vendor || window.opera;
@@ -145,9 +150,10 @@ function getFloatingButtonHtmlAndScript() {
             alert('অনুগ্রহ করে আপনার ব্রাউজার মেনু থেকে "Add to Home Screen" নির্বাচন করুন।');
           }
         }
+        return false;
       };
 
-      // ✅ 6. Show button on Chrome even if prompt is delayed
+      // ✅ Force show button on Chrome
       setTimeout(() => {
         if (btn && !document.body.classList.contains('pwa-installed') && /chrome|crios/i.test(navigator.userAgent)) {
           btn.style.display = 'flex';

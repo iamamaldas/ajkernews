@@ -389,13 +389,14 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
   <div class="footer-copy">&copy; <span id="currentYear">2026</span> Ajker News. All rights reserved.</div>
 </footer>
 
-<a href="/public/ajkernews-app.apk" download class="floating-app-btn" aria-label="Download Ajker News App">
+<!-- ✅ PWA Install Floating Button (Updated) -->
+<a href="javascript:void(0)" onclick="installPWA()" class="floating-app-btn" aria-label="Install Ajker News App">
   <svg viewBox="0 0 24 24" fill="none" stroke="#222222" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
     <polyline points="7 10 12 15 17 10"/>
     <line x1="12" y1="15" x2="12" y2="3"/>
   </svg>
-  <span>App</span>
+  <span>Install</span>
 </a>
 
 <script type="module">
@@ -582,19 +583,35 @@ function getCategoryLabel(category) {
   return labels[category] || category || 'সাধারণ';
 }
 
-window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; });
+// ✅ PWA Install Logic
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+});
 
-async function installApp() {
+async function installPWA() {
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
-  if (isStandalone) return;
+  
+  if (isStandalone) {
+    alert('অ্যাপটি ইতিমধ্যে ইনস্টল করা আছে!');
+    return;
+  }
+
   if (deferredPrompt) {
-    try {
-      deferredPrompt.prompt();
-      await deferredPrompt.userChoice;
-      deferredPrompt = null;
-    } catch (err) {}
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      console.log('User accepted the install prompt');
+    }
+    deferredPrompt = null;
+  } else {
+    alert('আপনার ব্রাউজারে সরাসরি ইনস্টল অপশন নেই। অনুগ্রহ করে ব্রাউজার মেনু থেকে "Add to Home Screen" বা "Install App" নির্বাচন করুন।');
   }
 }
+
+window.addEventListener('appinstalled', (evt) => {
+  console.log('Ajker News PWA installed successfully');
+});
 
 function showSkeleton(container, count = 3) {
   let html = '';

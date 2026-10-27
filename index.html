@@ -506,7 +506,7 @@ let currentOffset = 0;
 const PAGE_SIZE = 15;
 let hasMoreNews = false;
 
-// ✅ PWA Install Logic for Home Page
+// ✅ PWA Install Logic for Home Page (Updated)
 let homeDeferredPrompt = null;
 const homeInstallBtn = document.getElementById('homeFloatingBtn');
 
@@ -520,14 +520,19 @@ function checkIfPWAInstalledHome() {
   if (isStandalone || isInstalled) {
     document.body.classList.add('pwa-installed');
     if (homeInstallBtn) homeInstallBtn.style.display = 'none';
+  } else {
+    // ✅ ইনস্টল না থাকলে বাটন সরাসরি শো করান
+    if (homeInstallBtn) homeInstallBtn.style.display = 'flex';
   }
 }
-checkIfPWAInstalledHome();
+
+// DOM লোড হওয়ার পরপরই চেক করবো
+document.addEventListener('DOMContentLoaded', checkIfPWAInstalledHome);
+setTimeout(checkIfPWAInstalledHome, 1000);
 
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   homeDeferredPrompt = e;
-  // ✅ প্রম্পট রেডি হলেই কেবল বাটনটি শো করাবো
   if (homeInstallBtn && !document.body.classList.contains('pwa-installed')) {
     homeInstallBtn.style.display = 'flex';
   }
@@ -553,14 +558,14 @@ window.triggerHomeInstall = function(event) {
       homeDeferredPrompt = null;
     });
   } else {
-    // যদি ব্রাউজার সাপোর্ট না করে (In-app browser), তবে Chrome-এ রিডাইরেক্ট করবে
+    // Fallback: Chrome Intent for Android
     const userAgent = navigator.userAgent || navigator.vendor || window.opera;
     if (/android/i.test(userAgent)) {
       const currentUrl = window.location.href;
       const chromeIntent = 'intent://' + window.location.host + window.location.pathname + window.location.search + '#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' + encodeURIComponent(currentUrl) + ';end';
       window.location.replace(chromeIntent);
     } else {
-      alert('অনুগ্রহ করে আপনার ব্রাউজারের মেনু থেকে "Add to Home Screen" নির্বাচন করুন।');
+      alert('অনুগ্রহ করে আপনার ব্রাউজারের মেনু (তিন ডট) থেকে "Add to Home Screen" বা "Install App" নির্বাচন করুন।');
     }
   }
   return false;

@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v64.2: Added assetlinks.json redirect for TWA (Google Play / Amazon Appstore)
+// ✅ FINAL v64.3: Fixed assetlinks.json direct serving for TWA verification
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -474,6 +474,20 @@ renderQuestion();
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    
+    // ✅ TWA FIX: Serve assetlinks.json directly (No Redirect)
+    if (url.pathname === "/.well-known/assetlinks.json") {
+      if (env.ASSETS) {
+        const assetUrl = new URL('/public/assetlinks.json', url.origin);
+        const response = await env.ASSETS.fetch(assetUrl);
+        return new Response(response.body, {
+          status: 200,
+          headers: { "Content-Type": "application/json; charset=UTF-8" }
+        });
+      }
+      return new Response("Not Found", { status: 404 });
+    }
+
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders() });
 
     const publicRedirects = {
@@ -484,10 +498,7 @@ export default {
       "/android-chrome-192x192.png": "/public/android-chrome-192x192.png",
       "/android-chrome-512x512.png": "/public/android-chrome-512x512.png",
       "/manifest.json": "/public/manifest.json",
-      "/adblock.js": "/public/adblock.js",
-      
-      // ✅ TWA / ANDROID APP LINK (Asset Links)
-      "/.well-known/assetlinks.json": "/public/assetlinks.json"
+      "/adblock.js": "/public/adblock.js"
     };
 
     if (publicRedirects[url.pathname]) return Response.redirect(new URL(publicRedirects[url.pathname], url).toString(), 301);

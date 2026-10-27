@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v70: Server Page PWA Install Button Fixed
+// ✅ FINAL v71: Server Page PWA Install Button Fixed (Full Code)
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -69,7 +69,7 @@ function getArticlePopunderScript() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ✅ MINI PWA ENGINE FOR SERVER PAGES (Article & Quiz)
+// ✅ FULLY FIXED MINI PWA ENGINE FOR SERVER PAGES
 // ═══════════════════════════════════════════════════════════
 function getFloatingButtonHtmlAndScript() {
   return `
@@ -84,15 +84,62 @@ function getFloatingButtonHtmlAndScript() {
     <span>Install</span>
   </a>
   <style>
-    .floating-app-btn { position:fixed; right:18px; bottom:22px; width:58px; height:58px; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#ffffff; border:1px solid rgba(0,0,0,0.06); border-radius:50%; box-shadow: 0 4px 16px rgba(0,0,0,0.12); cursor:pointer; z-index:700; text-decoration:none; transition: transform 0.2s ease, box-shadow 0.2s ease; }
-    .floating-app-btn:active { transform: scale(0.94); }
-    .floating-app-btn svg { width:22px; height:22px; margin-bottom:1px; }
-    .floating-app-btn span { font-size:9px; font-weight:700; color:#333; letter-spacing:0.2px; }
-    body.pwa-installed .floating-app-btn, body.pwa-installed #serverFloatingBtn { display: none !important; }
-    @media (max-width:480px) {
-      .floating-app-btn { right:14px; bottom:18px; width:54px; height:54px; }
-      .floating-app-btn svg { width:20px; height:20px; }
-      .floating-app-btn span { font-size:8.5px; }
+    /* ✅ Button Size Fix with !important */
+    body .floating-app-btn { 
+      position: fixed !important; 
+      right: 18px !important; 
+      bottom: 22px !important; 
+      width: 58px !important; 
+      height: 58px !important; 
+      display: flex !important; 
+      flex-direction: column !important; 
+      align-items: center !important; 
+      justify-content: center !important; 
+      background: #ffffff !important; 
+      border: 1px solid rgba(0,0,0,0.06) !important; 
+      border-radius: 50% !important; 
+      box-shadow: 0 4px 16px rgba(0,0,0,0.12) !important; 
+      cursor: pointer !important; 
+      z-index: 700 !important; 
+      text-decoration: none !important; 
+      transition: transform 0.2s ease, box-shadow 0.2s ease !important; 
+    }
+    
+    body .floating-app-btn:active { 
+      transform: scale(0.94) !important; 
+    }
+    
+    body .floating-app-btn svg { 
+      width: 22px !important; 
+      height: 22px !important; 
+      margin-bottom: 2px !important; 
+    }
+    
+    body .floating-app-btn span { 
+      font-size: 9px !important; 
+      font-weight: 700 !important; 
+      color: #333 !important; 
+      letter-spacing: 0.2px !important; 
+    }
+    
+    body.pwa-installed .floating-app-btn, body.pwa-installed #serverFloatingBtn { 
+      display: none !important; 
+    }
+    
+    @media (max-width: 480px) {
+      body .floating-app-btn { 
+        right: 14px !important; 
+        bottom: 18px !important; 
+        width: 54px !important; 
+        height: 54px !important; 
+      }
+      body .floating-app-btn svg { 
+        width: 20px !important; 
+        height: 20px !important; 
+      }
+      body .floating-app-btn span { 
+        font-size: 8.5px !important; 
+      }
     }
   </style>
   <script>
@@ -100,19 +147,23 @@ function getFloatingButtonHtmlAndScript() {
       let deferredPrompt = null;
       const btn = document.getElementById('serverFloatingBtn');
       
-      // ✅ Register Service Worker
+      // ✅ 1. MUST REGISTER SERVICE WORKER FOR PWA INSTALL TO WORK
       if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none', scope: '/' }).catch(err => console.log('SW Reg Failed:', err));
+        navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none', scope: '/' }).then(() => {
+          console.log('[PWA] Service Worker Registered Successfully');
+        }).catch(err => console.log('SW Reg Failed:', err));
       }
 
-      // ✅ Detect Standalone Mode
+      // ✅ 2. Detect Standalone Mode
       function checkIfPWAInstalled() {
         const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-        if (isStandalone) document.body.classList.add('pwa-installed');
+        if (isStandalone) {
+          document.body.classList.add('pwa-installed');
+        }
       }
       checkIfPWAInstalled();
       
-      // ✅ Capture Prompt
+      // ✅ 3. Capture Install Prompt
       window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
         deferredPrompt = e;
@@ -124,15 +175,23 @@ function getFloatingButtonHtmlAndScript() {
       window.addEventListener('appinstalled', () => {
         document.body.classList.add('pwa-installed');
         deferredPrompt = null;
+        console.log('[PWA] App Installed');
       });
 
-      // ✅ Click Handler (Stops Refresh completely)
+      // ✅ 4. Click Handler (Fixes Redirect & Prevent Default)
       window.triggerInstall = async function(event) {
-        if (event) { event.preventDefault(); event.stopPropagation(); }
+        if (event) { 
+            event.preventDefault(); 
+            event.stopPropagation(); 
+        }
         
         const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
-        if (isStandalone) { alert('অ্যাপটি ইতিমধ্যে ইনস্টল করা আছে!'); return false; }
+        if (isStandalone) { 
+          alert('অ্যাপটি ইতিমধ্যে ইনস্টল করা আছে!'); 
+          return false; 
+        }
         
+        // If browser supports native install prompt (Chrome, Edge)
         if (deferredPrompt) {
           deferredPrompt.prompt();
           const choiceResult = await deferredPrompt.userChoice;
@@ -141,19 +200,23 @@ function getFloatingButtonHtmlAndScript() {
           }
           deferredPrompt = null;
         } else {
+          // If browser doesn't support native install (In-app browsers, UC, Opera Mini)
           const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+          
           if (/android/i.test(userAgent)) {
+            // ✅ 5. FIXED INTENT LOGIC TO FORCE OPEN IN CHROME
             const currentUrl = window.location.href;
             const chromeIntent = \`intent://\${window.location.host}\${window.location.pathname}\${window.location.search}#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=\${encodeURIComponent(currentUrl)};end\`;
             window.location.href = chromeIntent;
           } else {
-            alert('অনুগ্রহ করে আপনার ব্রাউজার মেনু থেকে "Add to Home Screen" নির্বাচন করুন।');
+            // iOS Safari or other browsers
+            alert('অনুগ্রহ করে আপনার ব্রাউজারের মেনু (⋮ বা Share আইকন) থেকে "Add to Home Screen" নির্বাচন করুন।');
           }
         }
         return false;
       };
 
-      // ✅ Force show button on Chrome
+      // ✅ 6. Fallback: Show button on Chrome even if prompt delays
       setTimeout(() => {
         if (btn && !document.body.classList.contains('pwa-installed') && /chrome|crios/i.test(navigator.userAgent)) {
           btn.style.display = 'flex';

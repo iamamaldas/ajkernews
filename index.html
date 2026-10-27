@@ -615,11 +615,9 @@ window.addEventListener('appinstalled', (evt) => {
   deferredPrompt = null;
 });
 
+// ✅ SMART INSTALL LOGIC
 async function installPWA() {
-  const isStandalone =
-    window.matchMedia('(display-mode: standalone)').matches ||
-    window.matchMedia('(display-mode: minimal-ui)').matches ||
-    window.navigator.standalone === true;
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
   
   if (isStandalone) {
     alert('অ্যাপটি ইতিমধ্যে ইনস্টল করা আছে!');
@@ -627,6 +625,7 @@ async function installPWA() {
   }
 
   if (deferredPrompt) {
+    // ✅ যদি ব্রাউজার PWA ইনস্টল সাপোর্ট করে (Chrome, Edge)
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
     if (outcome === 'accepted') {
@@ -634,7 +633,19 @@ async function installPWA() {
     }
     deferredPrompt = null;
   } else {
-    alert('আপনার ব্রাউজারে সরাসরি ইনস্টল অপশন নেই। অনুগ্রহ করে ব্রাউজার মেনু থেকে "Add to Home Screen" বা "Install App" নির্বাচন করুন।');
+    // ❌ যদি ব্রাউজার সাপোর্ট না করে (UC Browser, Opera Mini, In-app browser)
+    // 🚀 অটোমেটিক Google Chrome-এ রিডাইরেক্ট করবে
+    const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+    
+    if (/android/i.test(userAgent)) {
+      const currentUrl = window.location.href;
+      const chromeIntent = `intent://${window.location.host}${window.location.pathname}${window.location.search}#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(currentUrl)};end`;
+      
+      // সরাসরি Chrome-এ রিডাইরেক্ট (কোনো অ্যালার্ট ছাড়া)
+      window.location.href = chromeIntent;
+    } else {
+      alert('অনুগ্রহ করে আপনার ব্রাউজার মেনু থেকে "Add to Home Screen" নির্বাচন করুন।');
+    }
   }
 }
 

@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v72: Server Page PWA Install Button 100% Fixed
+// ✅ FINAL v73: PWA Install Button Fixed (No Refresh, 100% Working)
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -69,10 +69,9 @@ function getArticlePopunderScript() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ✅ MINI PWA ENGINE FOR SERVER PAGES (Article & Quiz)
+// ✅ PWA FLOATING BUTTON & SCRIPT (Article & Quiz Pages)
 // ═══════════════════════════════════════════════════════════
 function getFloatingButtonHtmlAndScript() {
-  // ⚠️ NOTE: Only HTML + CSS here. JavaScript is injected directly in the page's body.
   return `
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#ffffff">
@@ -95,61 +94,78 @@ function getFloatingButtonHtmlAndScript() {
   `;
 }
 
-// ✅ JS code for PWA Install Engine (to be injected in page body)
 function getPWAScript() {
   return `
   <script>
-    // ✅ PWA Install Engine (Direct Injection)
-    let deferredPrompt = null;
-    const installBtn = document.getElementById('serverFloatingBtn');
+    (function() {
+      let deferredPrompt = null;
+      const installBtn = document.getElementById('serverFloatingBtn');
 
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(err => console.log('SW Reg Failed:', err));
-      });
-    }
-
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
-      deferredPrompt = e;
-      if (installBtn && !document.body.classList.contains('pwa-installed')) {
-        installBtn.style.display = 'flex';
+      // ✅ 1. Service Worker Register
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(err => console.log('SW Reg Failed:', err));
+        });
       }
-    });
 
-    window.addEventListener('appinstalled', () => {
-      document.body.classList.add('pwa-installed');
-      deferredPrompt = null;
-    });
-
-    window.triggerInstall = async function(event) {
-      if (event) { event.preventDefault(); event.stopPropagation(); }
-      
-      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
-      if (isStandalone) { alert('অ্যাপটি ইতিমধ্যে ইনস্টল করা আছে!'); return false; }
-      
-      if (deferredPrompt) {
-        deferredPrompt.prompt();
-        await deferredPrompt.userChoice;
-        deferredPrompt = null;
-      } else {
-        const userAgent = navigator.userAgent || navigator.vendor || window.opera;
-        if (/android/i.test(userAgent)) {
-          const currentUrl = window.location.href;
-          const chromeIntent = 'intent://' + window.location.host + window.location.pathname + window.location.search + '#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' + encodeURIComponent(currentUrl) + ';end';
-          window.location.href = chromeIntent;
-        } else {
-          alert('অনুগ্রহ করে আপনার ব্রাউজারের মেনু থেকে "Add to Home Screen" নির্বাচন করুন।');
+      // ✅ 2. Capture Prompt
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        if (installBtn && !document.body.classList.contains('pwa-installed')) {
+          installBtn.style.display = 'flex';
         }
-      }
-      return false;
-    };
+      });
 
-    setTimeout(() => {
-      if (installBtn && !document.body.classList.contains('pwa-installed') && /chrome|crios/i.test(navigator.userAgent)) {
-        installBtn.style.display = 'flex';
-      }
-    }, 2000);
+      // ✅ 3. Detect App Installed
+      window.addEventListener('appinstalled', () => {
+        document.body.classList.add('pwa-installed');
+        deferredPrompt = null;
+        if (installBtn) installBtn.style.display = 'none';
+      });
+
+      // ✅ 4. Safe Click Handler (No Refresh)
+      window.triggerInstall = function(event) {
+        if (event) { 
+          event.preventDefault(); 
+          event.stopPropagation(); 
+        }
+        
+        const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+        if (isStandalone) { 
+          alert('অ্যাপটি ইতিমধ্যে ইনস্টল করা আছে!'); 
+          return false; 
+        }
+        
+        if (deferredPrompt) {
+          deferredPrompt.prompt();
+          deferredPrompt.userChoice.then((choiceResult) => {
+            if (choiceResult.outcome === 'accepted') {
+              console.log('User accepted the install prompt');
+            }
+            deferredPrompt = null;
+          });
+        } else {
+          const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+          
+          if (/android/i.test(userAgent)) {
+            const currentUrl = window.location.href;
+            const chromeIntent = 'intent://' + window.location.host + window.location.pathname + window.location.search + '#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' + encodeURIComponent(currentUrl) + ';end';
+            window.location.replace(chromeIntent);
+          } else {
+            alert('অনুগ্রহ করে আপনার ব্রাউজারের মেনু (⋮ বা Share আইকন) থেকে "Add to Home Screen" নির্বাচন করুন।');
+          }
+        }
+        return false;
+      };
+
+      // ✅ 5. Fallback show button
+      setTimeout(() => {
+        if (installBtn && !document.body.classList.contains('pwa-installed') && /chrome|crios/i.test(navigator.userAgent)) {
+          installBtn.style.display = 'flex';
+        }
+      }, 2000);
+    })();
   </script>
   `;
 }
@@ -1321,7 +1337,7 @@ async function serveArticlePage(id, env, request) {
   const socialBarScript = isBot ? "" : (ADS_CONFIG?.socialBarScript || "");
   const articlePopunder = isBot ? "" : getArticlePopunderScript();
   const floatingBtn = isBot ? "" : getFloatingButtonHtmlAndScript();
-  const pwaScript = isBot ? "" : getPWAScript(); // ✅ Inject PWA JS directly
+  const pwaScript = isBot ? "" : getPWAScript();
   const result = await env.DB.prepare(`SELECT headline, summary, main_topic, image_url, published_at, created_at, source_name, source_url, category FROM news WHERE id = ? AND status = 'published' AND type = 'news' LIMIT 1`).bind(safeId).first();
   if (!result) {
     let relatedNews = [];

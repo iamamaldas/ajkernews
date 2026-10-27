@@ -515,7 +515,9 @@ function checkIfPWAInstalledHome() {
     window.matchMedia('(display-mode: standalone)').matches ||
     window.matchMedia('(display-mode: minimal-ui)').matches ||
     window.navigator.standalone === true;
-  if (isStandalone) {
+  const isInstalled = localStorage.getItem('pwa_installed') === 'true';
+  
+  if (isStandalone || isInstalled) {
     document.body.classList.add('pwa-installed');
     if (homeInstallBtn) homeInstallBtn.style.display = 'none';
   }
@@ -534,18 +536,13 @@ window.addEventListener('beforeinstallprompt', (e) => {
 window.addEventListener('appinstalled', (evt) => {
   console.log('Ajker News PWA installed successfully');
   document.body.classList.add('pwa-installed');
+  localStorage.setItem('pwa_installed', 'true');
   homeDeferredPrompt = null;
   if (homeInstallBtn) homeInstallBtn.style.display = 'none';
 });
 
 window.triggerHomeInstall = function(event) {
   if (event) { event.preventDefault(); event.stopPropagation(); }
-  
-  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
-  if (isStandalone) { 
-    alert('অ্যাপটি ইতিমধ্যে ইনস্টল করা আছে!'); 
-    return false; 
-  }
   
   if (homeDeferredPrompt) {
     homeDeferredPrompt.prompt();
@@ -555,6 +552,16 @@ window.triggerHomeInstall = function(event) {
       }
       homeDeferredPrompt = null;
     });
+  } else {
+    // যদি ব্রাউজার সাপোর্ট না করে (In-app browser), তবে Chrome-এ রিডাইরেক্ট করবে
+    const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+    if (/android/i.test(userAgent)) {
+      const currentUrl = window.location.href;
+      const chromeIntent = 'intent://' + window.location.host + window.location.pathname + window.location.search + '#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' + encodeURIComponent(currentUrl) + ';end';
+      window.location.replace(chromeIntent);
+    } else {
+      alert('অনুগ্রহ করে আপনার ব্রাউজারের মেনু থেকে "Add to Home Screen" নির্বাচন করুন।');
+    }
   }
   return false;
 };

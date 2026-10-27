@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v75: PWA Install Instant & Icon Fixed
+// ✅ FINAL v76: Perfect PWA Install Logic (No Alerts, Show on Prompt Ready)
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -99,66 +99,37 @@ function getPWAScript() {
       let deferredPrompt = null;
       const installBtn = document.getElementById('serverFloatingBtn');
 
-      // ✅ 1. Service Worker Register
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', function() {
-          navigator.serviceWorker.register('/sw.js', { scope: '/' })
-            .then(function(reg) { console.log('[PWA] SW Registered', reg.scope); })
-            .catch(function(err) { console.log('[PWA] SW Reg Failed:', err); });
+          navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(err => console.log('SW Reg Failed:', err));
         });
       }
 
-      // ✅ 2. Capture the Install Prompt (Chrome triggers this after checking SW and Manifest)
       window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
         deferredPrompt = e;
-        console.log('[PWA] Install prompt captured!');
-        
-        // প্রম্পট রেডি হলেই কেবল বাটনটি শো করাবো
+        // ✅ প্রম্পট রেডি হলেই কেবল বাটনটি শো করাবো
         if (installBtn && !document.body.classList.contains('pwa-installed')) {
           installBtn.style.display = 'flex';
         }
       });
 
-      // ✅ 3. App Installed
       window.addEventListener('appinstalled', () => {
         document.body.classList.add('pwa-installed');
         deferredPrompt = null;
         if (installBtn) installBtn.style.display = 'none';
-        console.log('[PWA] App installed successfully');
       });
 
-      // ✅ 4. Click Handler (100% Safe)
       window.triggerInstall = function(event) {
         if (event) { event.preventDefault(); event.stopPropagation(); }
-        
-        const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
-        if (isStandalone) { 
-          alert('অ্যাপটি ইতিমধ্যে ইনস্টল করা আছে!'); 
-          return false; 
-        }
-        
         if (deferredPrompt) {
           deferredPrompt.prompt();
           deferredPrompt.userChoice.then((choiceResult) => {
-            if (choiceResult.outcome === 'accepted') {
-              console.log('[PWA] User accepted');
-            }
             deferredPrompt = null;
           });
-        } else {
-          // যদি ইউজার প্রম্পট তৈরির আগেই ক্লিক করে ফেলে
-          alert('⏳ অনুগ্রহ করে একটু অপেক্ষা করুন। ইনস্টল প্রম্পট তৈরি হচ্ছে...');
         }
         return false;
       };
-
-      // ✅ 5. Fallback: Show button only if prompt is ready or after 4 seconds
-      setTimeout(() => {
-        if (installBtn && !document.body.classList.contains('pwa-installed') && deferredPrompt) {
-          installBtn.style.display = 'flex';
-        }
-      }, 4000);
     })();
   </script>
   `;

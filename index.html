@@ -188,7 +188,9 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 #loadMoreBtn:active { transform: translateY(0) scale(0.98); }
 #loadMoreBtn:disabled { opacity:0.6; cursor:not-allowed; }
 
-.floating-app-btn { position:fixed; right:18px; bottom:22px; width:58px; height:58px; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#ffffff; border:1px solid rgba(0,0,0,0.06); border-radius:50%; box-shadow: 0 4px 16px rgba(0,0,0,0.12); cursor:pointer; z-index:700; text-decoration:none; transition: transform 0.2s ease, box-shadow 0.2s ease; }
+/* ✅ PWA Install Floating Button — class-based show/hide */
+.floating-app-btn { position:fixed; right:18px; bottom:22px; width:58px; height:58px; display:none; flex-direction:column; align-items:center; justify-content:center; background:#ffffff; border:1px solid rgba(0,0,0,0.06); border-radius:50%; box-shadow: 0 4px 16px rgba(0,0,0,0.12); cursor:pointer; z-index:700; text-decoration:none; transition: transform 0.2s ease, box-shadow 0.2s ease; }
+.floating-app-btn.show { display:flex !important; }
 .floating-app-btn:active { transform: scale(0.94); }
 .floating-app-btn svg { width:22px; height:22px; margin-bottom:1px; }
 .floating-app-btn span { font-size:9px; font-weight:700; color:#333; letter-spacing:0.2px; }
@@ -390,7 +392,7 @@ body.pwa-installed .floating-app-btn { display: none !important; }
 </footer>
 
 <!-- ✅ PWA Install Floating Button -->
-<a href="javascript:void(0)" onclick="return triggerHomeInstall(event);" class="floating-app-btn" id="homeFloatingBtn" aria-label="Install Ajker News App" style="display:none;">
+<a href="javascript:void(0)" onclick="return triggerHomeInstall(event);" class="floating-app-btn" id="homeFloatingBtn" aria-label="Install Ajker News App">
   <svg viewBox="0 0 24 24" fill="none" stroke="#222222" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
     <polyline points="7 10 12 15 17 10"/>
@@ -506,7 +508,7 @@ let currentOffset = 0;
 const PAGE_SIZE = 15;
 let hasMoreNews = false;
 
-// ✅ PWA Install Logic for Home Page — NO intent:// redirect
+// ✅ PWA Install Logic — class-based, fallback, smart guide
 let homeDeferredPrompt = null;
 const homeInstallBtn = document.getElementById('homeFloatingBtn');
 
@@ -516,11 +518,12 @@ function checkIfPWAInstalledHome() {
     window.matchMedia('(display-mode: minimal-ui)').matches ||
     window.navigator.standalone === true;
   const isInstalled = localStorage.getItem('pwa_installed') === 'true';
-  
   if (isStandalone || isInstalled) {
     document.body.classList.add('pwa-installed');
-    if (homeInstallBtn) homeInstallBtn.style.display = 'none';
+    if (homeInstallBtn) homeInstallBtn.classList.remove('show');
+    return true;
   }
+  return false;
 }
 checkIfPWAInstalledHome();
 
@@ -528,7 +531,7 @@ window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   homeDeferredPrompt = e;
   if (homeInstallBtn && !document.body.classList.contains('pwa-installed')) {
-    homeInstallBtn.style.display = 'flex';
+    homeInstallBtn.classList.add('show');
   }
 });
 
@@ -537,7 +540,7 @@ window.addEventListener('appinstalled', (evt) => {
   document.body.classList.add('pwa-installed');
   localStorage.setItem('pwa_installed', 'true');
   homeDeferredPrompt = null;
-  if (homeInstallBtn) homeInstallBtn.style.display = 'none';
+  if (homeInstallBtn) homeInstallBtn.classList.remove('show');
 });
 
 window.triggerHomeInstall = function(event) {
@@ -550,13 +553,32 @@ window.triggerHomeInstall = function(event) {
         console.log('User accepted the install prompt');
       }
       homeDeferredPrompt = null;
-    });
+    }).catch(() => {});
   } else {
-    // ❌ NO intent:// redirect — just show message
-    alert('অনুগ্রহ করে আপনার ব্রাউজারের মেনু থেকে "Add to Home Screen" বা "Install App" নির্বাচন করুন।');
+    const ua = navigator.userAgent || '';
+    const isAndroid = /Android/i.test(ua);
+    const isChrome = /Chrome/i.test(ua) && !/Edg|OPR|Brave/i.test(ua);
+    const isIOS = /iPhone|iPad|iPod/i.test(ua);
+    const isSafari = /Safari/i.test(ua) && !/Chrome|CriOS|FxiOS|EdgiOS/i.test(ua);
+    let msg = '';
+    if (isAndroid && isChrome) msg = 'ডান দিকের ⋮ মেনুতে ট্যাপ করুন → "Install app" নির্বাচন করুন।';
+    else if (isAndroid) msg = 'সেরা অভিজ্ঞতার জন্য Chrome-এ খুলুন, তারপর ⋮ মেনু → "Install app" চাপুন।';
+    else if (isIOS && isSafari) msg = 'নিচের Share আইকনে ট্যাপ করুন → "Add to Home Screen" নির্বাচন করুন।';
+    else if (isIOS) msg = 'Safari-তে খুলে Share → "Add to Home Screen" ব্যবহার করুন।';
+    else msg = 'ব্রাউজার মেনু থেকে "Install" বা "Add to Home Screen" নির্বাচন করুন।';
+    alert(msg);
   }
   return false;
 };
+
+setTimeout(() => {
+  if (checkIfPWAInstalledHome()) return;
+  if (!homeInstallBtn) return;
+  const isChromeAndroid = /Chrome/.test(navigator.userAgent) && /Android/.test(navigator.userAgent);
+  if (isChromeAndroid && !homeDeferredPrompt) {
+    homeInstallBtn.classList.add('show');
+  }
+}, 3000);
 
 function sortByLatest(newsArray) {
   if (!Array.isArray(newsArray)) return [];

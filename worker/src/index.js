@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v78: 100% Working PWA Install with Chrome Fallback & Always Visible Button
+// ✅ FINAL v78: Fixed Cloaking (No Bot Detection) + Fixed PWA Install
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -70,6 +70,7 @@ function getArticlePopunderScript() {
 
 // ═══════════════════════════════════════════════════════════
 // ✅ PWA FLOATING BUTTON & SCRIPT (Article & Quiz Pages)
+// ⚠️ FIXED: Removed intent:// redirect that caused refresh loop
 // ═══════════════════════════════════════════════════════════
 function getFloatingButtonHtmlAndScript() {
   return `
@@ -99,29 +100,23 @@ function getPWAScript() {
       let deferredPrompt = null;
       const installBtn = document.getElementById('serverFloatingBtn');
 
-      function checkPWAStatus() {
-        const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-        const isInstalled = localStorage.getItem('pwa_installed') === 'true';
-        
-        if (isStandalone || isInstalled) {
-          document.body.classList.add('pwa-installed');
-          if (installBtn) installBtn.style.display = 'none';
-        } else {
-          // ✅ ইনস্টল না থাকলে বাটন সরাসরি শো করান (ইভেন্টের অপেক্ষা না করে)
-          if (installBtn) installBtn.style.display = 'flex';
-        }
+      // 1. Check if already installed (Hide button immediately)
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+      const isInstalled = localStorage.getItem('pwa_installed') === 'true';
+      
+      if (isStandalone || isInstalled) {
+        document.body.classList.add('pwa-installed');
+        if (installBtn) installBtn.style.display = 'none';
       }
 
-      // পেজ লোড হলেই চেক করি
-      checkPWAStatus();
-      setTimeout(checkPWAStatus, 1000);
-
+      // 2. Register Service Worker
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', function() {
           navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(err => console.log('SW Reg Failed:', err));
         });
       }
 
+      // 3. Capture Prompt (Show button only when prompt is ready)
       window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
         deferredPrompt = e;
@@ -130,6 +125,7 @@ function getPWAScript() {
         }
       });
 
+      // 4. App Installed
       window.addEventListener('appinstalled', () => {
         document.body.classList.add('pwa-installed');
         localStorage.setItem('pwa_installed', 'true');
@@ -137,6 +133,7 @@ function getPWAScript() {
         if (installBtn) installBtn.style.display = 'none';
       });
 
+      // 5. Click Handler — NO intent:// redirect (prevents refresh loop)
       window.triggerInstall = function(event) {
         if (event) { event.preventDefault(); event.stopPropagation(); }
         
@@ -146,14 +143,8 @@ function getPWAScript() {
             deferredPrompt = null;
           });
         } else {
-          const userAgent = navigator.userAgent || navigator.vendor || window.opera;
-          if (/android/i.test(userAgent)) {
-            const currentUrl = window.location.href;
-            const chromeIntent = 'intent://' + window.location.host + window.location.pathname + window.location.search + '#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' + encodeURIComponent(currentUrl) + ';end';
-            window.location.replace(chromeIntent);
-          } else {
-            alert('অনুগ্রহ করে আপনার ব্রাউজারের মেনু (তিন ডট) থেকে "Add to Home Screen" বা "Install App" নির্বাচন করুন।');
-          }
+          // No Chrome redirect — just show message
+          alert('অনুগ্রহ করে আপনার ব্রাউজারের মেনু থেকে "Add to Home Screen" বা "Install App" নির্বাচন করুন।');
         }
         return false;
       };
@@ -174,7 +165,7 @@ function toTransliterated(text) {
   return result.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 }
 
-const BOT_REGEX = /googlebot|google-inspectiontool|apis-google|mediapartners-google|adsbot-google|googleother|feedfetcher-google|google-read-aloud|google-site-verification|storebot-google|googlebot-news|googlebot-image|googlebot-video|bingbot|msnbot|adidxbot|bingpreview|yandex|baiduspider|baiduboxapp|sogou|exabot|duckduckbot|duckassistbot|applebot|applebot-extended|slurp|twitterbot|facebookexternalhit|facebookcatalog|facebot|whatsapp|telegrambot|linkedinbot|pinterest|slackbot|discordbot|petalbot|semrushbot|ahrefsbot|mj12bot|dotbot|gptbot|chatgpt-user|perplexitybot|ccbot|anthropic-ai|claude-web|youbot|lighthouse|chrome-lighthouse/i;
+// ❌ REMOVED BOT_REGEX — No more cloaking. All users get same HTML.
 
 function getISTHour() {
   const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
@@ -276,7 +267,7 @@ function gonePage(relatedNews = []) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ✅ QUIZ PAGE SEO + Share Icons + PDF + Instant Index
+// ✅ QUIZ PAGE
 // ═══════════════════════════════════════════════════════════
 async function getQuizPageHtml(quiz, dateStr, env) {
   const quizJson = JSON.stringify(quiz.questions);
@@ -566,6 +557,7 @@ ${getPWAScript()}
 
 // ═══════════════════════════════════════════════════════════
 // MAIN FETCH HANDLER
+// ⚠️ FIXED: Removed isBot checks — everyone gets same HTML
 // ═══════════════════════════════════════════════════════════
 export default {
   async fetch(request, env, ctx) {
@@ -797,8 +789,7 @@ export default {
         return new Response("SSE disabled for performance", { status: 200, headers: { "Content-Type": "text/plain" } });
       }
 
-      const userAgent = request.headers.get("User-Agent") || "";
-      const isBot = BOT_REGEX.test(userAgent);
+      // ✅ NO isBot check — everyone gets same HTML
 
       if (url.pathname.startsWith("/quiz/") && request.method === "GET") {
         const dateStr = url.pathname.split("/")[2];
@@ -830,12 +821,13 @@ export default {
         return new Response(env.INDEXNOW_KEY, { status: 200, headers: { "content-type": "text/plain; charset=UTF-8", "Cache-Control": "public, max-age=86400" } });
       }
 
-      if (url.pathname === "/" && request.method === "GET" && isBot) {
+      // ✅ Homepage / Category / Search — same for everyone (no bot detection)
+      if (url.pathname === "/" && request.method === "GET") {
         const articleId = url.searchParams.get("id");
         if (articleId) return await serveArticlePage(articleId, env, request);
         const cat = url.searchParams.get("category");
-        if (cat && cat !== "top" && cat !== "all") return await serveBotCategoryPage(cat, env, request);
-        return await serveBotHomepage(env, request);
+        const searchQuery = url.searchParams.get("q");
+        return await serveListingPage(env, cat || "top", searchQuery, request);
       }
 
       if (ANALYTICS_CONFIG.searchConsole && url.pathname === ANALYTICS_CONFIG.searchConsole.filePath) {
@@ -849,7 +841,7 @@ export default {
       if (url.pathname.startsWith("/go/")) {
         const id = url.pathname.split("/")[2];
         if (!id) return new Response("Invalid link", { status: 400 });
-        return await serveSharePage(id, env, userAgent, url);
+        return await serveSharePage(id, env, request.headers.get("User-Agent") || "", url);
       }
 
       if (url.pathname === "/api/ads-config" && request.method === "GET") {
@@ -1285,12 +1277,11 @@ async function serveBotCategoryPage(category, env, request) { return await serve
 
 async function serveListingPage(env, category, searchQuery, request) {
   try {
-    const userAgent = request?.headers.get("User-Agent") || "";
-    const isBot = BOT_REGEX.test(userAgent);
-    const adScripts = isBot ? "" : getAdsterraScripts();
-    const bannerContainer = isBot ? "" : getNativeBannerContainer();
-    const adultBlocker = isBot ? "" : getAdultBlockerScript();
-    const socialBarScript = isBot ? "" : (ADS_CONFIG?.socialBarScript || "");
+    // ✅ NO isBot check — same HTML for everyone
+    const adScripts = getAdsterraScripts();
+    const bannerContainer = getNativeBannerContainer();
+    const adultBlocker = getAdultBlockerScript();
+    const socialBarScript = ADS_CONFIG?.socialBarScript || "";
     const catLabel = { top:'সেরা খবর', trending:'ট্রেন্ডিং', west_bengal:'পশ্চিমবঙ্গ', kolkata:'কলকাতা', india:'ভারত', world:'বিশ্ব', business:'ব্যবসা', sports:'খেলা', politics:'রাজনীতি', technology:'প্রযুক্তি', entertainment:'বিনোদন', crime:'অপরাধ', district:'জেলা', general:'সাধারণ' };
     const catDescription = { top: 'কলকাতা, পশ্চিমবঙ্গ, ভারত ও বিশ্বের সর্বশেষ ও সেরা বাংলা খবর।', trending: 'ট্রেন্ডিং বাংলা খবর - সবচেয়ে বেশি পড়া সংবাদ।', all: 'সব বাংলা খবর - রাজনীতি, খেলা, বিনোদন, ব্যবসা।', west_bengal: 'পশ্চিমবঙ্গের সর্বশেষ খবর।', kolkata: 'কলকাতার সর্বশেষ খবর।', india: 'ভারতের সর্বশেষ খবর।', world: 'বিশ্বের সর্বশেষ খবর।', business: 'ব্যবসা ও অর্থনীতির খবর।', sports: 'খেলার সর্বশেষ খবর।', politics: 'রাজনীতির সর্বশেষ খবর।', technology: 'প্রযুক্তির সর্বশেষ খবর।', entertainment: 'বিনোদনের সর্বশেষ খবর।', crime: 'অপরাধের সর্বশেষ খবর।', district: 'জেলার সর্বশেষ খবর।', general: 'সাধারণ বাংলা খবর।' };
     const pageDescription = searchQuery ? `সার্চ "${searchQuery}" এর ফলাফল - Ajker News।` : (catDescription[category] || catDescription.top);
@@ -1314,8 +1305,9 @@ async function serveListingPage(env, category, searchQuery, request) {
     const catNavHtml = categories.map(c => { const label = catLabel[c.category] || c.category; return `<a href="https://ajkernews.in/?category=${encodeURIComponent(c.category)}" style="display:inline-block;margin:0 6px 6px 0;padding:6px 12px;background:#f5f5f5;border-radius:16px;color:#111;text-decoration:none;font-size:13px;">${escapeHtml(label)} (${c.cnt})</a>`; }).join("");
     const itemListLd = JSON.stringify({ "@context": "https://schema.org", "@type": "ItemList", "itemListElement": news.slice(0, 10).map((item, index) => ({ "@type": "ListItem", "position": index + 1, "url": `https://ajkernews.in/news/${encodeURIComponent(item.id)}`, "name": item.headline || "News" })) });
     const canonical = searchQuery ? `https://ajkernews.in/?q=${encodeURIComponent(searchQuery)}` : (category && category !== "top" ? `https://ajkernews.in/?category=${encodeURIComponent(category)}` : "https://ajkernews.in/");
-    const cacheControl = isBot ? "public, s-maxage=3600, stale-while-revalidate=7200" : "public, s-maxage=300, stale-while-revalidate=600, max-age=0, must-revalidate";
-    const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(pageTitle)} | Ajker News</title><meta name="description" content="${escapeHtml(pageDescription)}"><meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1"><link rel="canonical" href="${escapeHtml(canonical)}"><link rel="icon" type="image/x-icon" href="/public/favicon.ico"><link rel="icon" type="image/png" sizes="16x16" href="/public/favicon-16x16.png"><link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32x32.png"><link rel="apple-touch-icon" sizes="180x180" href="/public/apple-touch-icon.png"><meta property="og:type" content="website"><meta property="og:title" content="${escapeHtml(pageTitle)} | Ajker News"><meta property="og:description" content="${escapeHtml(pageDescription)}"><meta property="og:url" content="${escapeHtml(canonical)}"><meta property="og:image" content="https://ajkernews.in/logo.png"><script type="application/ld+json">${itemListLd}</script>${adScripts}${socialBarScript}</head><body style="max-width:820px;margin:0 auto;padding:20px;font-family:Inter,-apple-system,sans-serif;color:#111;">${adultBlocker}<header><h1 style="font-size:28px;margin:0 0 6px;"><a href="/" style="color:#111;text-decoration:none;">Ajker News</a></h1><p style="color:#666;font-size:15px;margin:0 0 16px;">${escapeHtml(pageTitle)}</p><nav style="margin-bottom:24px;">${catNavHtml}</nav></header><main>${newsHtml}</main>${bannerContainer}<footer style="margin-top:40px;padding-top:20px;border-top:1px solid #eee;text-align:center;color:#888;font-size:13px;"><p><a href="https://ajkernews.in/sitemap.xml" style="color:#007bff;">Sitemap</a> · <a href="https://ajkernews.in/news-sitemap.xml" style="color:#007bff;">News Sitemap</a> · <a href="https://ajkernews.in/rss.xml" style="color:#007bff;">RSS</a></p></footer></body></html>`;
+    // ✅ Same cache for everyone
+    const cacheControl = "public, s-maxage=300, stale-while-revalidate=600, max-age=0, must-revalidate";
+    const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(pageTitle)} | Ajker News</title><meta name="description" content="${escapeHtml(pageDescription)}"><meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1"><link rel="canonical" href="${escapeHtml(canonical)}"><link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#ffffff"><link rel="icon" type="image/x-icon" href="/public/favicon.ico"><link rel="icon" type="image/png" sizes="16x16" href="/public/favicon-16x16.png"><link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32x32.png"><link rel="apple-touch-icon" sizes="180x180" href="/public/apple-touch-icon.png"><meta property="og:type" content="website"><meta property="og:title" content="${escapeHtml(pageTitle)} | Ajker News"><meta property="og:description" content="${escapeHtml(pageDescription)}"><meta property="og:url" content="${escapeHtml(canonical)}"><meta property="og:image" content="https://ajkernews.in/logo.png"><script type="application/ld+json">${itemListLd}</script>${adScripts}${socialBarScript}</head><body style="max-width:820px;margin:0 auto;padding:20px;font-family:Inter,-apple-system,sans-serif;color:#111;">${adultBlocker}<header><h1 style="font-size:28px;margin:0 0 6px;"><a href="/" style="color:#111;text-decoration:none;">Ajker News</a></h1><p style="color:#666;font-size:15px;margin:0 0 16px;">${escapeHtml(pageTitle)}</p><nav style="margin-bottom:24px;">${catNavHtml}</nav></header><main>${newsHtml}</main>${bannerContainer}<footer style="margin-top:40px;padding-top:20px;border-top:1px solid #eee;text-align:center;color:#888;font-size:13px;"><p><a href="https://ajkernews.in/sitemap.xml" style="color:#007bff;">Sitemap</a> · <a href="https://ajkernews.in/news-sitemap.xml" style="color:#007bff;">News Sitemap</a> · <a href="https://ajkernews.in/rss.xml" style="color:#007bff;">RSS</a></p></footer></body></html>`;
     return new Response(html, { status: 200, headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": cacheControl, "X-Robots-Tag": "index, follow, max-image-preview:large" } });
   } catch (error) { return new Response("Error loading content", { status: 500 }); }
 }
@@ -1323,15 +1315,14 @@ async function serveListingPage(env, category, searchQuery, request) {
 async function serveArticlePage(id, env, request) {
   const safeId = String(id || "").trim();
   if (!safeId) return Response.redirect("https://ajkernews.in/", 302);
-  const userAgent = request?.headers.get("User-Agent") || "";
-  const isBot = BOT_REGEX.test(userAgent);
-  const adScripts = isBot ? "" : getAdsterraScripts();
-  const bannerContainer = isBot ? "" : getNativeBannerContainer();
-  const adultBlocker = isBot ? "" : getAdultBlockerScript();
-  const socialBarScript = isBot ? "" : (ADS_CONFIG?.socialBarScript || "");
-  const articlePopunder = isBot ? "" : getArticlePopunderScript();
-  const floatingBtn = isBot ? "" : getFloatingButtonHtmlAndScript();
-  const pwaScript = isBot ? "" : getPWAScript();
+  // ✅ NO isBot check — same HTML for everyone
+  const adScripts = getAdsterraScripts();
+  const bannerContainer = getNativeBannerContainer();
+  const adultBlocker = getAdultBlockerScript();
+  const socialBarScript = ADS_CONFIG?.socialBarScript || "";
+  const articlePopunder = getArticlePopunderScript();
+  const floatingBtn = getFloatingButtonHtmlAndScript();
+  const pwaScript = getPWAScript();
   const result = await env.DB.prepare(`SELECT headline, summary, main_topic, image_url, published_at, created_at, source_name, source_url, category FROM news WHERE id = ? AND status = 'published' AND type = 'news' LIMIT 1`).bind(safeId).first();
   if (!result) {
     let relatedNews = [];
@@ -1358,7 +1349,8 @@ async function serveArticlePage(id, env, request) {
   const newsArticleLd = JSON.stringify({ "@context": "https://schema.org", "@type": "NewsArticle", "mainEntityOfPage": { "@type": "WebPage", "@id": canonical }, "headline": title.slice(0, 110), "description": description, "image": [image, "https://ajkernews.in/logo.png"], "datePublished": publishedAt, "dateModified": publishedAt, "author": { "@type": "Organization", "name": result.source_name || "Ajker News", "url": "https://ajkernews.in/" }, "publisher": { "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in/", "logo": { "@type": "ImageObject", "url": "https://ajkernews.in/logo.png", "width": 512, "height": 512 } }, "articleSection": category, "inLanguage": "bn-IN", "isAccessibleForFree": true, "url": canonical });
   const breadcrumbLd = JSON.stringify({ "@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{ "@type": "ListItem", "position": 1, "name": "HOME", "item": "https://ajkernews.in/" }, { "@type": "ListItem", "position": 2, "name": catLabel[category] || category, "item": `https://ajkernews.in/?category=${category}` }, { "@type": "ListItem", "position": 3, "name": title, "item": canonical }] });
   const recentHtml = recentNews.length ? `<aside class="related-box"><h3>সাম্প্রতিক খবর</h3><ul>${recentNews.map(n => `<li><a href="https://ajkernews.in/news/${encodeURIComponent(n.id)}">${escapeHtml(n.headline || "")}</a></li>`).join("")}</ul></aside>` : "";
-  const cacheControl = isBot ? "public, s-maxage=3600, stale-while-revalidate=7200" : "public, s-maxage=300, stale-while-revalidate=600, max-age=0, must-revalidate";
+  // ✅ Same cache for everyone
+  const cacheControl = "public, s-maxage=300, stale-while-revalidate=600, max-age=0, must-revalidate";
   const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes"><title>${escapeHtml(title)} - Ajker News</title><meta name="description" content="${escapeHtml(description)}"><meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1"><link rel="canonical" href="${escapeHtml(canonical)}"><link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#ffffff"><link rel="icon" type="image/x-icon" href="/public/favicon.ico"><link rel="icon" type="image/png" sizes="16x16" href="/public/favicon-16x16.png"><link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32x32.png"><link rel="apple-touch-icon" sizes="180x180" href="/public/apple-touch-icon.png"><meta property="og:type" content="article"><meta property="og:title" content="${escapeHtml(title)}"><meta property="og:description" content="${escapeHtml(description)}"><meta property="og:url" content="${escapeHtml(canonical)}"><meta property="og:image" content="${escapeHtml(image)}"><meta property="og:site_name" content="Ajker News"><meta property="article:published_time" content="${escapeHtml(publishedAt)}"><meta property="article:modified_time" content="${escapeHtml(publishedAt)}"><meta property="article:section" content="${escapeHtml(category)}"><meta name="twitter:card" content="summary_large_image"><script type="application/ld+json">${newsArticleLd}</script><script type="application/ld+json">${breadcrumbLd}</script>${adScripts}${socialBarScript}${articlePopunder}<style> * { margin:0; padding:0; box-sizing:border-box; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; } html { scroll-behavior: smooth; font-size: 16px; -webkit-text-size-adjust: 100%; } body { background:#ffffff; color:#111111; -webkit-font-smoothing:antialiased; padding-bottom:20px; max-width: 100vw; overflow-x: hidden; } .header { position:sticky; top:0; z-index:1000; display:flex; align-items:center; justify-content:space-between; padding:12px 16px; min-height:60px; background:#ffffff; border-bottom:1px solid #e0e0e0; } .header-left { display:flex; align-items:center; gap:10px; min-width:0; flex-shrink:1; } .back-btn { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; background:transparent; border:none; cursor:pointer; padding:4px; border-radius:50%; transition:background 0.15s; text-decoration:none; flex-shrink:0; } .back-btn svg { width:22px; height:22px; stroke:#111; stroke-width:2.2; fill:none; stroke-linecap:round; stroke-linejoin:round; } .header-logo { height:28px; width:auto; object-fit:contain; flex-shrink:0; } .header-title { font-size:24px; line-height:1; font-weight:700; color:#111111; white-space:nowrap; letter-spacing:-0.3px; overflow:hidden; text-overflow:ellipsis; } .article-main { padding:16px; max-width: min(820px, 95vw); margin:0 auto; } .article-cat { display:inline-block; font-size:12px; color:#f44336; font-weight:700; margin-bottom:8px; text-decoration:none; } .article-h1 { font-size:24px; line-height:1.35; margin:0 0 14px; color:#111; font-weight:700; } .article-img { width:100%; height:auto; border-radius:8px; display:block; margin:0 0 18px; background:#f3f3f3; } .article-body { font-size:17px; color:#222; line-height:1.85; } .article-body p { margin-bottom:14px; } .article-source-row { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-top:22px; padding-top:16px; padding-bottom:16px; border-top:1px solid #e8e8e8; border-bottom:1px solid #e8e8e8; } .article-source-link { color:#007bff; text-decoration:none; font-weight:600; font-size:16px; } .article-date { color:#999999; font-size:14px; font-weight:500; } .article-actions-row { display:flex; gap:20px; margin-top:12px; padding-top:10px; border-top:1px solid #f0f0f0; } .action-btn-art { display:flex; align-items:center; gap:5px; background:none; border:none; color:#666; font-size:14px; cursor:pointer; padding:0; } .action-btn-art svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:2; } .action-btn-art.loved svg { fill:#e74c3c !important; stroke:#e74c3c !important; } .action-num { font-size:12px; color:#555; font-weight:600; } .related-box { margin:32px 0 0; padding-top:22px; border-top:1px solid #eee; } .related-box h3 { font-size:18px; margin:0 0 14px; color:#111; font-weight:700; } .related-box ul { list-style:none; padding:0; margin:0; } .related-box li { margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #f5f5f5; } .related-box a { color:#111; text-decoration:none; font-size:15px; line-height:1.55; font-weight:600; } .article-footer { margin:36px 16px 0; padding-top:22px; border-top:1px solid #eee; text-align:center; color:#888; font-size:13px; } .article-footer a { color:#555; text-decoration:none; font-weight:600; letter-spacing:0.5px; } #artCommentModal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:2000; align-items:center; justify-content:center; padding:16px; } #artCommentModal.active { display:flex; } #artCommentModal .modal-box { background:#fff; border-radius:12px; width:100%; max-width:520px; max-height:85vh; display:flex; flex-direction:column; overflow:hidden; } #artCommentModal .modal-header { display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid #eee; flex-shrink:0; } #artCommentModal .modal-header h3 { font-size:17px; font-weight:700; margin:0; } #artCommentModal .modal-close { background:none; border:none; font-size:26px; cursor:pointer; color:#888; line-height:1; padding:0 6px; } #artCommentModal .modal-form { padding:12px 16px; border-top:1px solid #eee; background:#fafafa; flex-shrink:0; } #artCommentModal .modal-form input, #artCommentModal .modal-form textarea { width:100%; padding:9px 12px; border:1px solid #ddd; border-radius:6px; margin-bottom:8px; font-size:14px; outline:none; font-family:inherit; } #artCommentModal .modal-form textarea { height:70px; resize:vertical; } #artCommentModal .modal-form button { background:#000; color:#fff; border:none; padding:10px 20px; border-radius:6px; font-weight:600; cursor:pointer; font-size:14px; } #artCommentModal .modal-list { padding:14px 16px; overflow-y:auto; flex:1; -webkit-overflow-scrolling:touch; } @media (max-width:480px) { .header { padding:8px 12px; min-height:54px; } .header-title { font-size:20px; } .header-logo { height:24px; } .back-btn { width:32px; height:32px; } .back-btn svg { width:20px; height:20px; } .article-main { padding:12px; } .article-h1 { font-size:21px; } .article-body { font-size:16px; } .article-source-link { font-size:15px; } .article-date { font-size:13px; } }</style></head><body>${adultBlocker}<div class="header"><div class="header-left"><a href="https://ajkernews.in/" class="back-btn" aria-label="Back to home"><svg viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></a><img src="/logo.png" class="header-logo" alt="Ajker News"><span class="header-title">Ajker News</span></div><div class="header-right"></div></div><main class="article-main"><article itemscope itemtype="https://schema.org/NewsArticle"><meta itemprop="datePublished" content="${escapeHtml(publishedAt)}"><meta itemprop="dateModified" content="${escapeHtml(publishedAt)}"><meta itemprop="mainEntityOfPage" content="${escapeHtml(canonical)}"><a class="article-cat" href="https://ajkernews.in/?category=${encodeURIComponent(category)}">${escapeHtml(catLabel[category] || category)}</a><h1 class="article-h1" itemprop="headline">${escapeHtml(title)}</h1><div itemprop="image" itemscope itemtype="https://schema.org/ImageObject"><img itemprop="url" class="article-img" src="${escapeHtml(image)}" alt="${escapeHtml(title)}" width="1200" height="675" loading="eager" decoding="async"></div><div class="article-body" id="articleBody" itemprop="articleBody"><p>${escapeHtml(fullSummary)}</p>${bannerContainer}</div><div class="article-source-row"><a class="article-source-link" href="${escapeHtml(result.source_url || '#')}" rel="noopener noreferrer nofollow" target="_blank">${escapeHtml(sourceDomain)}</a><span class="article-date">${escapeHtml(formattedDate)}</span></div><div class="article-actions-row"><button type="button" class="action-btn-art" id="artCommentBtn" aria-label="Comment"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></button><button type="button" class="action-btn-art" id="artLoveBtn" aria-label="Love"><svg viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg><span class="action-num" id="artLoveCount">${loveCount}</span></button><button type="button" class="action-btn-art" id="artShareBtn" aria-label="Share"><svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button></div></article>${recentHtml}</main><footer class="article-footer"><p><a href="https://ajkernews.in/">HOME</a></p></footer><div id="artCommentModal"><div class="modal-box"><div class="modal-header"><h3>মন্তব্য</h3><button type="button" class="modal-close" id="artModalClose">&times;</button></div><div class="modal-form"><input type="text" id="artCommentAuthor" placeholder="আপনার নাম (ঐচ্ছিক)"><textarea id="artCommentText" placeholder="আপনার মন্তব্য লিখুন..."></textarea><button type="button" id="artCommentSubmit">পাঠান</button></div><div class="modal-list" id="artCommentsList"></div></div></div><script>(function() { var API_BASE = "https://ajkernews.in"; var NEWS_ID = ${JSON.stringify(safeId)}; var LOVED_KEY = 'loved:' + NEWS_ID; var DEVICE_KEY = 'deviceId'; function getDeviceId() { try { var id = localStorage.getItem(DEVICE_KEY); if (!id) { id = 'user-' + Date.now() + '-' + Math.random().toString(36).substring(2, 10); localStorage.setItem(DEVICE_KEY, id); } return id; } catch (e) { return 'user-anonymous'; } } function isLoved() { try { return localStorage.getItem(LOVED_KEY) === '1'; } catch (e) { return false; } } function setLoved(v) { try { if (v) localStorage.setItem(LOVED_KEY, '1'); else localStorage.removeItem(LOVED_KEY); } catch (e) {} } function updateLoveUI(loved, count) { var btn = document.getElementById('artLoveBtn'); var countEl = document.getElementById('artLoveCount'); if (btn) btn.classList.toggle('loved', !!loved); if (countEl && count !== undefined && count !== null) countEl.textContent = String(count); } updateLoveUI(isLoved()); (async function() { try { var res = await fetch(API_BASE + '/api/love-counts?ids=' + encodeURIComponent(NEWS_ID)); var data = await res.json(); if (data && data.success && data.counts && typeof data.counts[NEWS_ID] === 'number') { updateLoveUI(isLoved(), data.counts[NEWS_ID]); } } catch (e) {} })(); try { var urlParams = new URLSearchParams(window.location.search); if (urlParams.get('from') === 'push') { fetch(API_BASE + '/api/push-click', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ newsId: NEWS_ID, deviceId: getDeviceId(), source: 'notification' }) }).catch(function() {}); } } catch (e) {} var shareBtn = document.getElementById('artShareBtn'); if (shareBtn) { shareBtn.addEventListener('click', async function(e) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); var shareUrl = API_BASE + '/news/' + encodeURIComponent(NEWS_ID); var headline = document.querySelector('.article-h1'); var headlineText = headline ? headline.textContent.trim() : 'খবর'; var bodyEl = document.getElementById('articleBody'); var fullSummary = bodyEl ? bodyEl.textContent.trim() : ''; var shortSummary = fullSummary.slice(0, 100).trim(); var summaryPart = shortSummary ? shortSummary + (fullSummary.length > 100 ? '...' : '') + '\\n\\n' : ''; if (navigator.share) { try { await navigator.share({ title: headlineText, text: headlineText + '\\n\\n' + summaryPart + 'বিস্তারিত পড়ুন', url: shareUrl }); return; } catch (err) { if (err && err.name === 'AbortError') return; } } var text = headlineText + '\\n\\n' + summaryPart + 'বিস্তারিত পড়ুন: ' + shareUrl; try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); alert('লিংক কপি হয়েছে'); return; } } catch (err) {} try { var ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.left = '-9999px'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); alert('লিংক কপি হয়েছে'); } catch (err) { prompt('লিংক কপি করুন:', text); } }); } var loveBtn = document.getElementById('artLoveBtn'); if (loveBtn) { loveBtn.addEventListener('click', async function(e) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); var currentlyLoved = isLoved(); var newLoved = !currentlyLoved; var countEl = document.getElementById('artLoveCount'); var currentCount = countEl ? parseInt(countEl.textContent, 10) || 0 : 0; var newCount = newLoved ? currentCount + 1 : Math.max(0, currentCount - 1); setLoved(newLoved); updateLoveUI(newLoved, newCount); try { var res = await fetch(API_BASE + '/api/love', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: NEWS_ID, deviceId: getDeviceId() }) }); var data = await res.json(); if (data && typeof data.love_count === 'number') { updateLoveUI(newLoved, data.love_count); } } catch (e) {} }); } var commentModal = document.getElementById('artCommentModal'); var commentBtn = document.getElementById('artCommentBtn'); var modalClose = document.getElementById('artModalClose'); var commentSubmit = document.getElementById('artCommentSubmit'); function openComments() { if (commentModal) commentModal.classList.add('active'); loadComments(); } function closeComments() { if (commentModal) commentModal.classList.remove('active'); } if (commentBtn) { commentBtn.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); openComments(); }); } if (modalClose) modalClose.addEventListener('click', closeComments); if (commentModal) { commentModal.addEventListener('click', function(e) { if (e.target === commentModal) closeComments(); }); } async function loadComments() { var list = document.getElementById('artCommentsList'); if (!list) return; list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">লোড হচ্ছে...</p>'; try { var res = await fetch(API_BASE + '/api/comments?id=' + encodeURIComponent(NEWS_ID)); var data = await res.json(); var comments = (data && data.comments) || []; if (!comments.length) { list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">এখনো কোনো মন্তব্য নেই। প্রথম মন্তব্য করুন!</p>'; return; } list.innerHTML = comments.map(function(c) { return '<div style="border-bottom:1px solid #f0f0f0;padding:10px 0;"><strong style="font-size:14px;">' + escapeHtml(c.author_name) + '</strong><p style="margin:5px 0 0;font-size:14px;color:#444;">' + escapeHtml(c.comment_text) + '</p></div>'; }).join(''); } catch (e) { list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">মন্তব্য লোড করা যায়নি।</p>'; } } if (commentSubmit) { commentSubmit.addEventListener('click', async function(e) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); var authorEl = document.getElementById('artCommentAuthor'); var textEl = document.getElementById('artCommentText'); var author = (authorEl && authorEl.value || '').trim() || 'Guest'; var text = (textEl && textEl.value || '').trim(); if (!text) { alert('মন্তব্য লিখুন!'); return; } commentSubmit.disabled = true; commentSubmit.textContent = 'পাঠানো হচ্ছে...'; try { var res = await fetch(API_BASE + '/api/comments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ newsId: NEWS_ID, author: author, text: text, deviceId: getDeviceId() }) }); var data = await res.json(); if (data.success) { if (textEl) textEl.value = ''; await loadComments(); } else if (data.code === 'ALREADY_COMMENTED') { alert('⚠️ আপনি ইতিমধ্যে এই খবরে একটি মন্তব্য করেছেন।'); } else { alert('❌ ' + (data.error || 'মন্তব্য পাঠানো যায়নি')); } } catch (e) { alert('মন্তব্য পাঠানো যায়নি'); } finally { commentSubmit.disabled = false; commentSubmit.textContent = 'পাঠান'; } }); } function escapeHtml(v) { if (v === null || v === undefined) return ''; return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;'); } })();</script>${floatingBtn}${pwaScript}</body></html>`;
   return new Response(html, { status: 200, headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": cacheControl, "X-Robots-Tag": "index, follow, max-image-preview:large" } });
 }
@@ -1372,12 +1364,11 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
     try { const related = await env.DB.prepare(`SELECT id, headline FROM news WHERE status = 'published' AND type = 'news' ORDER BY created_at DESC LIMIT 5`).all(); relatedNews = related?.results || []; } catch (e) {}
     return gonePage(relatedNews);
   }
-  const userAgent = requestUserAgentFromContext || "";
-  const isBot = BOT_REGEX.test(userAgent);
-  const adScripts = isBot ? "" : getAdsterraScripts();
-  const adultBlocker = isBot ? "" : getAdultBlockerScript();
-  const socialBarScript = isBot ? "" : (ADS_CONFIG?.socialBarScript || "");
-  const articlePopunder = isBot ? "" : getArticlePopunderScript();
+  // ✅ NO isBot check — same HTML for everyone
+  const adScripts = getAdsterraScripts();
+  const adultBlocker = getAdultBlockerScript();
+  const socialBarScript = ADS_CONFIG?.socialBarScript || "";
+  const articlePopunder = getArticlePopunderScript();
   const title = cleanText(result.headline) || "Ajker News";
   const description = cleanText(result.summary || "").slice(0, 160);
   const fullSummary = cleanText(result.summary || result.main_topic || "");

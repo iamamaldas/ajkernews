@@ -45,17 +45,6 @@
 html { scroll-behavior: smooth; font-size: 16px; -webkit-text-size-adjust: 100%; }
 body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; max-width: 100vw; overflow-x: hidden; min-height: 100vh; display: flex; flex-direction: column; padding-bottom: 0; }
 
-/* ✅ নতুন যোগ করা হয়েছে: উপরের নীল লাইন (Adsterra Social Bar) ব্লক করার জন্য */
-body > div[style*="position: fixed"]:first-of-type,
-div[id^="asw-"], 
-iframe[style*="position: fixed"][style*="top: 0"],
-div[style*="z-index: 2147483647"] {
-    display: none !important;
-    visibility: hidden !important;
-    opacity: 0 !important;
-    height: 0 !important;
-}
-
 .header { position: sticky; top: 0; z-index: 1000; display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; min-height: 68px; background: rgba(255,255,255,0.95); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border-bottom: 1px solid rgba(0,0,0,0.06); gap: 12px; }
 .header-left { display: flex; align-items: center; gap: 10px; min-width: 0; flex-shrink: 1; }
 .header-home-link { display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; transition: transform 0.15s ease; min-width: 0; }
@@ -164,7 +153,6 @@ div[style*="z-index: 2147483647"] {
 .news-source-link { color:#1976d2; text-decoration:none; font-weight:600; cursor:pointer; transition: color 0.15s; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:60%; }
 .news-source-link:hover { color:#0d47a1; text-decoration:underline; }
 
-/* ✅ Quiz Card Specific CSS */
 .quiz-card { cursor: pointer; }
 .quiz-card .news-image-wrapper,
 .quiz-card .news-title,
@@ -204,8 +192,6 @@ div[style*="z-index: 2147483647"] {
 .floating-app-btn:active { transform: scale(0.94); }
 .floating-app-btn svg { width:22px; height:22px; margin-bottom:1px; }
 .floating-app-btn span { font-size:9px; font-weight:700; color:#333; letter-spacing:0.2px; }
-
-/* ✅ PWA ইনস্টল হয়ে গেলে এই ক্লাসটি বডিতে যুক্ত হবে এবং বাটনটি লুকিয়ে যাবে */
 body.pwa-installed .floating-app-btn { display: none !important; }
 
 .footer { padding:28px 14px 18px; text-align:center; background:#ffffff; border-top:1px solid rgba(0,0,0,0.06); margin-top: auto; flex-shrink: 0; }
@@ -403,7 +389,7 @@ body.pwa-installed .floating-app-btn { display: none !important; }
   <div class="footer-copy">&copy; <span id="currentYear">2026</span> Ajker News. All rights reserved.</div>
 </footer>
 
-<!-- ✅ PWA Install Floating Button (Updated) -->
+<!-- ✅ PWA Install Floating Button -->
 <a href="javascript:void(0)" onclick="installPWA()" class="floating-app-btn" aria-label="Install Ajker News App">
   <svg viewBox="0 0 24 24" fill="none" stroke="#222222" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -597,14 +583,43 @@ function getCategoryLabel(category) {
   return labels[category] || category || 'সাধারণ';
 }
 
-// ✅ PWA Install Logic (আপডেট করা হয়েছে)
+// ✅ PWA Install Logic & Floating Button Hide
+function checkIfPWAInstalled() {
+  const isStandalone =
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.matchMedia('(display-mode: minimal-ui)').matches ||
+    window.navigator.standalone === true;
+  if (isStandalone) {
+    document.body.classList.add('pwa-installed');
+  }
+}
+
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
+  checkIfPWAInstalled();
+});
+
+checkIfPWAInstalled();
+
+if (window.matchMedia) {
+  const standaloneQuery = window.matchMedia('(display-mode: standalone)');
+  if (standaloneQuery.addEventListener) {
+    standaloneQuery.addEventListener('change', checkIfPWAInstalled);
+  }
+}
+
+window.addEventListener('appinstalled', (evt) => {
+  console.log('Ajker News PWA installed successfully');
+  document.body.classList.add('pwa-installed');
+  deferredPrompt = null;
 });
 
 async function installPWA() {
-  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+  const isStandalone =
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.matchMedia('(display-mode: minimal-ui)').matches ||
+    window.navigator.standalone === true;
   
   if (isStandalone) {
     alert('অ্যাপটি ইতিমধ্যে ইনস্টল করা আছে!');
@@ -622,21 +637,6 @@ async function installPWA() {
     alert('আপনার ব্রাউজারে সরাসরি ইনস্টল অপশন নেই। অনুগ্রহ করে ব্রাউজার মেনু থেকে "Add to Home Screen" বা "Install App" নির্বাচন করুন।');
   }
 }
-
-// ✅ নতুন যোগ করা হয়েছে: অ্যাপ ইনস্টল হয়ে গেলে বাটন লুকানোর লজিক
-window.addEventListener('appinstalled', (evt) => {
-  console.log('Ajker News PWA installed successfully');
-  document.body.classList.add('pwa-installed');
-});
-
-// ✅ পেজ লোড হওয়ার সময় চেক করা হবে অ্যাপটি PWA হিসেবে ওপেন হয়েছে কিনা
-function checkIfPwaInstalled() {
-  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
-  if (isStandalone) {
-    document.body.classList.add('pwa-installed');
-  }
-}
-checkIfPwaInstalled();
 
 function showSkeleton(container, count = 3) {
   let html = '';
@@ -744,7 +744,6 @@ function goToArticleFromSource(event, el) {
   return false;
 }
 
-// ✅ Quiz Card Click Handler
 function openQuizCard(event, url) {
   if (event) {
     const target = event.target;
@@ -954,7 +953,6 @@ async function toggleLove(id) {
   } catch (error) {}
 }
 
-// ✅ FIXED: Share Function (Clean URL without ?from=source, reads DOM for text)
 async function shareNews(id) {
   let headline = '';
   let summary = '';
@@ -1376,6 +1374,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   await checkNotificationStatus();
   setTimeout(flushPendingNotifications, 3000);
+  checkIfPWAInstalled();
 })();
 </script>
 </body>

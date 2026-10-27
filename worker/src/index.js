@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v66: PWA Floating Button added to Server Pages
+// ✅ FINAL v67: Mini PWA Engine added to Article Pages
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -69,10 +69,12 @@ function getArticlePopunderScript() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ✅ FLOATING APP BUTTON SCRIPT FOR SERVER PAGES
+// ✅ MINI PWA ENGINE FOR SERVER PAGES (Article & Quiz)
 // ═══════════════════════════════════════════════════════════
 function getFloatingButtonHtmlAndScript() {
   return `
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#ffffff">
   <a href="javascript:void(0)" onclick="installPWA()" class="floating-app-btn" id="serverFloatingBtn" aria-label="Install Ajker News App" style="display:none;">
     <svg viewBox="0 0 24 24" fill="none" stroke="#222222" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -98,12 +100,19 @@ function getFloatingButtonHtmlAndScript() {
       let deferredPrompt = null;
       const btn = document.getElementById('serverFloatingBtn');
       
+      // ✅ 1. Register Service Worker (Chrome needs this for install prompt)
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none', scope: '/' }).catch(err => console.log('SW Reg Failed:', err));
+      }
+
+      // ✅ 2. Detect if app is already installed
       function checkIfPWAInstalled() {
         const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
         if (isStandalone) document.body.classList.add('pwa-installed');
       }
       checkIfPWAInstalled();
       
+      // ✅ 3. Capture Install Prompt (Android Chrome)
       window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
         deferredPrompt = e;
@@ -112,10 +121,12 @@ function getFloatingButtonHtmlAndScript() {
         }
       });
 
+      // ✅ 4. Hide button on successful install
       window.addEventListener('appinstalled', () => {
         document.body.classList.add('pwa-installed');
       });
 
+      // ✅ 5. Smart Install Logic
       window.installPWA = async function() {
         const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
         if (isStandalone) { alert('অ্যাপটি ইতিমধ্যে ইনস্টল করা আছে!'); return; }
@@ -136,7 +147,7 @@ function getFloatingButtonHtmlAndScript() {
         }
       };
 
-      // Fallback: Show button on Chrome if prompt is delayed
+      // ✅ 6. Show button on Chrome even if prompt is delayed
       setTimeout(() => {
         if (btn && !document.body.classList.contains('pwa-installed') && /chrome|crios/i.test(navigator.userAgent)) {
           btn.style.display = 'flex';

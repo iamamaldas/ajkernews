@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v74: Article Page PWA Install 100% Fixed for Chrome
+// ✅ FINAL v75: PWA Install Instant & Icon Fixed
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -99,7 +99,7 @@ function getPWAScript() {
       let deferredPrompt = null;
       const installBtn = document.getElementById('serverFloatingBtn');
 
-      // ✅ 1. Service Worker Register (Must be here for Chrome to trigger install)
+      // ✅ 1. Service Worker Register
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', function() {
           navigator.serviceWorker.register('/sw.js', { scope: '/' })
@@ -108,11 +108,13 @@ function getPWAScript() {
         });
       }
 
-      // ✅ 2. Capture the Install Prompt
+      // ✅ 2. Capture the Install Prompt (Chrome triggers this after checking SW and Manifest)
       window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
         deferredPrompt = e;
         console.log('[PWA] Install prompt captured!');
+        
+        // প্রম্পট রেডি হলেই কেবল বাটনটি শো করাবো
         if (installBtn && !document.body.classList.contains('pwa-installed')) {
           installBtn.style.display = 'flex';
         }
@@ -126,7 +128,7 @@ function getPWAScript() {
         console.log('[PWA] App installed successfully');
       });
 
-      // ✅ 4. Click Handler
+      // ✅ 4. Click Handler (100% Safe)
       window.triggerInstall = function(event) {
         if (event) { event.preventDefault(); event.stopPropagation(); }
         
@@ -145,17 +147,18 @@ function getPWAScript() {
             deferredPrompt = null;
           });
         } else {
-          alert('⏳ ইনস্টল প্রম্পট এখনো তৈরি হয়নি।\\n\\nঅনুগ্রহ করে পেজটি একবার রিফ্রেশ করুন (নিচে টেনে নামান)। এরপর ইনস্টল বাটনে ক্লিক করুন।');
+          // যদি ইউজার প্রম্পট তৈরির আগেই ক্লিক করে ফেলে
+          alert('⏳ অনুগ্রহ করে একটু অপেক্ষা করুন। ইনস্টল প্রম্পট তৈরি হচ্ছে...');
         }
         return false;
       };
 
-      // ✅ 5. Force show button
+      // ✅ 5. Fallback: Show button only if prompt is ready or after 4 seconds
       setTimeout(() => {
-        if (installBtn && !document.body.classList.contains('pwa-installed')) {
+        if (installBtn && !document.body.classList.contains('pwa-installed') && deferredPrompt) {
           installBtn.style.display = 'flex';
         }
-      }, 2000);
+      }, 4000);
     })();
   </script>
   `;

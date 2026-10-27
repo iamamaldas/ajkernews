@@ -188,7 +188,7 @@ body { background:#f4f5f7; color:#0a0a0a; -webkit-font-smoothing:antialiased; -m
 #loadMoreBtn:active { transform: translateY(0) scale(0.98); }
 #loadMoreBtn:disabled { opacity:0.6; cursor:not-allowed; }
 
-/* ✅ PWA Install Floating Button — class-based show/hide */
+/* ✅ PWA Install Floating Button */
 .floating-app-btn { position:fixed; right:18px; bottom:22px; width:58px; height:58px; display:none; flex-direction:column; align-items:center; justify-content:center; background:#ffffff; border:1px solid rgba(0,0,0,0.06); border-radius:50%; box-shadow: 0 4px 16px rgba(0,0,0,0.12); cursor:pointer; z-index:700; text-decoration:none; transition: transform 0.2s ease, box-shadow 0.2s ease; }
 .floating-app-btn.show { display:flex !important; }
 .floating-app-btn:active { transform: scale(0.94); }
@@ -508,7 +508,7 @@ let currentOffset = 0;
 const PAGE_SIZE = 15;
 let hasMoreNews = false;
 
-// ✅ PWA Install Logic — class-based, fallback, smart guide
+// ✅ PWA Install Logic
 let homeDeferredPrompt = null;
 const homeInstallBtn = document.getElementById('homeFloatingBtn');
 
@@ -543,6 +543,34 @@ window.addEventListener('appinstalled', (evt) => {
   if (homeInstallBtn) homeInstallBtn.classList.remove('show');
 });
 
+// ✅ Custom Message Popup (No default browser alert)
+function showCustomMessage(title, message) {
+  const oldModal = document.getElementById('customPwaModal');
+  if (oldModal) oldModal.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'customPwaModal';
+  modal.style.cssText = `
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(10,10,10,0.6); backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+    animation: fadeIn 0.2s ease;
+  `;
+
+  modal.innerHTML = `
+    <div style="background: #fff; border-radius: 16px; max-width: 340px; width: 100%; padding: 24px 20px; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.2);">
+      <div style="font-size: 36px; margin-bottom: 12px;">📱</div>
+      ${title ? `<h3 style="margin: 0 0 10px; font-size: 18px; color: #111;">${title}</h3>` : ''}
+      <p style="margin: 0 0 20px; font-size: 14px; line-height: 1.6; color: #555;">${message}</p>
+      <button onclick="document.getElementById('customPwaModal').remove()" style="width: 100%; padding: 12px; background: #111; color: #fff; border: none; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer;">
+        বুঝেছি
+      </button>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+}
+
 window.triggerHomeInstall = function(event) {
   if (event) { event.preventDefault(); event.stopPropagation(); }
   
@@ -557,16 +585,25 @@ window.triggerHomeInstall = function(event) {
   } else {
     const ua = navigator.userAgent || '';
     const isAndroid = /Android/i.test(ua);
-    const isChrome = /Chrome/i.test(ua) && !/Edg|OPR|Brave/i.test(ua);
-    const isIOS = /iPhone|iPad|iPod/i.test(ua);
-    const isSafari = /Safari/i.test(ua) && !/Chrome|CriOS|FxiOS|EdgiOS/i.test(ua);
-    let msg = '';
-    if (isAndroid && isChrome) msg = 'ডান দিকের ⋮ মেনুতে ট্যাপ করুন → "Install app" নির্বাচন করুন।';
-    else if (isAndroid) msg = 'সেরা অভিজ্ঞতার জন্য Chrome-এ খুলুন, তারপর ⋮ মেনু → "Install app" চাপুন।';
-    else if (isIOS && isSafari) msg = 'নিচের Share আইকনে ট্যাপ করুন → "Add to Home Screen" নির্বাচন করুন।';
-    else if (isIOS) msg = 'Safari-তে খুলে Share → "Add to Home Screen" ব্যবহার করুন।';
-    else msg = 'ব্রাউজার মেনু থেকে "Install" বা "Add to Home Screen" নির্বাচন করুন।';
-    alert(msg);
+    
+    if (isAndroid) {
+      const currentUrl = window.location.href;
+      // ২ সেকেন্ড পর মেসেজ দেখাবে
+      setTimeout(() => {
+        showCustomMessage(
+          "", 
+          "ইনস্টল করতে অনুগ্রহ করে Chrome ব্রাউজার ওপেন করুন"
+        );
+      }, 2000);
+      
+      const chromeIntent = `intent://${window.location.host}${window.location.pathname}${window.location.search}#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(currentUrl)};end`;
+      window.location.replace(chromeIntent);
+    } else {
+      showCustomMessage(
+        "", 
+        "ইনস্টল করতে অনুগ্রহ করে Safari ব্রাউজার ওপেন করুন"
+      );
+    }
   }
   return false;
 };

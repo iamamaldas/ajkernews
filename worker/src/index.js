@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v64.3: Fixed assetlinks.json direct serving for TWA verification
+// ✅ FINAL v65: Pure PWA (TWA/APK code removed)
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -475,17 +475,19 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     
-    // ✅ TWA FIX: Serve assetlinks.json directly (No Redirect)
-    if (url.pathname === "/.well-known/assetlinks.json") {
+    // ✅ PWA FIX: Serve manifest.json directly with correct MIME type
+    if (url.pathname === "/manifest.json") {
       if (env.ASSETS) {
-        const assetUrl = new URL('/public/assetlinks.json', url.origin);
+        const assetUrl = new URL('/public/manifest.json', url.origin);
         const response = await env.ASSETS.fetch(assetUrl);
-        return new Response(response.body, {
-          status: 200,
-          headers: { "Content-Type": "application/json; charset=UTF-8" }
-        });
+        if (response.status === 200) {
+          return new Response(response.body, {
+            status: 200,
+            headers: { "Content-Type": "application/manifest+json; charset=UTF-8" }
+          });
+        }
       }
-      return new Response("Not Found", { status: 404 });
+      return Response.redirect(new URL("/public/manifest.json", url).toString(), 302);
     }
 
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders() });
@@ -497,7 +499,6 @@ export default {
       "/apple-touch-icon.png": "/public/apple-touch-icon.png",
       "/android-chrome-192x192.png": "/public/android-chrome-192x192.png",
       "/android-chrome-512x512.png": "/public/android-chrome-512x512.png",
-      "/manifest.json": "/public/manifest.json",
       "/adblock.js": "/public/adblock.js"
     };
 

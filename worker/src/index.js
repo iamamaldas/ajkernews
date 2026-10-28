@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v80: SEO-Safe (No Cloaking) + PWA Fully Fixed
+// ✅ FINAL v82: SEO-Safe, No Cloaking, PWA Button Hides When Installed
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -70,7 +70,6 @@ function getArticlePopunderScript() {
 
 // ═══════════════════════════════════════════════════════════
 // ✅ PWA FLOATING BUTTON & SCRIPT (Article & Quiz Pages)
-// NO intent:// redirect. Class-based show/hide. 3s fallback.
 // ═══════════════════════════════════════════════════════════
 function getFloatingButtonHtmlAndScript() {
   return `
@@ -88,7 +87,6 @@ function getFloatingButtonHtmlAndScript() {
     body .floating-app-btn:active { transform: scale(0.94) !important; }
     body .floating-app-btn svg { width: 22px !important; height: 22px !important; margin-bottom: 2px !important; }
     body .floating-app-btn span { font-size: 9px !important; font-weight: 700 !important; color: #333 !important; }
-    body.pwa-installed .floating-app-btn { display: none !important; }
     @media (max-width: 480px) { body .floating-app-btn { right: 14px !important; bottom: 18px !important; width: 54px !important; height: 54px !important; } }
   </style>
   `;
@@ -101,69 +99,58 @@ function getPWAScript() {
       let deferredPrompt = null;
       const installBtn = document.getElementById('serverFloatingBtn');
 
+      // ১. চেক করবে অ্যাপ আগেই ইনস্টল করা আছে কিনা
       function checkInstalled() {
         const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-        const isInstalled = localStorage.getItem('pwa_installed') === 'true';
-        if (isStandalone || isInstalled) {
-          document.body.classList.add('pwa-installed');
+        if (isStandalone) {
           if (installBtn) installBtn.classList.remove('show');
           return true;
         }
         return false;
       }
-      checkInstalled();
 
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', function() {
-          navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(err => console.log('SW Reg Failed:', err));
-        });
-      }
+      // যদি ইনস্টল করা থাকে, তবে এখানেই থেমে যাবে (বাটন দেখাবে না)
+      if (checkInstalled()) return;
 
+      // ২. প্রম্পট ক্যাপচার (যখন ব্রাউজার ইনস্টলেশন সাপোর্ট করবে)
       window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
         deferredPrompt = e;
-        if (installBtn && !document.body.classList.contains('pwa-installed')) {
+        if (installBtn && !checkInstalled()) {
           installBtn.classList.add('show');
         }
       });
 
+      // ৩. ইনস্টল সম্পন্ন হলে বাটন লুকিয়ে যাবে
       window.addEventListener('appinstalled', () => {
-        document.body.classList.add('pwa-installed');
-        localStorage.setItem('pwa_installed', 'true');
-        deferredPrompt = null;
         if (installBtn) installBtn.classList.remove('show');
+        deferredPrompt = null;
       });
 
+      // ৪. ১ সেকেন্ড পর ব্যাকআপ হিসেবে বাটন শো করবে (যদি ইনস্টল করা না থাকে)
+      setTimeout(() => {
+        if (installBtn && !checkInstalled()) {
+          installBtn.classList.add('show');
+        }
+      }, 1000);
+
+      // ৫. বাটনে ক্লিক করলে
       window.triggerInstall = function(event) {
         if (event) { event.preventDefault(); event.stopPropagation(); }
+        
         if (deferredPrompt) {
           deferredPrompt.prompt();
           deferredPrompt.userChoice.then(() => { deferredPrompt = null; }).catch(() => {});
         } else {
           const ua = navigator.userAgent || '';
-          const isAndroid = /Android/i.test(ua);
-          const isChrome = /Chrome/i.test(ua) && !/Edg|OPR|Brave/i.test(ua);
-          const isIOS = /iPhone|iPad|iPod/i.test(ua);
-          const isSafari = /Safari/i.test(ua) && !/Chrome|CriOS|FxiOS|EdgiOS/i.test(ua);
-          let msg = '';
-          if (isAndroid && isChrome) msg = 'ডান দিকের ⋮ মেনুতে ট্যাপ করুন → "Install app" নির্বাচন করুন।';
-          else if (isAndroid) msg = 'সেরা অভিজ্ঞতার জন্য Chrome-এ খুলুন, তারপর ⋮ মেনু → "Install app" চাপুন।';
-          else if (isIOS && isSafari) msg = 'নিচের Share আইকনে ট্যাপ করুন → "Add to Home Screen" নির্বাচন করুন।';
-          else if (isIOS) msg = 'Safari-তে খুলে Share → "Add to Home Screen" ব্যবহার করুন।';
-          else msg = 'ব্রাউজার মেনু থেকে "Install" বা "Add to Home Screen" নির্বাচন করুন।';
-          alert(msg);
+          if (/Android/i.test(ua)) {
+            // চুপচাপ সরাসরি Chrome-এ ওপেন করবে। Chrome না থাকলে কোনো এরর বা মেসেজ আসবে না।
+            const chromeIntent = 'intent://' + window.location.host + window.location.pathname + window.location.search + '#Intent;scheme=https;package=com.android.chrome;end';
+            window.location.replace(chromeIntent);
+          }
         }
         return false;
       };
-
-      setTimeout(() => {
-        if (checkInstalled()) return;
-        if (!installBtn) return;
-        const isChromeAndroid = /Chrome/.test(navigator.userAgent) && /Android/.test(navigator.userAgent);
-        if (isChromeAndroid && !deferredPrompt) {
-          installBtn.classList.add('show');
-        }
-      }, 3000);
     })();
   </script>
   `;
@@ -180,8 +167,6 @@ function toTransliterated(text) {
   for (const char of String(text)) result += BN_TO_EN_MAP[char] || char;
   return result.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 }
-
-// ❌ BOT_REGEX REMOVED — No cloaking. Same HTML for bots & users.
 
 function getISTHour() {
   const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
@@ -573,7 +558,6 @@ ${getPWAScript()}
 
 // ═══════════════════════════════════════════════════════════
 // MAIN FETCH HANDLER
-// ✅ NO isBot checks — same HTML for bots & users
 // ═══════════════════════════════════════════════════════════
 export default {
   async fetch(request, env, ctx) {
@@ -835,7 +819,6 @@ export default {
         return new Response(env.INDEXNOW_KEY, { status: 200, headers: { "content-type": "text/plain; charset=UTF-8", "Cache-Control": "public, max-age=86400" } });
       }
 
-      // ✅ Homepage / Category / Search — same HTML for everyone
       if (url.pathname === "/" && request.method === "GET") {
         const articleId = url.searchParams.get("id");
         if (articleId) return await serveArticlePage(articleId, env, request);
@@ -1285,8 +1268,6 @@ async function updateNews(env) {
   }
   return { success: true, fetched: batchResult.totalReceived, inserted: batchResult.totalInserted, batches: batchResult.batches, candidates: candidates.length, selected: selected.length, published: publishResult.published, skipped: publishResult.skipped || 0, deleted: cleanupResult.deleted, gemini: usedGemini, newNewsIds: publishedIds, message: `Update completed. ${publishResult.published} published, ${cleanupResult.deleted} cleaned.` };
 }
-
-// ❌ REMOVED serveBotHomepage / serveBotCategoryPage — no bot detection
 
 async function serveListingPage(env, category, searchQuery, request) {
   try {

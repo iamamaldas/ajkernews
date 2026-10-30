@@ -11,7 +11,7 @@ import { enforceNewsLimit, cleanOldCandidates, cleanRejectedNews } from "./clean
 import { fastIndexNews } from "./fast-index.js";
 import { cacheNewsApi, purgeNewsApiCache, purgeArticleCache } from "./cache.js";
 import { getFcmCredentials } from "./jwt.js";
-import { cleanText, escapeHtml, createSlug, getNewsIdBySlug } from "./utils.js";
+import { cleanText, escapeHtml, createSlug, getNewsIdBySlug, getQuizSlug } from "./utils.js";
 import { generateDailyQuiz } from "./quiz-generator.js";
 import { insertDailyQuiz, getQuizByDate } from "./database.js";
 
@@ -1027,18 +1027,7 @@ export default {
           
           const slugs = (recent.results || []).map(r => {
             if (r.type === 'quiz') {
-              const d = new Date(r.created_at);
-              const options = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' };
-              const shortDate = d.toLocaleDateString('en-GB', options).replace(/\s+/g, '-').toLowerCase();
-              const topic = r.headline.split("|")[0].trim();
-              
-              let transTopic = "";
-              for (const char of String(topic)) {
-                transTopic += BN_TO_EN_MAP[char] || char;
-              }
-              const topicSlug = transTopic.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").substring(0, 50).replace(/-+$/, "");
-              
-              return `${shortDate}-${topicSlug}`;
+              return getQuizSlug(r.headline, r.created_at);
             }
             return createSlug(r.headline);
           });
@@ -1515,18 +1504,7 @@ async function generateSitemap(env) {
       const lastmod = displayDate ? new Date(displayDate).toISOString() : new Date().toISOString();
       let path = "";
       if (item.type === 'quiz') {
-          const d = new Date(displayDate);
-          const options = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' };
-          const shortDate = d.toLocaleDateString('en-GB', options).replace(/\s+/g, '-').toLowerCase();
-          const topic = item.headline.split("|")[0].trim();
-          
-          let transTopic = "";
-          for (const char of String(topic)) {
-            transTopic += BN_TO_EN_MAP[char] || char;
-          }
-          const topicSlug = transTopic.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").substring(0, 50).replace(/-+$/, "");
-          
-          path = `/${shortDate}-${topicSlug}`;
+          path = `/${getQuizSlug(item.headline, displayDate)}`;
       } else {
           path = `/${createSlug(item.headline)}`;
       }
@@ -1549,18 +1527,7 @@ async function generateNewsSitemap(env) {
       const safeTitle = String(n.headline || "News").slice(0, 110);
       let path = "";
       if (n.type === 'quiz') {
-          const d = new Date(displayDate);
-          const options = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' };
-          const shortDate = d.toLocaleDateString('en-GB', options).replace(/\s+/g, '-').toLowerCase();
-          const topic = n.headline.split("|")[0].trim();
-          
-          let transTopic = "";
-          for (const char of String(topic)) {
-            transTopic += BN_TO_EN_MAP[char] || char;
-          }
-          const topicSlug = transTopic.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").substring(0, 50).replace(/-+$/, "");
-          
-          path = `/${shortDate}-${topicSlug}`;
+          path = `/${getQuizSlug(n.headline, displayDate)}`;
       } else {
           path = `/${createSlug(n.headline)}`;
       }
@@ -1589,21 +1556,10 @@ async function generateRSS(env) {
     
     let path = "";
     if (n.type === 'quiz') {
-        const d = new Date(displayDate);
-        const options = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' };
-        const shortDate = d.toLocaleDateString('en-GB', options).replace(/\s+/g, '-').toLowerCase();
-        const topic = n.headline.split("|")[0].trim();
-        
-        let transTopic = "";
-        for (const char of String(topic)) {
-          transTopic += BN_TO_EN_MAP[char] || char;
-        }
-        const topicSlug = transTopic.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").substring(0, 50).replace(/-+$/, "");
-        
-        path = `/${shortDate}-${topicSlug}`;
-    } else {
-        path = `/${createSlug(n.headline)}`;
-    }
+          path = `/${getQuizSlug(n.headline, displayDate)}`;
+      } else {
+          path = `/${createSlug(n.headline)}`;
+      }
     
     const link = `${base}${path}`;
     return `<item><title>${escapeHtml(n.headline)}</title><link>${link}</link><guid isPermaLink="true">${link}</guid><pubDate>${pubDate}</pubDate><description><![CDATA[${safeDesc}]]></description>${enclosureTag}</item>`;

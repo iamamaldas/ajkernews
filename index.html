@@ -508,14 +508,12 @@ let hasMoreNews = false;
 let homeDeferredPrompt = null;
 const homeInstallBtn = document.getElementById('homeFloatingBtn');
 
-// ১. প্রম্পট লোড হওয়া মাত্রই বাটন শো করবে
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   homeDeferredPrompt = e;
   if (homeInstallBtn) homeInstallBtn.classList.add('show');
 });
 
-// ২. ১ সেকেন্ড পর ব্যাকআপ হিসেবে বাটন শো করবে
 setTimeout(() => {
   if (!homeInstallBtn) return;
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
@@ -524,7 +522,6 @@ setTimeout(() => {
   }
 }, 1000);
 
-// ৩. বাটনে ক্লিক করলে
 window.triggerHomeInstall = function(event) {
   if (event) { event.preventDefault(); event.stopPropagation(); }
   
@@ -534,7 +531,6 @@ window.triggerHomeInstall = function(event) {
   } else {
     const ua = navigator.userAgent || '';
     if (/Android/i.test(ua)) {
-      // চুপচাপ সরাসরি Chrome-এ ওপেন করবে। Chrome না থাকলে কোনো এরর বা মেসেজ আসবে না।
       const chromeIntent = `intent://${window.location.host}${window.location.pathname}${window.location.search}#Intent;scheme=https;package=com.android.chrome;end`;
       window.location.replace(chromeIntent);
     }
@@ -709,11 +705,6 @@ function goToArticleFromSource(event, el) {
   var articleUrl = el.getAttribute('data-article-url') || '';
   if (!articleUrl) return false;
 
-  if (articleUrl.includes('/quiz/')) {
-      window.location.href = articleUrl;
-      return false;
-  }
-
   try {
     sessionStorage.setItem('ajker_src', String(Date.now()));
   } catch (e) {}
@@ -733,6 +724,9 @@ function openQuizCard(event, url) {
   if (url) window.location.href = url;
 }
 
+// ✅ বাংলা থেকে ইংরেজি রূপান্তরের ম্যাপ
+const BN_TO_EN_MAP = { "অ":"o","আ":"a","ই":"i","ঈ":"i","উ":"u","ঊ":"u","ঋ":"ri","এ":"e","ঐ":"oi","ও":"o","ঔ":"ou","ক":"k","খ":"kh","গ":"g","ঘ":"gh","ঙ":"ng","চ":"ch","ছ":"chh","জ":"j","ঝ":"jh","ঞ":"n","ট":"t","ঠ":"th","ড":"d","ঢ":"dh","ণ":"n","ত":"t","থ":"th","দ":"d","ধ":"dh","ন":"n","প":"p","ফ":"ph","ব":"b","ভ":"bh","ম":"m","য":"j","র":"r","ল":"l","শ":"sh","ষ":"sh","স":"s","হ":"h","ড়":"r","ঢ়":"rh","য়":"y","ং":"ng","ঃ":"h","ঁ":"n","া":"a","ি":"i","ী":"i","ু":"u","ূ":"u","ৃ":"ri","ে":"e","ৈ":"oi","ো":"o","ৌ":"ou" };
+
 function buildNewsHtml(news) {
   const image = news.image_url || '/logo.png';
   const headline = news.headline || 'সংবাদ';
@@ -749,15 +743,26 @@ function buildNewsHtml(news) {
   let categoryLabel = category;
   let isQuiz = false;
 
-  const baseSlug = headline.toLowerCase().replace(/[^\u0980-\u09FFa-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").substring(0, 65).replace(/-+$/, "");
+  let transliterated = "";
+  for (const char of String(headline)) {
+    transliterated += BN_TO_EN_MAP[char] || char;
+  }
+  const baseSlug = transliterated.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").substring(0, 65).replace(/-+$/, "");
 
   if (news.type === 'quiz') {
       isQuiz = true;
       const d = new Date(displayDate);
       const options = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' };
       const shortDate = d.toLocaleDateString('en-GB', options).replace(/\s+/g, '-').toLowerCase();
-      const topic = headline.split("|")[0].trim().toLowerCase().replace(/[^\u0980-\u09FFa-z0-9\s-]/g, "").replace(/\s+/g, "-").substring(0, 50);
-      articleUrl = `/${shortDate}-${topic}`; 
+      const topic = headline.split("|")[0].trim();
+      
+      let transTopic = "";
+      for (const char of String(topic)) {
+        transTopic += BN_TO_EN_MAP[char] || char;
+      }
+      const topicSlug = transTopic.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").substring(0, 50).replace(/-+$/, "");
+      
+      articleUrl = `/${shortDate}-${topicSlug}`; 
       categoryLabel = 'কুইজ';
   } else {
       articleUrl = `/${baseSlug}`; 

@@ -727,6 +727,36 @@ function openQuizCard(event, url) {
 // ✅ বাংলা থেকে ইংরেজি রূপান্তরের ম্যাপ
 const BN_TO_EN_MAP = { "অ":"o","আ":"a","ই":"i","ঈ":"i","উ":"u","ঊ":"u","ঋ":"ri","এ":"e","ঐ":"oi","ও":"o","ঔ":"ou","ক":"k","খ":"kh","গ":"g","ঘ":"gh","ঙ":"ng","চ":"ch","ছ":"chh","জ":"j","ঝ":"jh","ঞ":"n","ট":"t","ঠ":"th","ড":"d","ঢ":"dh","ণ":"n","ত":"t","থ":"th","দ":"d","ধ":"dh","ন":"n","প":"p","ফ":"ph","ব":"b","ভ":"bh","ম":"m","য":"j","র":"r","ল":"l","শ":"sh","ষ":"sh","স":"s","হ":"h","ড়":"r","ঢ়":"rh","য়":"y","ং":"ng","ঃ":"h","ঁ":"n","া":"a","ি":"i","ী":"i","ু":"u","ূ":"u","ৃ":"ri","ে":"e","ৈ":"oi","ো":"o","ৌ":"ou" };
 
+
+// ✅ utils.js v88-এর সাথে মিলে কুইজ slug (Worker + Browser consistent)
+function removeDatesFromTitle(title) {
+  if (!title) return "";
+  let clean = String(title).trim();
+  clean = clean.replace(/আজকের কুইজ:?/gi, "").trim();
+  clean = clean.replace(/^[\d০-৯]{1,2}[\s-]+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[\s-,]*[\d০-৯]{4}\s*/i, "");
+  clean = clean.replace(/^[\d০-৯]{1,2}[\s-]+(জানুয়ারি|ফেব্রুয়ারি|মার্চ|এপ্রিল|মে|জুন|জুলাই|আগস্ট|সেপ্টেম্বর|অক্টোবর|নভেম্বর|ডিসেম্বর)[\s-]*[\d০-৯]{4}\s*/i, "");
+  clean = clean.replace(/^[\d০-৯]{2}-[\d০-৯]{2}-[\d০-৯]{4}\s*/i, "");
+  clean = clean.replace(/^কারেন্ট\s*অ্যাফেয়ার্স:?\s*/i, "").trim();
+  clean = clean.split("|")[0].trim();
+  return clean.replace(/\s+/g, " ").trim();
+}
+
+function getShortDate(createdAt) {
+  const d = new Date(createdAt || Date.now());
+  if (isNaN(d.getTime())) return "";
+  const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+  return `${d.getUTCDate()}-${months[d.getUTCMonth()]}-${d.getUTCFullYear()}`;
+}
+
+function getQuizSlug(headline, createdAt) {
+  const shortDate = getShortDate(createdAt);
+  const cleanTopic = removeDatesFromTitle(headline || "");
+  let transliterated = "";
+  for (const char of String(cleanTopic)) transliterated += BN_TO_EN_MAP[char] || char;
+  let slug = transliterated.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").substring(0, 65).replace(/-+$/, "");
+  return slug ? `${shortDate}-${slug}` : shortDate;
+}
+
 function buildNewsHtml(news) {
   const image = news.image_url || '/logo.png';
   const headline = news.headline || 'সংবাদ';
@@ -751,21 +781,10 @@ function buildNewsHtml(news) {
 
   if (news.type === 'quiz') {
       isQuiz = true;
-      const d = new Date(displayDate);
-      const options = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' };
-      const shortDate = d.toLocaleDateString('en-GB', options).replace(/\s+/g, '-').toLowerCase();
-      const topic = headline.split("|")[0].trim();
-      
-      let transTopic = "";
-      for (const char of String(topic)) {
-        transTopic += BN_TO_EN_MAP[char] || char;
-      }
-      const topicSlug = transTopic.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").substring(0, 50).replace(/-+$/, "");
-      
-      articleUrl = `/${shortDate}-${topicSlug}`; 
+      articleUrl = `/${getQuizSlug(headline, displayDate)}`;
       categoryLabel = 'কুইজ';
   } else {
-      articleUrl = `/${baseSlug}`; 
+      articleUrl = `/${baseSlug}`;
   }
 
   const quizClickAttr = isQuiz

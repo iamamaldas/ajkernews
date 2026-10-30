@@ -1,4 +1,5 @@
 // worker/src/utils.js
+// ✅ FINAL v84: Bengali to English Transliteration for SEO URLs
 
 export function makeId() {
   return crypto.randomUUID();
@@ -44,16 +45,43 @@ export function base64url(input) {
     .replace(/=+$/, "");
 }
 
+// ═══════════════════════════════════════════════════════════
+// ✅ বাংলা থেকে ইংরেজি অক্ষরে রূপান্তরের ম্যাপ
+// ═══════════════════════════════════════════════════════════
+const BN_TO_EN_MAP = { 
+  "অ":"o","আ":"a","ই":"i","ঈ":"i","উ":"u","ঊ":"u","ঋ":"ri","এ":"e","ঐ":"oi","ও":"o","ঔ":"ou",
+  "ক":"k","খ":"kh","গ":"g","ঘ":"gh","ঙ":"ng","চ":"ch","ছ":"chh","জ":"j","ঝ":"jh","ঞ":"n",
+  "ট":"t","ঠ":"th","ড":"d","ঢ":"dh","ণ":"n","ত":"t","থ":"th","দ":"d","ধ":"dh","ন":"n",
+  "প":"p","ফ":"ph","ব":"b","ভ":"bh","ম":"m","য":"j","র":"r","ল":"l","শ":"sh","ষ":"sh",
+  "স":"s","হ":"h","ড়":"r","ঢ়":"rh","য়":"y","ং":"ng","ঃ":"h","ঁ":"n",
+  "া":"a","ি":"i","ী":"i","ু":"u","ূ":"u","ৃ":"ri","ে":"e","ৈ":"oi","ো":"o","ৌ":"ou"
+};
+
+export function toTransliterated(text) {
+  if (!text) return "";
+  let result = "";
+  for (const char of String(text)) result += BN_TO_EN_MAP[char] || char;
+  return result.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+}
+
 // ✅ নতুন ফাংশন: হেডলাইন থেকে SEO ফ্রেন্ডলি URL স্লাগ তৈরি করা
 export function createSlug(text) {
   if (!text) return "";
-  return text
+  
+  // ১. বাংলা অক্ষরকে ইংরেজিতে রূপান্তর
+  let transliterated = "";
+  for (const char of String(text)) {
+    transliterated += BN_TO_EN_MAP[char] || char;
+  }
+
+  // ২. ক্লিন এবং হাইফেন তৈরি
+  return transliterated
     .toLowerCase()
-    .replace(/[^\u0980-\u09FFa-z0-9\s-]/g, "") // বাংলা/ইংরেজি অক্ষর, সংখ্যা ও স্পেস ছাড়া বাকি সব বাদ
+    .replace(/[^a-z0-9\s-]/g, "") // শুধু ইংরেজি অক্ষর, সংখ্যা এবং স্পেস রাখবে
     .trim()
     .replace(/\s+/g, "-") // স্পেসকে হাইফেনে রূপান্তর
     .substring(0, 65) // সর্বোচ্চ ৬৫ অক্ষর
-    .replace(/-+$/, ""); // শেষের অতিরিক্ত হাইফেন বাদ
+    .replace(/-+$/, ""); // শেষের বাড়তি হাইফেন বাদ
 }
 
 // ✅ নতুন ফাংশন: URL-এর স্লাগ দিয়ে ডাটাবেস থেকে আসল ৩২-অক্ষরের ID বের করা
@@ -69,10 +97,10 @@ export async function getNewsIdBySlug(db, slug, isQuiz = false) {
       const d = new Date(row.created_at);
       const options = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' };
       const shortDate = d.toLocaleDateString('en-GB', options).replace(/\s+/g, '-').toLowerCase();
-      const topic = row.headline.split("|")[0].trim(); // হেডলাইনের প্রথম অংশ
+      const topic = row.headline.split("|")[0].trim(); 
       rowSlug = createSlug(`${shortDate}-${topic}`);
     } else {
-      // নিউজের ক্ষেত্রে: "amdedabade-rupo-chennai-sona"
+      // নিউজের ক্ষেত্রে: "amedabade-rupo-ebong-chennai-o-joypure-sonar-dam"
       rowSlug = createSlug(row.headline);
     }
 

@@ -1,5 +1,5 @@
 // worker/src/utils.js
-// ✅ FINAL v86: Smart Date Removal for Quiz Slugs
+// ✅ FINAL v88: Deterministic Quiz Slug (date-stripped, Worker+Browser consistent)
 
 export function makeId() {
   return crypto.randomUUID();
@@ -76,16 +76,39 @@ export function createSlug(text) {
     .replace(/-+$/, "");
 }
 
-// ✅ নতুন: হেডলাইন থেকে অপ্রয়োজনীয় তারিখ বাদ দেওয়ার ফাংশন
-function removeDatesFromTitle(title) {
-  let clean = title.replace(/আজকের কুইজ:?/gi, "").trim();
-  // ইংরেজি তারিখ বাদ দেওয়া (যেমন: 30 October 2026, 30-Oct-2026)
-  clean = clean.replace(/\b\d{1,2}[\s-]+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[\s-,]*\d{4}\b/gi, "");
-  // বাংলা তারিখ বাদ দেওয়া (যেমন: ৩০ অক্টোবর ২০২৬)
-  clean = clean.replace(/\b\d{1,2}[\s-]+(জানুয়ারি|ফেব্রুয়ারি|মার্চ|এপ্রিল|মে|জুন|জুলাই|আগস্ট|সেপ্টেম্বর|অক্টোবর|নভেম্বর|ডিসেম্বর)[\s-]*\d{4}\b/gi, "");
-  // শুধু তারিখ থাকলে (যেমন: 30-10-2026)
-  clean = clean.replace(/\b\d{2}-\d{2}-\d{4}\b/g, "");
-  return clean.trim();
+// ✅ হেডলাইন থেকে অপ্রয়োজনীয় তারিখ/প্রিফিক্স বাদ দেওয়ার ফাংশন
+// নতুন ফরম্যাট সাপোর্ট করে: "২২ অক্টোবর ২০২৬ কারেন্ট অ্যাফেয়ার্স: <keyword> | সাধারণ জ্ঞান ২০২৬"
+export function removeDatesFromTitle(title) {
+  if (!title) return "";
+  let clean = String(title).trim();
+  // পুরনো ফরম্যাট "আজকের কুইজ:" বাদ
+  clean = clean.replace(/আজকের কুইজ:?/gi, "").trim();
+  // শুরুর ইংরেজি তারিখ বাদ (30 October 2026 / 30-Oct-2026)
+  clean = clean.replace(/^[\d০-৯]{1,2}[\s-]+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[\s-,]*[\d০-৯]{4}\s*/i, "");
+  // শুরুর বাংলা তারিখ বাদ (৩০ অক্টোবর ২০২৬)
+  clean = clean.replace(/^[\d০-৯]{1,2}[\s-]+(জানুয়ারি|ফেব্রুয়ারি|মার্চ|এপ্রিল|মে|জুন|জুলাই|আগস্ট|সেপ্টেম্বর|অক্টোবর|নভেম্বর|ডিসেম্বর)[\s-]*[\d০-৯]{4}\s*/i, "");
+  // শুধু সংখ্যা তারিখ (30-10-2026)
+  clean = clean.replace(/^[\d০-৯]{2}-[\d০-৯]{2}-[\d০-৯]{4}\s*/i, "");
+  // "কারেন্ট অ্যাফেয়ার্স:" প্রিফিক্স বাদ
+  clean = clean.replace(/^কারেন্ট\s*অ্যাফেয়ার্স:?\s*/i, "").trim();
+  // "|" এর পরে সব বাদ (যেমন "| সাধারণ জ্ঞান ২০২৬")
+  clean = clean.split("|")[0].trim();
+  return clean.replace(/\s+/g, " ").trim();
+}
+
+// ✅ কুইজ স্লাগের জন্য ডিটারমিনিস্টিক short date (Worker ও Browser একই ফল দেবে)
+export function getShortDate(createdAt) {
+  const d = new Date(createdAt || Date.now());
+  if (isNaN(d.getTime())) return "";
+  const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+  return `${d.getUTCDate()}-${months[d.getUTCMonth()]}-${d.getUTCFullYear()}`;
+}
+
+// ✅ কুইজের সম্পূর্ণ স্লাগ (তারিখ-বাদ দেওয়া টপিক সহ)
+export function getQuizSlug(headline, createdAt) {
+  const shortDate = getShortDate(createdAt);
+  const cleanTopic = removeDatesFromTitle(headline || "");
+  return createSlug(`${shortDate}-${cleanTopic}`);
 }
 
 export async function getNewsIdBySlug(db, slug, isQuiz = false) {
@@ -96,13 +119,7 @@ export async function getNewsIdBySlug(db, slug, isQuiz = false) {
     let rowSlug = "";
     
     if (isQuiz) {
-      const d = new Date(row.created_at);
-      const options = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' };
-      const shortDate = d.toLocaleDateString('en-GB', options).replace(/\s+/g, '-').toLowerCase();
-      
-      // ✅ হেডলাইন থেকে তারিখ বাদ দিয়ে পরিষ্কার টপিক তৈরি
-      const cleanTopic = removeDatesFromTitle(row.headline || "");
-      rowSlug = createSlug(`${shortDate}-${cleanTopic}`);
+      rowSlug = getQuizSlug(row.headline, row.created_at);
     } else {
       rowSlug = createSlug(row.headline);
     }

@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v82: SEO-Safe, No Cloaking, PWA Button Hides When Installed
+// ✅ FINAL v83: 100% SEO-Friendly Slug URLs (Mixed for Quiz, Keyword for News)
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -11,7 +11,7 @@ import { enforceNewsLimit, cleanOldCandidates, cleanRejectedNews } from "./clean
 import { fastIndexNews } from "./fast-index.js";
 import { cacheNewsApi, purgeNewsApiCache, purgeArticleCache } from "./cache.js";
 import { getFcmCredentials } from "./jwt.js";
-import { cleanText, escapeHtml } from "./utils.js";
+import { cleanText, escapeHtml, createSlug, getNewsIdBySlug } from "./utils.js";
 import { generateDailyQuiz } from "./quiz-generator.js";
 import { insertDailyQuiz, getQuizByDate } from "./database.js";
 
@@ -33,9 +33,6 @@ const NOTIFICATION_CONFIG = {
 
 let tablesReadyPromise = null;
 
-// ═══════════════════════════════════════════════════════════
-// POPUNDER
-// ═══════════════════════════════════════════════════════════
 const POPUNDER_URL = "https://afders.org/1/cefd70fdb5260cccd9456ab45e1e7512";
 
 function getArticlePopunderScript() {
@@ -68,9 +65,6 @@ function getArticlePopunderScript() {
 <\/script>`;
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ PWA FLOATING BUTTON & SCRIPT (Article & Quiz Pages)
-// ═══════════════════════════════════════════════════════════
 function getFloatingButtonHtmlAndScript() {
   return `
   <a href="javascript:void(0)" onclick="return triggerInstall(event);" class="floating-app-btn" id="serverFloatingBtn" aria-label="Install Ajker News App">
@@ -98,53 +92,32 @@ function getPWAScript() {
     (function() {
       let deferredPrompt = null;
       const installBtn = document.getElementById('serverFloatingBtn');
-
-      // ১. চেক করবে অ্যাপ আগেই ইনস্টল করা আছে কিনা
       function checkInstalled() {
         const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-        if (isStandalone) {
-          if (installBtn) installBtn.classList.remove('show');
-          return true;
-        }
+        if (isStandalone) { if (installBtn) installBtn.classList.remove('show'); return true; }
         return false;
       }
-
-      // যদি ইনস্টল করা থাকে, তবে এখানেই থেমে যাবে (বাটন দেখাবে না)
       if (checkInstalled()) return;
-
-      // ২. প্রম্পট ক্যাপচার (যখন ব্রাউজার ইনস্টলেশন সাপোর্ট করবে)
       window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
         deferredPrompt = e;
-        if (installBtn && !checkInstalled()) {
-          installBtn.classList.add('show');
-        }
+        if (installBtn && !checkInstalled()) installBtn.classList.add('show');
       });
-
-      // ৩. ইনস্টল সম্পন্ন হলে বাটন লুকিয়ে যাবে
       window.addEventListener('appinstalled', () => {
         if (installBtn) installBtn.classList.remove('show');
         deferredPrompt = null;
       });
-
-      // ৪. ১ সেকেন্ড পর ব্যাকআপ হিসেবে বাটন শো করবে (যদি ইনস্টল করা না থাকে)
       setTimeout(() => {
-        if (installBtn && !checkInstalled()) {
-          installBtn.classList.add('show');
-        }
+        if (installBtn && !checkInstalled()) installBtn.classList.add('show');
       }, 1000);
-
-      // ৫. বাটনে ক্লিক করলে
       window.triggerInstall = function(event) {
         if (event) { event.preventDefault(); event.stopPropagation(); }
-        
         if (deferredPrompt) {
           deferredPrompt.prompt();
           deferredPrompt.userChoice.then(() => { deferredPrompt = null; }).catch(() => {});
         } else {
           const ua = navigator.userAgent || '';
           if (/Android/i.test(ua)) {
-            // চুপচাপ সরাসরি Chrome-এ ওপেন করবে। Chrome না থাকলে কোনো এরর বা মেসেজ আসবে না।
             const chromeIntent = 'intent://' + window.location.host + window.location.pathname + window.location.search + '#Intent;scheme=https;package=com.android.chrome;end';
             window.location.replace(chromeIntent);
           }
@@ -156,9 +129,6 @@ function getPWAScript() {
   `;
 }
 
-// ═══════════════════════════════════════════════════════════
-// UTILITIES
-// ═══════════════════════════════════════════════════════════
 const BN_TO_EN_MAP = { "অ":"o","আ":"a","ই":"i","ঈ":"i","উ":"u","ঊ":"u","ঋ":"ri","এ":"e","ঐ":"oi","ও":"o","ঔ":"ou","ক":"k","খ":"kh","গ":"g","ঘ":"gh","ঙ":"ng","চ":"ch","ছ":"chh","জ":"j","ঝ":"jh","ঞ":"n","ট":"t","ঠ":"th","ড":"d","ঢ":"dh","ণ":"n","ত":"t","থ":"th","দ":"d","ধ":"dh","ন":"n","প":"p","ফ":"ph","ব":"b","ভ":"bh","ম":"m","য":"j","র":"r","ল":"l","শ":"sh","ষ":"sh","স":"s","হ":"h","ড়":"r","ঢ়":"rh","য়":"y","ং":"ng","ঃ":"h","ঁ":"n","া":"a","ি":"i","ী":"i","ু":"u","ূ":"u","ৃ":"ri","ে":"e","ৈ":"oi","ো":"o","ৌ":"ou" };
 
 function toTransliterated(text) {
@@ -260,21 +230,21 @@ function gonePage(relatedNews = []) {
     <div style="margin-top: 32px; text-align: left;">
       <h2 style="font-size: 18px; margin-bottom: 16px; color: #111;">📰 সাম্প্রতিক খবর</h2>
       <ul style="list-style: none; padding: 0;">
-        ${relatedNews.map(n => `<li style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #eee;"><a href="https://ajkernews.in/news/${encodeURIComponent(n.id)}" style="color: #007bff; text-decoration: none; font-size: 15px; font-weight: 600;">${escapeHtml(n.headline || 'সংবাদ')}</a></li>`).join('')}
+        ${relatedNews.map(n => {
+          const slug = createSlug(n.headline || '');
+          return `<li style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #eee;"><a href="https://ajkernews.in/${slug}" style="color: #007bff; text-decoration: none; font-size: 15px; font-weight: 600;">${escapeHtml(n.headline || 'সংবাদ')}</a></li>`;
+        }).join('')}
       </ul>
     </div>` : '';
   const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>খবরটি আর নেই - Ajker News</title><meta name="robots" content="noindex, follow"><link rel="icon" type="image/x-icon" href="/public/favicon.ico"><style>* { margin:0; padding:0; box-sizing:border-box; font-family: Inter,-apple-system,BlinkMacSystemFont,sans-serif; } body { max-width: 600px; margin: 40px auto; padding: 20px; color: #111; } h1 { font-size: 28px; margin-bottom: 16px; text-align: center; } p { font-size: 16px; color: #666; line-height: 1.6; margin-bottom: 24px; text-align: center; } .btn { display: block; width: 100%; text-align: center; background: #007bff; color: #fff; padding: 14px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px; margin-bottom: 12px; } .btn-secondary { background: #f2f2f2; color: #333; }</style></head><body><h1>📰 খবরটি আর নেই</h1><p>এই খবরটি আমাদের আর্কাইভ থেকে সরিয়ে নেওয়া হয়েছে। নিচে সাম্প্রতিক খবর দেখুন।</p><a href="https://ajkernews.in/" class="btn">🏠 সর্বশেষ খবর দেখুন</a><a href="javascript:history.back()" class="btn btn-secondary">← পূর্ববর্তী পেজে ফিরে যান</a>${relatedHtml}</body></html>`;
   return new Response(html, { status: 410, headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": "public, max-age=86400", "X-Robots-Tag": "noindex, follow" } });
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ QUIZ PAGE
-// ═══════════════════════════════════════════════════════════
 async function getQuizPageHtml(quiz, dateStr, env) {
   const quizJson = JSON.stringify(quiz.questions);
   const headline = escapeHtml(quiz.headline || "কারেন্ট অ্যাফেয়ার্স কুইজ");
   const pageTitle = `${headline} - Ajker News`;
-  const canonical = `https://ajkernews.in/quiz/${dateStr}`;
+  const canonical = `https://ajkernews.in/${dateStr}`; 
   const image = "https://images.unsplash.com/photo-1606326608606-aa0b62935f2b?auto=format&fit=crop&w=800&q=80";
   const publishedAt = new Date(dateStr + 'T00:00:00+05:30').toISOString();
   const metaTitle = quiz.headline || "কারেন্ট অ্যাফেয়ার্স কুইজ";
@@ -287,7 +257,10 @@ async function getQuizPageHtml(quiz, dateStr, env) {
       relatedNewsHtml = `<div style="margin-top:30px; padding:15px; background:#fff; border-radius:12px; border:1px solid #eee;">
         <h3 style="font-size:16px; margin-bottom:10px; color:#111;">📰 দিনের সেরা খবর:</h3>
         <ul style="list-style:none; padding:0;">
-          ${recent.results.map(n => `<li style="margin-bottom:8px;"><a href="/news/${encodeURIComponent(n.id)}" style="color:#1976d2; text-decoration:none; font-size:14px;">${escapeHtml(n.headline)}</a></li>`).join("")}
+          ${recent.results.map(n => {
+            const slug = createSlug(n.headline || '');
+            return `<li style="margin-bottom:8px;"><a href="/${slug}" style="color:#1976d2; text-decoration:none; font-size:14px;">${escapeHtml(n.headline)}</a></li>`;
+          }).join("")}
         </ul>
       </div>`;
     }
@@ -323,7 +296,6 @@ async function getQuizPageHtml(quiz, dateStr, env) {
 <meta name="theme-color" content="#ffffff">
 <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
 <link rel="apple-touch-icon" sizes="180x180" href="/public/apple-touch-icon.png">
-
 <meta property="og:type" content="article">
 <meta property="og:title" content="${escapeHtml(metaTitle)}">
 <meta property="og:description" content="${escapeHtml(metaDescription)}">
@@ -331,14 +303,11 @@ async function getQuizPageHtml(quiz, dateStr, env) {
 <meta property="og:image" content="${image}">
 <meta property="og:site_name" content="Ajker News">
 <meta property="article:published_time" content="${publishedAt}">
-
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${escapeHtml(metaTitle)}">
 <meta name="twitter:description" content="${escapeHtml(metaDescription)}">
 <meta name="twitter:image" content="${image}">
-
 <script type="application/ld+json">${quizArticleLd}</script>
-
 <style>
   * { margin:0; padding:0; box-sizing:border-box; font-family: Inter,-apple-system,BlinkMacSystemFont,sans-serif; }
   body { background:#f4f5f7; color:#0a0a0a; min-height:100vh; display:flex; flex-direction:column; }
@@ -370,15 +339,12 @@ async function getQuizPageHtml(quiz, dateStr, env) {
   .result-item .explain { font-size:14px; color:#666; background:#f9f9f9; padding:10px; border-radius:8px; margin-top:8px; }
   .result-actions { display:flex; gap:12px; margin-top:24px; }
   .result-actions button { flex:1; padding:14px; border:none; border-radius:10px; font-weight:700; cursor:pointer; }
-  
   .result-actions .icon-btn { display: inline-flex; align-items: center; justify-content: center; padding: 0; height: 52px; color: #fff; border: none; border-radius: 10px; cursor: pointer; transition: transform .15s ease, filter .15s ease; }
   .result-actions .icon-btn:active { transform: scale(.96); }
   .result-actions .icon-btn:hover  { filter: brightness(1.08); }
   .btn-share { background:#1976d2; }
   .btn-pdf   { background:#e53935; }
-  
   .close-x { position:absolute; top:16px; right:16px; background:none; border:none; font-size:28px; cursor:pointer; color:#888; line-height:1; }
-  
   @media print {
     body * { visibility: hidden; }
     #resultCard, #resultCard * { visibility: visible; }
@@ -404,19 +370,14 @@ async function getQuizPageHtml(quiz, dateStr, env) {
     <div class="result-actions">
       <button class="btn-share icon-btn" onclick="shareResult()" aria-label="Share result" title="শেয়ার করুন">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="18" cy="5" r="3"/>
-          <circle cx="6" cy="12" r="3"/>
-          <circle cx="18" cy="19" r="3"/>
-          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
-          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+          <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
         </svg>
       </button>
       <button class="btn-pdf icon-btn" onclick="downloadResultPDF()" aria-label="Download PDF" title="PDF ডাউনলোড">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-          <polyline points="14 2 14 8 20 8"/>
-          <line x1="12" y1="18" x2="12" y2="12"/>
-          <polyline points="9 15 12 18 15 15"/>
+          <polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/>
         </svg>
       </button>
     </div>
@@ -556,9 +517,6 @@ ${getPWAScript()}
 </html>`;
 }
 
-// ═══════════════════════════════════════════════════════════
-// MAIN FETCH HANDLER
-// ═══════════════════════════════════════════════════════════
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -789,30 +747,61 @@ export default {
         return new Response("SSE disabled for performance", { status: 200, headers: { "Content-Type": "text/plain" } });
       }
 
+      // ✅ কুইজ রাউটিং
       if (url.pathname.startsWith("/quiz/") && request.method === "GET") {
-        const dateStr = url.pathname.split("/")[2];
-        if (!dateStr) return Response.redirect("https://ajkernews.in/", 302);
-        const quiz = await getQuizByDate(env.DB, dateStr);
+        const slug = decodeURIComponent(url.pathname.split("/")[2]);
+        if (!slug) return Response.redirect("https://ajkernews.in/", 302);
+        
+        let quiz;
+        if (slug.match(/^\d{4}-\d{2}-\d{2}$/)) { 
+          quiz = await getQuizByDate(env.DB, slug);
+        } else { 
+          const quizId = await getNewsIdBySlug(env.DB, slug, true);
+          if (quizId) quiz = await env.DB.prepare(`SELECT * FROM news WHERE id = ?`).bind(quizId).first();
+        }
+
         if (!quiz) return new Response("Quiz not found", { status: 404 });
         let questions = [];
         try { questions = JSON.parse(quiz.quiz_data); } catch (e) {}
-        return new Response(await getQuizPageHtml({ headline: quiz.headline, summary: quiz.summary, questions }, dateStr, env), {
+        return new Response(await getQuizPageHtml({ headline: quiz.headline, summary: quiz.summary, questions }, slug, env), {
           status: 200,
           headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" }
         });
       }
 
-      if (url.pathname === "/quiz" && request.method === "GET") {
-        const today = getTodayIST();
-        const quiz = await getQuizByDate(env.DB, today);
-        if (quiz) return Response.redirect(`https://ajkernews.in/quiz/${today}`, 302);
-        return new Response("আজকের কুইজ এখনো তৈরি হয়নি। সকাল ৭টার পরে আসুন।", { status: 200, headers: { "Content-Type": "text/html; charset=UTF-8" } });
+      // ✅ নিউজ রাউটিং (স্লাগ)
+      if (url.pathname.startsWith("/news/") && request.method === "GET") {
+        const slug = decodeURIComponent(url.pathname.slice(6).split("/")[0] || "").trim();
+        if (!slug) return Response.redirect("https://ajkernews.in/", 302);
+        
+        const articleId = await getNewsIdBySlug(env.DB, slug, false);
+        if (articleId) {
+          return await serveArticlePage(articleId, env, request);
+        }
+        return new Response("News not found", { status: 404 });
       }
 
-      if (url.pathname.startsWith("/news/") && request.method === "GET") {
-        const articleId = decodeURIComponent(url.pathname.slice(6).split("/")[0] || "").trim();
-        if (!articleId) return Response.redirect("https://ajkernews.in/", 302);
-        return await serveArticlePage(articleId, env, request);
+      // ✅ ডাইনামিক রুট URL (homes) থেকে নিউজ বা কুইজ ওপেন করা
+      if (request.method === "GET" && url.pathname !== "/" && !url.pathname.startsWith("/api/") && !url.pathname.startsWith("/admin") && !url.pathname.includes(".")) {
+        const slug = decodeURIComponent(url.pathname.slice(1));
+        
+        const quizId = await getNewsIdBySlug(env.DB, slug, true);
+        if (quizId) {
+          const quiz = await env.DB.prepare(`SELECT * FROM news WHERE id = ?`).bind(quizId).first();
+          if (quiz) {
+            let questions = [];
+            try { questions = JSON.parse(quiz.quiz_data); } catch (e) {}
+            return new Response(await getQuizPageHtml({ headline: quiz.headline, summary: quiz.summary, questions }, slug, env), {
+              status: 200,
+              headers: { "Content-Type": "text/html; charset=UTF-8" }
+            });
+          }
+        }
+
+        const realId = await getNewsIdBySlug(env.DB, slug, false);
+        if (realId) {
+          return await serveArticlePage(realId, env, request);
+        }
       }
 
       if (env.INDEXNOW_KEY && url.pathname === `/${env.INDEXNOW_KEY}.txt`) {
@@ -843,11 +832,6 @@ export default {
 
       if (url.pathname === "/api/ads-config" && request.method === "GET") {
         return json({ success: true, publisherId: ADS_CONFIG.publisherId || "", popunderUrl: ADS_CONFIG.popunderUrl || "" }, 200, 60);
-      }
-
-      if (url.pathname === "/news" && url.searchParams.has("id")) {
-        const id = url.searchParams.get("id");
-        return Response.redirect(`https://ajkernews.in/news/${encodeURIComponent(id)}`, 301);
       }
 
       if (url.pathname === "/api/news") return await handleGetNews(url, env, request);
@@ -1035,21 +1019,24 @@ export default {
 
         try {
           const recent = await env.DB.prepare(`
-            SELECT id, type, created_at 
+            SELECT id, type, created_at, headline 
             FROM news 
             WHERE status = 'published' AND created_at >= datetime('now', '-6 hours') 
             ORDER BY created_at DESC LIMIT 50
           `).all();
           
-          const ids = (recent.results || []).map(r => {
+          const slugs = (recent.results || []).map(r => {
             if (r.type === 'quiz') {
-              const date = r.created_at ? r.created_at.slice(0, 10) : new Date().toISOString().slice(0, 10);
-              return `quiz/${date}`;
+              const d = new Date(r.created_at);
+              const options = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' };
+              const shortDate = d.toLocaleDateString('en-GB', options).replace(/\s+/g, '-').toLowerCase();
+              const topic = r.headline.split("|")[0].trim().toLowerCase().replace(/[^\u0980-\u09FFa-z0-9\s-]/g, "").replace(/\s+/g, "-").substring(0, 50);
+              return `${shortDate}-${topic}`;
             }
-            return r.id;
+            return createSlug(r.headline);
           });
           
-          if (ids.length) await fastIndexNews(env, ids);
+          if (slugs.length) await fastIndexNews(env, slugs);
         } catch (error) {}
 
         try { await cleanOldCandidates(env.DB); } catch (e) {}
@@ -1090,10 +1077,6 @@ export default {
   }
 };
 
-// ═══════════════════════════════════════════════════════════
-// HELPER FUNCTIONS
-// ═══════════════════════════════════════════════════════════
-
 async function sendDigest(env, istHour) {
   if (isQuietHours()) return;
   if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) return;
@@ -1112,7 +1095,10 @@ async function sendDigest(env, istHour) {
   const label = getDigestLabel(istHour);
   const topNews = unsentNews[0];
   const body = unsentNews.map(n => `• ${n.headline}`).join('\n').slice(0, 200);
-  const targetUrl = `https://ajkernews.in/news/${topNews.id}?from=push&digest=${digestType}`;
+  
+  const slug = createSlug(topNews.headline || '');
+  const targetUrl = `https://ajkernews.in/${slug}?from=push&digest=${digestType}`;
+  
   const tag = `digest-${digestType}`;
   const result = await sendDigestPush(env, { title: label, body, image: topNews.image_url, url: targetUrl, tag, newsIds: unsentNews.map(n => n.id) }, tokens);
   try { await env.DB.prepare(`INSERT INTO push_digest_log (id, digest_type, news_count, sent_count, sent_at) VALUES (?, ?, ?, ?, ?)`).bind(crypto.randomUUID(), digestType, unsentNews.length, result.sent, new Date().toISOString()).run(); } catch (e) {}
@@ -1128,7 +1114,10 @@ async function sendBreakingAlert(env, news) {
   if (alreadySent) return;
   const title = `🔴 ব্রেকিং: ${String(news.headline || "").slice(0, 150)}`;
   const body = String(news.summary || "এখনই পড়ুন →").slice(0, 150);
-  const targetUrl = `https://ajkernews.in/news/${news.id}?from=push&breaking=1`;
+  
+  const slug = createSlug(news.headline || '');
+  const targetUrl = `https://ajkernews.in/${slug}?from=push&breaking=1`;
+  
   const tag = `breaking-${news.id}`;
   const result = await sendDigestPush(env, { title, body, image: news.image_url, url: targetUrl, tag, newsIds: [news.id], isBreaking: true }, tokens);
   await removeInvalidTokens(env, result.invalidTokens, 'PUSH');
@@ -1195,7 +1184,8 @@ async function sendDigestPush(env, payload, tokens) {
 async function sendSinglePush(env, news, tokens, isBreaking) {
   const title = String(news.headline || "নতুন খবর").slice(0, 180);
   const body = String(news.summary || "বিস্তারিত জানতে ক্লিক করুন").slice(0, 180);
-  const targetUrl = `https://ajkernews.in/news/${news.id}?from=push`;
+  const slug = createSlug(news.headline || '');
+  const targetUrl = `https://ajkernews.in/${slug}?from=push`;
   const tag = `${isBreaking ? 'breaking' : 'news'}-${news.id}`;
   const result = await sendDigestPush(env, { title, body, image: news.image_url, url: targetUrl, tag, newsIds: [news.id], isBreaking }, tokens);
   await removeInvalidTokens(env, result.invalidTokens, 'PUSH-TEST');
@@ -1260,7 +1250,13 @@ async function updateNews(env) {
     try { await purgeNewsApiCache("https://ajkernews.in"); for (const id of publishedIds) await purgeArticleCache("https://ajkernews.in", id); for (const id of cleanupResult.deletedIds || []) await purgeArticleCache("https://ajkernews.in", id); } catch (error) {}
   }
   if (publishedIds.length) {
-    try { await fastIndexNews(env, publishedIds); } catch (error) {}
+    const slugsToIndex = [];
+    for (const id of publishedIds) {
+        try { const row = await env.DB.prepare(`SELECT headline FROM news WHERE id = ?`).bind(id).first(); if (row) slugsToIndex.push(createSlug(row.headline)); } catch(e) {}
+    }
+    if (slugsToIndex.length) {
+        try { await fastIndexNews(env, slugsToIndex); } catch (error) {}
+    }
     try {
       const eventPayload = JSON.stringify({ ids: publishedIds, count: publishedIds.length, ts: Date.now() });
       await env.DB.prepare(`INSERT INTO live_events (id, event_type, payload, created_at) VALUES (?, ?, ?, ?)`).bind(crypto.randomUUID(), 'news_published', eventPayload, new Date().toISOString()).run();
@@ -1289,14 +1285,15 @@ async function serveListingPage(env, category, searchQuery, request) {
     const pageTitle = searchQuery ? `সার্চ: ${searchQuery}` : (catLabel[category] || "সেরা খবর");
     let newsHtml = "";
     for (const item of news) {
-      const link = `https://ajkernews.in/news/${encodeURIComponent(item.id)}`;
+      const slug = createSlug(item.headline || '');
+      const link = `https://ajkernews.in/${slug}`;
       const displayDate = item.published_at || item.created_at;
       const publishedDate = displayDate ? new Date(displayDate).toISOString() : new Date().toISOString();
       const cat = catLabel[item.category] || item.category || 'সংবাদ';
       newsHtml += `<article itemscope itemtype="https://schema.org/NewsArticle" style="margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid #eee;"><meta itemprop="datePublished" content="${escapeHtml(publishedDate)}"><meta itemprop="dateModified" content="${escapeHtml(publishedDate)}"><meta itemprop="mainEntityOfPage" content="${escapeHtml(link)}"><p style="font-size:12px;color:#f44336;font-weight:700;margin:0 0 6px;"><a href="https://ajkernews.in/?category=${encodeURIComponent(item.category || 'top')}" style="color:#f44336;text-decoration:none;">${escapeHtml(cat)}</a></p><h2 itemprop="headline" style="font-size:20px;margin:0 0 8px;line-height:1.4;"><a href="${escapeHtml(link)}" style="color:#111;text-decoration:none;">${escapeHtml(item.headline)}</a></h2><p itemprop="description" style="font-size:15px;color:#444;line-height:1.6;margin:0 0 8px;">${escapeHtml((item.summary || "").substring(0, 300))}...</p><div style="font-size:12px;color:#888;"><span itemprop="author" itemscope itemtype="https://schema.org/Organization"><span itemprop="name">${escapeHtml(item.source_name || "Ajker News")}</span></span>• <time datetime="${escapeHtml(publishedDate)}">${escapeHtml(displayDate || "")}</time></div><a itemprop="url" href="${escapeHtml(link)}" style="display:inline-block;margin-top:8px;color:#007bff;font-size:14px;text-decoration:none;">পূর্ণ খবর পড়ুন →</a></article>`;
     }
     const catNavHtml = categories.map(c => { const label = catLabel[c.category] || c.category; return `<a href="https://ajkernews.in/?category=${encodeURIComponent(c.category)}" style="display:inline-block;margin:0 6px 6px 0;padding:6px 12px;background:#f5f5f5;border-radius:16px;color:#111;text-decoration:none;font-size:13px;">${escapeHtml(label)} (${c.cnt})</a>`; }).join("");
-    const itemListLd = JSON.stringify({ "@context": "https://schema.org", "@type": "ItemList", "itemListElement": news.slice(0, 10).map((item, index) => ({ "@type": "ListItem", "position": index + 1, "url": `https://ajkernews.in/news/${encodeURIComponent(item.id)}`, "name": item.headline || "News" })) });
+    const itemListLd = JSON.stringify({ "@context": "https://schema.org", "@type": "ItemList", "itemListElement": news.slice(0, 10).map((item, index) => ({ "@type": "ListItem", "position": index + 1, "url": `https://ajkernews.in/${createSlug(item.headline || '')}`, "name": item.headline || "News" })) });
     const canonical = searchQuery ? `https://ajkernews.in/?q=${encodeURIComponent(searchQuery)}` : (category && category !== "top" ? `https://ajkernews.in/?category=${encodeURIComponent(category)}` : "https://ajkernews.in/");
     const cacheControl = "public, s-maxage=300, stale-while-revalidate=600, max-age=0, must-revalidate";
     const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(pageTitle)} | Ajker News</title><meta name="description" content="${escapeHtml(pageDescription)}"><meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1"><link rel="canonical" href="${escapeHtml(canonical)}"><link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#ffffff"><link rel="icon" type="image/x-icon" href="/public/favicon.ico"><link rel="icon" type="image/png" sizes="16x16" href="/public/favicon-16x16.png"><link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32x32.png"><link rel="apple-touch-icon" sizes="180x180" href="/public/apple-touch-icon.png"><meta property="og:type" content="website"><meta property="og:title" content="${escapeHtml(pageTitle)} | Ajker News"><meta property="og:description" content="${escapeHtml(pageDescription)}"><meta property="og:url" content="${escapeHtml(canonical)}"><meta property="og:image" content="https://ajkernews.in/logo.png"><script type="application/ld+json">${itemListLd}</script>${adScripts}${socialBarScript}</head><body style="max-width:820px;margin:0 auto;padding:20px;font-family:Inter,-apple-system,sans-serif;color:#111;">${adultBlocker}<header><h1 style="font-size:28px;margin:0 0 6px;"><a href="/" style="color:#111;text-decoration:none;">Ajker News</a></h1><p style="color:#666;font-size:15px;margin:0 0 16px;">${escapeHtml(pageTitle)}</p><nav style="margin-bottom:24px;">${catNavHtml}</nav></header><main>${newsHtml}</main>${bannerContainer}<footer style="margin-top:40px;padding-top:20px;border-top:1px solid #eee;text-align:center;color:#888;font-size:13px;"><p><a href="https://ajkernews.in/sitemap.xml" style="color:#007bff;">Sitemap</a> · <a href="https://ajkernews.in/news-sitemap.xml" style="color:#007bff;">News Sitemap</a> · <a href="https://ajkernews.in/rss.xml" style="color:#007bff;">RSS</a></p></footer></body></html>`;
@@ -1328,7 +1325,10 @@ async function serveArticlePage(id, env, request) {
   const image = result.image_url || "https://ajkernews.in/logo.png";
   const displayDate = result.published_at || result.created_at || new Date().toISOString();
   const publishedAt = displayDate;
-  const canonical = `https://ajkernews.in/news/${encodeURIComponent(safeId)}`;
+  
+  const slug = createSlug(title);
+  const canonical = `https://ajkernews.in/${slug}`;
+  
   const category = result.category || "general";
   let formattedDate = "";
   try { const d = new Date(displayDate); formattedDate = d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }) + ' • ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }); } catch (e) { formattedDate = displayDate; }
@@ -1339,9 +1339,14 @@ async function serveArticlePage(id, env, request) {
   const catLabel = { top:'সেরা খবর', trending:'ট্রেন্ডিং', west_bengal:'পশ্চিমবঙ্গ', kolkata:'কলকাতা', india:'ভারত', world:'বিশ্ব', business:'ব্যবসা', sports:'খেলা', politics:'রাজনীতি', technology:'প্রযুক্তি', entertainment:'বিনোদন', crime:'অপরাধ', district:'জেলা', general:'সাধারণ' };
   const newsArticleLd = JSON.stringify({ "@context": "https://schema.org", "@type": "NewsArticle", "mainEntityOfPage": { "@type": "WebPage", "@id": canonical }, "headline": title.slice(0, 110), "description": description, "image": [image, "https://ajkernews.in/logo.png"], "datePublished": publishedAt, "dateModified": publishedAt, "author": { "@type": "Organization", "name": result.source_name || "Ajker News", "url": "https://ajkernews.in/" }, "publisher": { "@type": "NewsMediaOrganization", "name": "Ajker News", "url": "https://ajkernews.in/", "logo": { "@type": "ImageObject", "url": "https://ajkernews.in/logo.png", "width": 512, "height": 512 } }, "articleSection": category, "inLanguage": "bn-IN", "isAccessibleForFree": true, "url": canonical });
   const breadcrumbLd = JSON.stringify({ "@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{ "@type": "ListItem", "position": 1, "name": "HOME", "item": "https://ajkernews.in/" }, { "@type": "ListItem", "position": 2, "name": catLabel[category] || category, "item": `https://ajkernews.in/?category=${category}` }, { "@type": "ListItem", "position": 3, "name": title, "item": canonical }] });
-  const recentHtml = recentNews.length ? `<aside class="related-box"><h3>সাম্প্রতিক খবর</h3><ul>${recentNews.map(n => `<li><a href="https://ajkernews.in/news/${encodeURIComponent(n.id)}">${escapeHtml(n.headline || "")}</a></li>`).join("")}</ul></aside>` : "";
+  
+  const recentHtml = recentNews.length ? `<aside class="related-box"><h3>সাম্প্রতিক খবর</h3><ul>${recentNews.map(n => {
+    const rSlug = createSlug(n.headline || '');
+    return `<li><a href="https://ajkernews.in/${rSlug}">${escapeHtml(n.headline || "")}</a></li>`;
+  }).join("")}</ul></aside>` : "";
+  
   const cacheControl = "public, s-maxage=300, stale-while-revalidate=600, max-age=0, must-revalidate";
-  const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes"><title>${escapeHtml(title)} - Ajker News</title><meta name="description" content="${escapeHtml(description)}"><meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1"><link rel="canonical" href="${escapeHtml(canonical)}"><link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#ffffff"><link rel="icon" type="image/x-icon" href="/public/favicon.ico"><link rel="icon" type="image/png" sizes="16x16" href="/public/favicon-16x16.png"><link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32x32.png"><link rel="apple-touch-icon" sizes="180x180" href="/public/apple-touch-icon.png"><meta property="og:type" content="article"><meta property="og:title" content="${escapeHtml(title)}"><meta property="og:description" content="${escapeHtml(description)}"><meta property="og:url" content="${escapeHtml(canonical)}"><meta property="og:image" content="${escapeHtml(image)}"><meta property="og:site_name" content="Ajker News"><meta property="article:published_time" content="${escapeHtml(publishedAt)}"><meta property="article:modified_time" content="${escapeHtml(publishedAt)}"><meta property="article:section" content="${escapeHtml(category)}"><meta name="twitter:card" content="summary_large_image"><script type="application/ld+json">${newsArticleLd}</script><script type="application/ld+json">${breadcrumbLd}</script>${adScripts}${socialBarScript}${articlePopunder}<style> * { margin:0; padding:0; box-sizing:border-box; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; } html { scroll-behavior: smooth; font-size: 16px; -webkit-text-size-adjust: 100%; } body { background:#ffffff; color:#111111; -webkit-font-smoothing:antialiased; padding-bottom:20px; max-width: 100vw; overflow-x: hidden; } .header { position:sticky; top:0; z-index:1000; display:flex; align-items:center; justify-content:space-between; padding:12px 16px; min-height:60px; background:#ffffff; border-bottom:1px solid #e0e0e0; } .header-left { display:flex; align-items:center; gap:10px; min-width:0; flex-shrink:1; } .back-btn { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; background:transparent; border:none; cursor:pointer; padding:4px; border-radius:50%; transition:background 0.15s; text-decoration:none; flex-shrink:0; } .back-btn svg { width:22px; height:22px; stroke:#111; stroke-width:2.2; fill:none; stroke-linecap:round; stroke-linejoin:round; } .header-logo { height:28px; width:auto; object-fit:contain; flex-shrink:0; } .header-title { font-size:24px; line-height:1; font-weight:700; color:#111111; white-space:nowrap; letter-spacing:-0.3px; overflow:hidden; text-overflow:ellipsis; } .article-main { padding:16px; max-width: min(820px, 95vw); margin:0 auto; } .article-cat { display:inline-block; font-size:12px; color:#f44336; font-weight:700; margin-bottom:8px; text-decoration:none; } .article-h1 { font-size:24px; line-height:1.35; margin:0 0 14px; color:#111; font-weight:700; } .article-img { width:100%; height:auto; border-radius:8px; display:block; margin:0 0 18px; background:#f3f3f3; } .article-body { font-size:17px; color:#222; line-height:1.85; } .article-body p { margin-bottom:14px; } .article-source-row { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-top:22px; padding-top:16px; padding-bottom:16px; border-top:1px solid #e8e8e8; border-bottom:1px solid #e8e8e8; } .article-source-link { color:#007bff; text-decoration:none; font-weight:600; font-size:16px; } .article-date { color:#999999; font-size:14px; font-weight:500; } .article-actions-row { display:flex; gap:20px; margin-top:12px; padding-top:10px; border-top:1px solid #f0f0f0; } .action-btn-art { display:flex; align-items:center; gap:5px; background:none; border:none; color:#666; font-size:14px; cursor:pointer; padding:0; } .action-btn-art svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:2; } .action-btn-art.loved svg { fill:#e74c3c !important; stroke:#e74c3c !important; } .action-num { font-size:12px; color:#555; font-weight:600; } .related-box { margin:32px 0 0; padding-top:22px; border-top:1px solid #eee; } .related-box h3 { font-size:18px; margin:0 0 14px; color:#111; font-weight:700; } .related-box ul { list-style:none; padding:0; margin:0; } .related-box li { margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #f5f5f5; } .related-box a { color:#111; text-decoration:none; font-size:15px; line-height:1.55; font-weight:600; } .article-footer { margin:36px 16px 0; padding-top:22px; border-top:1px solid #eee; text-align:center; color:#888; font-size:13px; } .article-footer a { color:#555; text-decoration:none; font-weight:600; letter-spacing:0.5px; } #artCommentModal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:2000; align-items:center; justify-content:center; padding:16px; } #artCommentModal.active { display:flex; } #artCommentModal .modal-box { background:#fff; border-radius:12px; width:100%; max-width:520px; max-height:85vh; display:flex; flex-direction:column; overflow:hidden; } #artCommentModal .modal-header { display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid #eee; flex-shrink:0; } #artCommentModal .modal-header h3 { font-size:17px; font-weight:700; margin:0; } #artCommentModal .modal-close { background:none; border:none; font-size:26px; cursor:pointer; color:#888; line-height:1; padding:0 6px; } #artCommentModal .modal-form { padding:12px 16px; border-top:1px solid #eee; background:#fafafa; flex-shrink:0; } #artCommentModal .modal-form input, #artCommentModal .modal-form textarea { width:100%; padding:9px 12px; border:1px solid #ddd; border-radius:6px; margin-bottom:8px; font-size:14px; outline:none; font-family:inherit; } #artCommentModal .modal-form textarea { height:70px; resize:vertical; } #artCommentModal .modal-form button { background:#000; color:#fff; border:none; padding:10px 20px; border-radius:6px; font-weight:600; cursor:pointer; font-size:14px; } #artCommentModal .modal-list { padding:14px 16px; overflow-y:auto; flex:1; -webkit-overflow-scrolling:touch; } @media (max-width:480px) { .header { padding:8px 12px; min-height:54px; } .header-title { font-size:20px; } .header-logo { height:24px; } .back-btn { width:32px; height:32px; } .back-btn svg { width:20px; height:20px; } .article-main { padding:12px; } .article-h1 { font-size:21px; } .article-body { font-size:16px; } .article-source-link { font-size:15px; } .article-date { font-size:13px; } }</style></head><body>${adultBlocker}<div class="header"><div class="header-left"><a href="https://ajkernews.in/" class="back-btn" aria-label="Back to home"><svg viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></a><img src="/logo.png" class="header-logo" alt="Ajker News"><span class="header-title">Ajker News</span></div><div class="header-right"></div></div><main class="article-main"><article itemscope itemtype="https://schema.org/NewsArticle"><meta itemprop="datePublished" content="${escapeHtml(publishedAt)}"><meta itemprop="dateModified" content="${escapeHtml(publishedAt)}"><meta itemprop="mainEntityOfPage" content="${escapeHtml(canonical)}"><a class="article-cat" href="https://ajkernews.in/?category=${encodeURIComponent(category)}">${escapeHtml(catLabel[category] || category)}</a><h1 class="article-h1" itemprop="headline">${escapeHtml(title)}</h1><div itemprop="image" itemscope itemtype="https://schema.org/ImageObject"><img itemprop="url" class="article-img" src="${escapeHtml(image)}" alt="${escapeHtml(title)}" width="1200" height="675" loading="eager" decoding="async"></div><div class="article-body" id="articleBody" itemprop="articleBody"><p>${escapeHtml(fullSummary)}</p>${bannerContainer}</div><div class="article-source-row"><a class="article-source-link" href="${escapeHtml(result.source_url || '#')}" rel="noopener noreferrer nofollow" target="_blank">${escapeHtml(sourceDomain)}</a><span class="article-date">${escapeHtml(formattedDate)}</span></div><div class="article-actions-row"><button type="button" class="action-btn-art" id="artCommentBtn" aria-label="Comment"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></button><button type="button" class="action-btn-art" id="artLoveBtn" aria-label="Love"><svg viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg><span class="action-num" id="artLoveCount">${loveCount}</span></button><button type="button" class="action-btn-art" id="artShareBtn" aria-label="Share"><svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button></div></article>${recentHtml}</main><footer class="article-footer"><p><a href="https://ajkernews.in/">HOME</a></p></footer><div id="artCommentModal"><div class="modal-box"><div class="modal-header"><h3>মন্তব্য</h3><button type="button" class="modal-close" id="artModalClose">&times;</button></div><div class="modal-form"><input type="text" id="artCommentAuthor" placeholder="আপনার নাম (ঐচ্ছিক)"><textarea id="artCommentText" placeholder="আপনার মন্তব্য লিখুন..."></textarea><button type="button" id="artCommentSubmit">পাঠান</button></div><div class="modal-list" id="artCommentsList"></div></div></div><script>(function() { var API_BASE = "https://ajkernews.in"; var NEWS_ID = ${JSON.stringify(safeId)}; var LOVED_KEY = 'loved:' + NEWS_ID; var DEVICE_KEY = 'deviceId'; function getDeviceId() { try { var id = localStorage.getItem(DEVICE_KEY); if (!id) { id = 'user-' + Date.now() + '-' + Math.random().toString(36).substring(2, 10); localStorage.setItem(DEVICE_KEY, id); } return id; } catch (e) { return 'user-anonymous'; } } function isLoved() { try { return localStorage.getItem(LOVED_KEY) === '1'; } catch (e) { return false; } } function setLoved(v) { try { if (v) localStorage.setItem(LOVED_KEY, '1'); else localStorage.removeItem(LOVED_KEY); } catch (e) {} } function updateLoveUI(loved, count) { var btn = document.getElementById('artLoveBtn'); var countEl = document.getElementById('artLoveCount'); if (btn) btn.classList.toggle('loved', !!loved); if (countEl && count !== undefined && count !== null) countEl.textContent = String(count); } updateLoveUI(isLoved()); (async function() { try { var res = await fetch(API_BASE + '/api/love-counts?ids=' + encodeURIComponent(NEWS_ID)); var data = await res.json(); if (data && data.success && data.counts && typeof data.counts[NEWS_ID] === 'number') { updateLoveUI(isLoved(), data.counts[NEWS_ID]); } } catch (e) {} })(); try { var urlParams = new URLSearchParams(window.location.search); if (urlParams.get('from') === 'push') { fetch(API_BASE + '/api/push-click', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ newsId: NEWS_ID, deviceId: getDeviceId(), source: 'notification' }) }).catch(function() {}); } } catch (e) {} var shareBtn = document.getElementById('artShareBtn'); if (shareBtn) { shareBtn.addEventListener('click', async function(e) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); var shareUrl = API_BASE + '/news/' + encodeURIComponent(NEWS_ID); var headline = document.querySelector('.article-h1'); var headlineText = headline ? headline.textContent.trim() : 'খবর'; var bodyEl = document.getElementById('articleBody'); var fullSummary = bodyEl ? bodyEl.textContent.trim() : ''; var shortSummary = fullSummary.slice(0, 100).trim(); var summaryPart = shortSummary ? shortSummary + (fullSummary.length > 100 ? '...' : '') + '\\n\\n' : ''; if (navigator.share) { try { await navigator.share({ title: headlineText, text: headlineText + '\\n\\n' + summaryPart + 'বিস্তারিত পড়ুন', url: shareUrl }); return; } catch (err) { if (err && err.name === 'AbortError') return; } } var text = headlineText + '\\n\\n' + summaryPart + 'বিস্তারিত পড়ুন: ' + shareUrl; try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); alert('লিংক কপি হয়েছে'); return; } } catch (err) {} try { var ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.left = '-9999px'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); alert('লিংক কপি হয়েছে'); } catch (err) { prompt('লিংক কপি করুন:', text); } }); } var loveBtn = document.getElementById('artLoveBtn'); if (loveBtn) { loveBtn.addEventListener('click', async function(e) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); var currentlyLoved = isLoved(); var newLoved = !currentlyLoved; var countEl = document.getElementById('artLoveCount'); var currentCount = countEl ? parseInt(countEl.textContent, 10) || 0 : 0; var newCount = newLoved ? currentCount + 1 : Math.max(0, currentCount - 1); setLoved(newLoved); updateLoveUI(newLoved, newCount); try { var res = await fetch(API_BASE + '/api/love', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: NEWS_ID, deviceId: getDeviceId() }) }); var data = await res.json(); if (data && typeof data.love_count === 'number') { updateLoveUI(newLoved, data.love_count); } } catch (e) {} }); } var commentModal = document.getElementById('artCommentModal'); var commentBtn = document.getElementById('artCommentBtn'); var modalClose = document.getElementById('artModalClose'); var commentSubmit = document.getElementById('artCommentSubmit'); function openComments() { if (commentModal) commentModal.classList.add('active'); loadComments(); } function closeComments() { if (commentModal) commentModal.classList.remove('active'); } if (commentBtn) { commentBtn.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); openComments(); }); } if (modalClose) modalClose.addEventListener('click', closeComments); if (commentModal) { commentModal.addEventListener('click', function(e) { if (e.target === commentModal) closeComments(); }); } async function loadComments() { var list = document.getElementById('artCommentsList'); if (!list) return; list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">লোড হচ্ছে...</p>'; try { var res = await fetch(API_BASE + '/api/comments?id=' + encodeURIComponent(NEWS_ID)); var data = await res.json(); var comments = (data && data.comments) || []; if (!comments.length) { list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">এখনো কোনো মন্তব্য নেই। প্রথম মন্তব্য করুন!</p>'; return; } list.innerHTML = comments.map(function(c) { return '<div style="border-bottom:1px solid #f0f0f0;padding:10px 0;"><strong style="font-size:14px;">' + escapeHtml(c.author_name) + '</strong><p style="margin:5px 0 0;font-size:14px;color:#444;">' + escapeHtml(c.comment_text) + '</p></div>'; }).join(''); } catch (e) { list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">মন্তব্য লোড করা যায়নি।</p>'; } } if (commentSubmit) { commentSubmit.addEventListener('click', async function(e) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); var authorEl = document.getElementById('artCommentAuthor'); var textEl = document.getElementById('artCommentText'); var author = (authorEl && authorEl.value || '').trim() || 'Guest'; var text = (textEl && textEl.value || '').trim(); if (!text) { alert('মন্তব্য লিখুন!'); return; } commentSubmit.disabled = true; commentSubmit.textContent = 'পাঠানো হচ্ছে...'; try { var res = await fetch(API_BASE + '/api/comments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ newsId: NEWS_ID, author: author, text: text, deviceId: getDeviceId() }) }); var data = await res.json(); if (data.success) { if (textEl) textEl.value = ''; await loadComments(); } else if (data.code === 'ALREADY_COMMENTED') { alert('⚠️ আপনি ইতিমধ্যে এই খবরে একটি মন্তব্য করেছেন।'); } else { alert('❌ ' + (data.error || 'মন্তব্য পাঠানো যায়নি')); } } catch (e) { alert('মন্তব্য পাঠানো যায়নি'); } finally { commentSubmit.disabled = false; commentSubmit.textContent = 'পাঠান'; } }); } function escapeHtml(v) { if (v === null || v === undefined) return ''; return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;'); } })();</script>${floatingBtn}${pwaScript}</body></html>`;
+  const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes"><title>${escapeHtml(title)} - Ajker News</title><meta name="description" content="${escapeHtml(description)}"><meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1"><link rel="canonical" href="${escapeHtml(canonical)}"><link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#ffffff"><link rel="icon" type="image/x-icon" href="/public/favicon.ico"><link rel="icon" type="image/png" sizes="16x16" href="/public/favicon-16x16.png"><link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32x32.png"><link rel="apple-touch-icon" sizes="180x180" href="/public/apple-touch-icon.png"><meta property="og:type" content="article"><meta property="og:title" content="${escapeHtml(title)}"><meta property="og:description" content="${escapeHtml(description)}"><meta property="og:url" content="${escapeHtml(canonical)}"><meta property="og:image" content="${escapeHtml(image)}"><meta property="og:site_name" content="Ajker News"><meta property="article:published_time" content="${escapeHtml(publishedAt)}"><meta property="article:modified_time" content="${escapeHtml(publishedAt)}"><meta property="article:section" content="${escapeHtml(category)}"><meta name="twitter:card" content="summary_large_image"><script type="application/ld+json">${newsArticleLd}</script><script type="application/ld+json">${breadcrumbLd}</script>${adScripts}${socialBarScript}${articlePopunder}<style> * { margin:0; padding:0; box-sizing:border-box; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; } html { scroll-behavior: smooth; font-size: 16px; -webkit-text-size-adjust: 100%; } body { background:#ffffff; color:#111111; -webkit-font-smoothing:antialiased; padding-bottom:20px; max-width: 100vw; overflow-x: hidden; } .header { position:sticky; top:0; z-index:1000; display:flex; align-items:center; justify-content:space-between; padding:12px 16px; min-height:60px; background:#ffffff; border-bottom:1px solid #e0e0e0; } .header-left { display:flex; align-items:center; gap:10px; min-width:0; flex-shrink:1; } .back-btn { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; background:transparent; border:none; cursor:pointer; padding:4px; border-radius:50%; transition:background 0.15s; text-decoration:none; flex-shrink:0; } .back-btn svg { width:22px; height:22px; stroke:#111; stroke-width:2.2; fill:none; stroke-linecap:round; stroke-linejoin:round; } .header-logo { height:28px; width:auto; object-fit:contain; flex-shrink:0; } .header-title { font-size:24px; line-height:1; font-weight:700; color:#111111; white-space:nowrap; letter-spacing:-0.3px; overflow:hidden; text-overflow:ellipsis; } .article-main { padding:16px; max-width: min(820px, 95vw); margin:0 auto; } .article-cat { display:inline-block; font-size:12px; color:#f44336; font-weight:700; margin-bottom:8px; text-decoration:none; } .article-h1 { font-size:24px; line-height:1.35; margin:0 0 14px; color:#111; font-weight:700; } .article-img { width:100%; height:auto; border-radius:8px; display:block; margin:0 0 18px; background:#f3f3f3; } .article-body { font-size:17px; color:#222; line-height:1.85; } .article-body p { margin-bottom:14px; } .article-source-row { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-top:22px; padding-top:16px; padding-bottom:16px; border-top:1px solid #e8e8e8; border-bottom:1px solid #e8e8e8; } .article-source-link { color:#007bff; text-decoration:none; font-weight:600; font-size:16px; } .article-date { color:#999999; font-size:14px; font-weight:500; } .article-actions-row { display:flex; gap:20px; margin-top:12px; padding-top:10px; border-top:1px solid #f0f0f0; } .action-btn-art { display:flex; align-items:center; gap:5px; background:none; border:none; color:#666; font-size:14px; cursor:pointer; padding:0; } .action-btn-art svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:2; } .action-btn-art.loved svg { fill:#e74c3c !important; stroke:#e74c3c !important; } .action-num { font-size:12px; color:#555; font-weight:600; } .related-box { margin:32px 0 0; padding-top:22px; border-top:1px solid #eee; } .related-box h3 { font-size:18px; margin:0 0 14px; color:#111; font-weight:700; } .related-box ul { list-style:none; padding:0; margin:0; } .related-box li { margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #f5f5f5; } .related-box a { color:#111; text-decoration:none; font-size:15px; line-height:1.55; font-weight:600; } .article-footer { margin:36px 16px 0; padding-top:22px; border-top:1px solid #eee; text-align:center; color:#888; font-size:13px; } .article-footer a { color:#555; text-decoration:none; font-weight:600; letter-spacing:0.5px; } #artCommentModal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:2000; align-items:center; justify-content:center; padding:16px; } #artCommentModal.active { display:flex; } #artCommentModal .modal-box { background:#fff; border-radius:12px; width:100%; max-width:520px; max-height:85vh; display:flex; flex-direction:column; overflow:hidden; } #artCommentModal .modal-header { display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid #eee; flex-shrink:0; } #artCommentModal .modal-header h3 { font-size:17px; font-weight:700; margin:0; } #artCommentModal .modal-close { background:none; border:none; font-size:26px; cursor:pointer; color:#888; line-height:1; padding:0 6px; } #artCommentModal .modal-form { padding:12px 16px; border-top:1px solid #eee; background:#fafafa; flex-shrink:0; } #artCommentModal .modal-form input, #artCommentModal .modal-form textarea { width:100%; padding:9px 12px; border:1px solid #ddd; border-radius:6px; margin-bottom:8px; font-size:14px; outline:none; font-family:inherit; } #artCommentModal .modal-form textarea { height:70px; resize:vertical; } #artCommentModal .modal-form button { background:#000; color:#fff; border:none; padding:10px 20px; border-radius:6px; font-weight:600; cursor:pointer; font-size:14px; } #artCommentModal .modal-list { padding:14px 16px; overflow-y:auto; flex:1; -webkit-overflow-scrolling:touch; } @media (max-width:480px) { .header { padding:8px 12px; min-height:54px; } .header-title { font-size:20px; } .header-logo { height:24px; } .back-btn { width:32px; height:32px; } .back-btn svg { width:20px; height:20px; } .article-main { padding:12px; } .article-h1 { font-size:21px; } .article-body { font-size:16px; } .article-source-link { font-size:15px; } .article-date { font-size:13px; } }</style></head><body>${adultBlocker}<div class="header"><div class="header-left"><a href="https://ajkernews.in/" class="back-btn" aria-label="Back to home"><svg viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></a><img src="/logo.png" class="header-logo" alt="Ajker News"><span class="header-title">Ajker News</span></div><div class="header-right"></div></div><main class="article-main"><article itemscope itemtype="https://schema.org/NewsArticle"><meta itemprop="datePublished" content="${escapeHtml(publishedAt)}"><meta itemprop="dateModified" content="${escapeHtml(publishedAt)}"><meta itemprop="mainEntityOfPage" content="${escapeHtml(canonical)}"><a class="article-cat" href="https://ajkernews.in/?category=${encodeURIComponent(category)}">${escapeHtml(catLabel[category] || category)}</a><h1 class="article-h1" itemprop="headline">${escapeHtml(title)}</h1><div itemprop="image" itemscope itemtype="https://schema.org/ImageObject"><img itemprop="url" class="article-img" src="${escapeHtml(image)}" alt="${escapeHtml(title)}" width="1200" height="675" loading="eager" decoding="async"></div><div class="article-body" id="articleBody" itemprop="articleBody"><p>${escapeHtml(fullSummary)}</p>${bannerContainer}</div><div class="article-source-row"><a class="article-source-link" href="${escapeHtml(result.source_url || '#')}" rel="noopener noreferrer nofollow" target="_blank">${escapeHtml(sourceDomain)}</a><span class="article-date">${escapeHtml(formattedDate)}</span></div><div class="article-actions-row"><button type="button" class="action-btn-art" id="artCommentBtn" aria-label="Comment"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></button><button type="button" class="action-btn-art" id="artLoveBtn" aria-label="Love"><svg viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg><span class="action-num" id="artLoveCount">${loveCount}</span></button><button type="button" class="action-btn-art" id="artShareBtn" aria-label="Share"><svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button></div></article>${recentHtml}</main><footer class="article-footer"><p><a href="https://ajkernews.in/">HOME</a></p></footer><div id="artCommentModal"><div class="modal-box"><div class="modal-header"><h3>মন্তব্য</h3><button type="button" class="modal-close" id="artModalClose">&times;</button></div><div class="modal-form"><input type="text" id="artCommentAuthor" placeholder="আপনার নাম (ঐচ্ছিক)"><textarea id="artCommentText" placeholder="আপনার মন্তব্য লিখুন..."></textarea><button type="button" id="artCommentSubmit">পাঠান</button></div><div class="modal-list" id="artCommentsList"></div></div></div><script>(function() { var API_BASE = "https://ajkernews.in"; var NEWS_ID = ${JSON.stringify(safeId)}; var LOVED_KEY = 'loved:' + NEWS_ID; var DEVICE_KEY = 'deviceId'; function getDeviceId() { try { var id = localStorage.getItem(DEVICE_KEY); if (!id) { id = 'user-' + Date.now() + '-' + Math.random().toString(36).substring(2, 10); localStorage.setItem(DEVICE_KEY, id); } return id; } catch (e) { return 'user-anonymous'; } } function isLoved() { try { return localStorage.getItem(LOVED_KEY) === '1'; } catch (e) { return false; } } function setLoved(v) { try { if (v) localStorage.setItem(LOVED_KEY, '1'); else localStorage.removeItem(LOVED_KEY); } catch (e) {} } function updateLoveUI(loved, count) { var btn = document.getElementById('artLoveBtn'); var countEl = document.getElementById('artLoveCount'); if (btn) btn.classList.toggle('loved', !!loved); if (countEl && count !== undefined && count !== null) countEl.textContent = String(count); } updateLoveUI(isLoved()); (async function() { try { var res = await fetch(API_BASE + '/api/love-counts?ids=' + encodeURIComponent(NEWS_ID)); var data = await res.json(); if (data && data.success && data.counts && typeof data.counts[NEWS_ID] === 'number') { updateLoveUI(isLoved(), data.counts[NEWS_ID]); } } catch (e) {} })(); try { var urlParams = new URLSearchParams(window.location.search); if (urlParams.get('from') === 'push') { fetch(API_BASE + '/api/push-click', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ newsId: NEWS_ID, deviceId: getDeviceId(), source: 'notification' }) }).catch(function() {}); } } catch (e) {} var shareBtn = document.getElementById('artShareBtn'); if (shareBtn) { shareBtn.addEventListener('click', async function(e) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); var shareUrl = window.location.href.split('?')[0]; var headline = document.querySelector('.article-h1'); var headlineText = headline ? headline.textContent.trim() : 'খবর'; var bodyEl = document.getElementById('articleBody'); var fullSummary = bodyEl ? bodyEl.textContent.trim() : ''; var shortSummary = fullSummary.slice(0, 100).trim(); var summaryPart = shortSummary ? shortSummary + (fullSummary.length > 100 ? '...' : '') + '\\n\\n' : ''; if (navigator.share) { try { await navigator.share({ title: headlineText, text: headlineText + '\\n\\n' + summaryPart + 'বিস্তারিত পড়ুন', url: shareUrl }); return; } catch (err) { if (err && err.name === 'AbortError') return; } } var text = headlineText + '\\n\\n' + summaryPart + 'বিস্তারিত পড়ুন: ' + shareUrl; try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); alert('লিংক কপি হয়েছে'); return; } } catch (err) {} try { var ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.left = '-9999px'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); alert('লিংক কপি হয়েছে'); } catch (err) { prompt('লিংক কপি করুন:', text); } }); } var loveBtn = document.getElementById('artLoveBtn'); if (loveBtn) { loveBtn.addEventListener('click', async function(e) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); var currentlyLoved = isLoved(); var newLoved = !currentlyLoved; var countEl = document.getElementById('artLoveCount'); var currentCount = countEl ? parseInt(countEl.textContent, 10) || 0 : 0; var newCount = newLoved ? currentCount + 1 : Math.max(0, currentCount - 1); setLoved(newLoved); updateLoveUI(newLoved, newCount); try { var res = await fetch(API_BASE + '/api/love', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: NEWS_ID, deviceId: getDeviceId() }) }); var data = await res.json(); if (data && typeof data.love_count === 'number') { updateLoveUI(newLoved, data.love_count); } } catch (e) {} }); } var commentModal = document.getElementById('artCommentModal'); var commentBtn = document.getElementById('artCommentBtn'); var modalClose = document.getElementById('artModalClose'); var commentSubmit = document.getElementById('artCommentSubmit'); function openComments() { if (commentModal) commentModal.classList.add('active'); loadComments(); } function closeComments() { if (commentModal) commentModal.classList.remove('active'); } if (commentBtn) { commentBtn.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); openComments(); }); } if (modalClose) modalClose.addEventListener('click', closeComments); if (commentModal) { commentModal.addEventListener('click', function(e) { if (e.target === commentModal) closeComments(); }); } async function loadComments() { var list = document.getElementById('artCommentsList'); if (!list) return; list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">লোড হচ্ছে...</p>'; try { var res = await fetch(API_BASE + '/api/comments?id=' + encodeURIComponent(NEWS_ID)); var data = await res.json(); var comments = (data && data.comments) || []; if (!comments.length) { list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">এখনো কোনো মন্তব্য নেই। প্রথম মন্তব্য করুন!</p>'; return; } list.innerHTML = comments.map(function(c) { return '<div style="border-bottom:1px solid #f0f0f0;padding:10px 0;"><strong style="font-size:14px;">' + escapeHtml(c.author_name) + '</strong><p style="margin:5px 0 0;font-size:14px;color:#444;">' + escapeHtml(c.comment_text) + '</p></div>'; }).join(''); } catch (e) { list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">মন্তব্য লোড করা যায়নি।</p>'; } } if (commentSubmit) { commentSubmit.addEventListener('click', async function(e) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); var authorEl = document.getElementById('artCommentAuthor'); var textEl = document.getElementById('artCommentText'); var author = (authorEl && authorEl.value || '').trim() || 'Guest'; var text = (textEl && textEl.value || '').trim(); if (!text) { alert('মন্তব্য লিখুন!'); return; } commentSubmit.disabled = true; commentSubmit.textContent = 'পাঠানো হচ্ছে...'; try { var res = await fetch(API_BASE + '/api/comments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ newsId: NEWS_ID, author: author, text: text, deviceId: getDeviceId() }) }); var data = await res.json(); if (data.success) { if (textEl) textEl.value = ''; await loadComments(); } else if (data.code === 'ALREADY_COMMENTED') { alert('⚠️ আপনি ইতিমধ্যে এই খবরে একটি মন্তব্য করেছেন।'); } else { alert('❌ ' + (data.error || 'মন্তব্য পাঠানো যায়নি')); } } catch (e) { alert('মন্তব্য পাঠানো যায়নি'); } finally { commentSubmit.disabled = false; commentSubmit.textContent = 'পাঠান'; } }); } function escapeHtml(v) { if (v === null || v === undefined) return ''; return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;'); } })();</script>${floatingBtn}${pwaScript}</body></html>`;
   return new Response(html, { status: 200, headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": cacheControl, "X-Robots-Tag": "index, follow, max-image-preview:large" } });
 }
 
@@ -1362,7 +1367,10 @@ async function serveSharePage(id, env, requestUserAgentFromContext = "", request
   const description = cleanText(result.summary || "").slice(0, 160);
   const fullSummary = cleanText(result.summary || result.main_topic || "");
   const image = result.image_url || "https://ajkernews.in/logo.png";
-  const canonical = `https://ajkernews.in/news/${encodeURIComponent(safeId)}`;
+  
+  const slug = createSlug(title);
+  const canonical = `https://ajkernews.in/${slug}`;
+  
   const category = result.category || "general";
   const catLabel = { top:'সেরা খবর', trending:'ট্রেন্ডিং', west_bengal:'পশ্চিমবঙ্গ', kolkata:'কলকাতা', india:'ভারত', world:'বিশ্ব', business:'ব্যবসা', sports:'খেলা', politics:'রাজনীতি', technology:'প্রযুক্তি', entertainment:'বিনোদন', crime:'অপরাধ', district:'জেলা', general:'সাধারণ' };
   const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${escapeHtml(title)} - Ajker News</title><meta name="description" content="${escapeHtml(description)}"><meta name="robots" content="noindex, nofollow"><link rel="icon" type="image/x-icon" href="/public/favicon.ico"><link rel="icon" type="image/png" sizes="16x16" href="/public/favicon-16x16.png"><link rel="icon" type="image/png" sizes="32x32" href="/public/favicon-32x32.png"><link rel="apple-touch-icon" sizes="180x180" href="/public/apple-touch-icon.png"><meta property="og:title" content="${escapeHtml(title)}"><meta property="og:description" content="${escapeHtml(description)}"><meta property="og:image" content="${escapeHtml(image)}"><meta property="og:url" content="${escapeHtml(canonical)}"><meta property="og:type" content="article"><meta property="og:site_name" content="Ajker News"><meta name="twitter:card" content="summary_large_image">${adScripts}${socialBarScript}${articlePopunder}<style> * { margin:0; padding:0; box-sizing:border-box; font-family: Inter, -apple-system, sans-serif; } body { background: #f5f5f5; color: #111; padding: 0 0 40px; } .header { background: #fff; padding: 14px 16px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; gap: 10px; } .header img { height: 28px; } .header h1 { font-size: 20px; font-weight: 700; } .container { max-width: 820px; margin: 0 auto; padding: 16px; } .article-card { background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06); } .article-img { width: 100%; height: auto; display: block; } .article-body { padding: 18px 20px 22px; } .article-cat { display: inline-block; font-size: 12px; color: #f44336; font-weight: 700; margin-bottom: 8px; text-decoration: none; } .article-h1 { font-size: 24px; line-height: 1.4; margin: 0 0 14px; color: #111; font-weight: 700; } .article-text { font-size: 17px; line-height: 1.85; color: #222; margin-bottom: 18px; } .article-source { font-size: 14px; color: #888; padding-top: 14px; border-top: 1px solid #eee; } .article-source a { color: #007bff; text-decoration: none; } .cta { display: block; width: 100%; text-align: center; padding: 14px; background: #000; color: #fff; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 16px; margin-top: 18px; } .share-comments-section { background: #fff; border-radius: 12px; padding: 20px; margin-top: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); } .share-comments-title { font-size: 18px; font-weight: 700; margin-bottom: 14px; color: #111; } .share-comment-form { margin-bottom: 18px; padding-bottom: 18px; border-bottom: 1px solid #eee; } .share-input, .share-textarea { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 10px; font-size: 15px; font-family: inherit; outline: none; } .share-textarea { height: 80px; resize: vertical; } .share-btn { background: #000; color: #fff; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 15px; } .share-comments-list { max-height: 400px; overflow-y: auto; }</style></head><body>${adultBlocker}<div class="header"><img src="https://ajkernews.in/logo.png" alt="Ajker News"><h1>Ajker News</h1></div><div class="container"><article class="article-card"><img class="article-img" src="${escapeHtml(image)}" alt="${escapeHtml(title)}"><div class="article-body"><a class="article-cat" href="https://ajkernews.in/?category=${encodeURIComponent(category)}">${escapeHtml(catLabel[category] || category)}</a><h1 class="article-h1">${escapeHtml(title)}</h1><div class="article-text">${escapeHtml(fullSummary)}</div><div class="article-source">সূত্র: <a href="${escapeHtml(result.source_url || '#')}" target="_blank" rel="noopener noreferrer nofollow">${escapeHtml(result.source_name || 'Ajker News')}</a></div><a class="cta" href="${escapeHtml(canonical)}">পূর্ণ খবর পড়ুন →</a></div></article><div class="share-comments-section"><h3 class="share-comments-title">মন্তব্য</h3><div class="share-comment-form"><input type="text" id="shareAuthor" placeholder="আপনার নাম (ঐচ্ছিক)" class="share-input"><textarea id="shareText" placeholder="আপনার মন্তব্য লিখুন..." class="share-textarea"></textarea><button type="button" id="shareSubmit" class="share-btn">পাঠান</button></div><div class="share-comments-list" id="shareCommentsList"><p style="color:#888;text-align:center;padding:12px;">লোড হচ্ছে...</p></div></div></div><script>(function() { var API_BASE = "https://ajkernews.in"; var NEWS_ID = ${JSON.stringify(safeId)}; function escapeHtml(v) { if (v === null || v === undefined) return ''; return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;'); } async function loadComments() { var list = document.getElementById('shareCommentsList'); if (!list) return; list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">লোড হচ্ছে...</p>'; try { var res = await fetch(API_BASE + '/api/comments?id=' + encodeURIComponent(NEWS_ID)); var data = await res.json(); var comments = (data && data.comments) || []; if (!comments.length) { list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">এখনো কোনো মন্তব্য নেই।</p>'; return; } list.innerHTML = comments.map(function(c) { return '<div style="border-bottom:1px solid #f0f0f0;padding:10px 0;"><strong style="font-size:14px;">' + escapeHtml(c.author_name) + '</strong><p style="margin:5px 0 0;font-size:14px;color:#444;">' + escapeHtml(c.comment_text) + '</p></div>'; }).join(''); } catch (e) { list.innerHTML = '<p style="color:#888;text-align:center;padding:12px;">মন্তব্য লোড করা যায়নি।</p>'; } } var submitBtn = document.getElementById('shareSubmit'); if (submitBtn) { submitBtn.addEventListener('click', async function() { var authorEl = document.getElementById('shareAuthor'); var textEl = document.getElementById('shareText'); var author = (authorEl && authorEl.value || '').trim() || 'Guest'; var text = (textEl && textEl.value || '').trim(); if (!text) { alert('মন্তব্য লিখুন!'); return; } submitBtn.disabled = true; submitBtn.textContent = 'পাঠানো হচ্ছে...'; try { var res = await fetch(API_BASE + '/api/comments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ newsId: NEWS_ID, author: author, text: text }) }); if (res.ok) { if (textEl) textEl.value = ''; await loadComments(); } else { alert('মন্তব্য পাঠানো যায়নি'); } } catch (e) { alert('মন্তব্য পাঠানো যায়নি'); } finally { submitBtn.disabled = false; submitBtn.textContent = 'পাঠান'; } }); } loadComments(); })();</script></body></html>`;
@@ -1491,14 +1499,23 @@ async function addComment(request, env) {
 
 async function generateSitemap(env) {
   try {
-    const result = await env.DB.prepare(`SELECT id, published_at, created_at, type FROM news WHERE status = 'published' AND created_at >= datetime('now', '-30 days') ORDER BY created_at DESC LIMIT 4000`).all();
+    const result = await env.DB.prepare(`SELECT id, headline, published_at, created_at, type FROM news WHERE status = 'published' AND created_at >= datetime('now', '-30 days') ORDER BY created_at DESC LIMIT 4000`).all();
     const news = result.results || [];
     const baseUrl = "https://ajkernews.in";
     let xml = `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${baseUrl}/</loc><changefreq>hourly</changefreq><priority>1.0</priority></url>`;
     for (const item of news) {
       const displayDate = item.published_at || item.created_at;
       const lastmod = displayDate ? new Date(displayDate).toISOString() : new Date().toISOString();
-      const path = item.type === 'quiz' ? `/quiz/${encodeURIComponent(new Date(displayDate).toISOString().slice(0,10))}` : `/news/${encodeURIComponent(item.id)}`;
+      let path = "";
+      if (item.type === 'quiz') {
+          const d = new Date(displayDate);
+          const options = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' };
+          const shortDate = d.toLocaleDateString('en-GB', options).replace(/\s+/g, '-').toLowerCase();
+          const topic = item.headline.split("|")[0].trim().toLowerCase().replace(/[^\u0980-\u09FFa-z0-9\s-]/g, "").replace(/\s+/g, "-").substring(0, 50);
+          path = `/${shortDate}-${topic}`;
+      } else {
+          path = `/${createSlug(item.headline)}`;
+      }
       xml += `\n  <url><loc>${baseUrl}${path}</loc><lastmod>${lastmod}</lastmod><changefreq>hourly</changefreq><priority>0.9</priority></url>`;
     }
     xml += `\n</urlset>`;
@@ -1516,7 +1533,16 @@ async function generateNewsSitemap(env) {
       const displayDate = n.published_at || n.created_at;
       const publishedAt = displayDate ? new Date(displayDate).toISOString() : new Date().toISOString();
       const safeTitle = String(n.headline || "News").slice(0, 110);
-      const path = n.type === 'quiz' ? `/quiz/${encodeURIComponent(new Date(displayDate).toISOString().slice(0,10))}` : `/news/${encodeURIComponent(n.id)}`;
+      let path = "";
+      if (n.type === 'quiz') {
+          const d = new Date(displayDate);
+          const options = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' };
+          const shortDate = d.toLocaleDateString('en-GB', options).replace(/\s+/g, '-').toLowerCase();
+          const topic = n.headline.split("|")[0].trim().toLowerCase().replace(/[^\u0980-\u09FFa-z0-9\s-]/g, "").replace(/\s+/g, "-").substring(0, 50);
+          path = `/${shortDate}-${topic}`;
+      } else {
+          path = `/${createSlug(n.headline)}`;
+      }
       xml += `\n  <url><loc>${base}${path}</loc><lastmod>${publishedAt}</lastmod><news:news><news:publication><news:name>Ajker News</news:name><news:language>bn</news:language></news:publication><news:publication_date>${publishedAt}</news:publication_date><news:title>${escapeHtml(safeTitle)}</news:title><news:keywords>${escapeHtml(n.category || 'general')}</news:keywords><news:genres>PressRelease</news:genres></news:news></url>`;
     }
     xml += `\n</urlset>`;
@@ -1539,7 +1565,18 @@ async function generateRSS(env) {
     const pubDate = displayDate ? new Date(displayDate).toUTCString() : new Date().toUTCString();
     const safeDesc = String(n.summary || "").replace(/]]>/g, "]]]]><![CDATA[>");
     const enclosureTag = n.image_url ? `<enclosure url="${escapeHtml(n.image_url)}" length="0" type="image/jpeg"/>` : "";
-    const path = n.type === 'quiz' ? `/quiz/${encodeURIComponent(new Date(displayDate).toISOString().slice(0,10))}` : `/news/${encodeURIComponent(n.id)}`;
+    
+    let path = "";
+    if (n.type === 'quiz') {
+        const d = new Date(displayDate);
+        const options = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' };
+        const shortDate = d.toLocaleDateString('en-GB', options).replace(/\s+/g, '-').toLowerCase();
+        const topic = n.headline.split("|")[0].trim().toLowerCase().replace(/[^\u0980-\u09FFa-z0-9\s-]/g, "").replace(/\s+/g, "-").substring(0, 50);
+        path = `/${shortDate}-${topic}`;
+    } else {
+        path = `/${createSlug(n.headline)}`;
+    }
+    
     const link = `${base}${path}`;
     return `<item><title>${escapeHtml(n.headline)}</title><link>${link}</link><guid isPermaLink="true">${link}</guid><pubDate>${pubDate}</pubDate><description><![CDATA[${safeDesc}]]></description>${enclosureTag}</item>`;
   }).join("\n");

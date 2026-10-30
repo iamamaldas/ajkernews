@@ -1,5 +1,5 @@
 // worker/src/utils.js
-// ✅ FINAL v84: Bengali to English Transliteration for SEO URLs
+// ✅ FINAL v86: Smart Date Removal for Quiz Slugs
 
 export function makeId() {
   return crypto.randomUUID();
@@ -45,9 +45,6 @@ export function base64url(input) {
     .replace(/=+$/, "");
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ বাংলা থেকে ইংরেজি অক্ষরে রূপান্তরের ম্যাপ
-// ═══════════════════════════════════════════════════════════
 const BN_TO_EN_MAP = { 
   "অ":"o","আ":"a","ই":"i","ঈ":"i","উ":"u","ঊ":"u","ঋ":"ri","এ":"e","ঐ":"oi","ও":"o","ঔ":"ou",
   "ক":"k","খ":"kh","গ":"g","ঘ":"gh","ঙ":"ng","চ":"ch","ছ":"chh","জ":"j","ঝ":"jh","ঞ":"n",
@@ -64,27 +61,33 @@ export function toTransliterated(text) {
   return result.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 }
 
-// ✅ নতুন ফাংশন: হেডলাইন থেকে SEO ফ্রেন্ডলি URL স্লাগ তৈরি করা
 export function createSlug(text) {
   if (!text) return "";
-  
-  // ১. বাংলা অক্ষরকে ইংরেজিতে রূপান্তর
   let transliterated = "";
   for (const char of String(text)) {
     transliterated += BN_TO_EN_MAP[char] || char;
   }
-
-  // ২. ক্লিন এবং হাইফেন তৈরি
   return transliterated
     .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "") // শুধু ইংরেজি অক্ষর, সংখ্যা এবং স্পেস রাখবে
+    .replace(/[^a-z0-9\s-]/g, "")
     .trim()
-    .replace(/\s+/g, "-") // স্পেসকে হাইফেনে রূপান্তর
-    .substring(0, 65) // সর্বোচ্চ ৬৫ অক্ষর
-    .replace(/-+$/, ""); // শেষের বাড়তি হাইফেন বাদ
+    .replace(/\s+/g, "-")
+    .substring(0, 65)
+    .replace(/-+$/, "");
 }
 
-// ✅ নতুন ফাংশন: URL-এর স্লাগ দিয়ে ডাটাবেস থেকে আসল ৩২-অক্ষরের ID বের করা
+// ✅ নতুন: হেডলাইন থেকে অপ্রয়োজনীয় তারিখ বাদ দেওয়ার ফাংশন
+function removeDatesFromTitle(title) {
+  let clean = title.replace(/আজকের কুইজ:?/gi, "").trim();
+  // ইংরেজি তারিখ বাদ দেওয়া (যেমন: 30 October 2026, 30-Oct-2026)
+  clean = clean.replace(/\b\d{1,2}[\s-]+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[\s-,]*\d{4}\b/gi, "");
+  // বাংলা তারিখ বাদ দেওয়া (যেমন: ৩০ অক্টোবর ২০২৬)
+  clean = clean.replace(/\b\d{1,2}[\s-]+(জানুয়ারি|ফেব্রুয়ারি|মার্চ|এপ্রিল|মে|জুন|জুলাই|আগস্ট|সেপ্টেম্বর|অক্টোবর|নভেম্বর|ডিসেম্বর)[\s-]*\d{4}\b/gi, "");
+  // শুধু তারিখ থাকলে (যেমন: 30-10-2026)
+  clean = clean.replace(/\b\d{2}-\d{2}-\d{4}\b/g, "");
+  return clean.trim();
+}
+
 export async function getNewsIdBySlug(db, slug, isQuiz = false) {
   const typeCondition = isQuiz ? "AND type = 'quiz'" : "AND type = 'news'";
   const rows = await db.prepare(`SELECT id, headline, created_at FROM news WHERE status = 'published' ${typeCondition} ORDER BY created_at DESC LIMIT 500`).all();
@@ -93,14 +96,14 @@ export async function getNewsIdBySlug(db, slug, isQuiz = false) {
     let rowSlug = "";
     
     if (isQuiz) {
-      // কুইজের ক্ষেত্রে: "28-oct-2026-2024-t20-world-cup"
       const d = new Date(row.created_at);
       const options = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' };
       const shortDate = d.toLocaleDateString('en-GB', options).replace(/\s+/g, '-').toLowerCase();
-      const topic = row.headline.split("|")[0].trim(); 
-      rowSlug = createSlug(`${shortDate}-${topic}`);
+      
+      // ✅ হেডলাইন থেকে তারিখ বাদ দিয়ে পরিষ্কার টপিক তৈরি
+      const cleanTopic = removeDatesFromTitle(row.headline || "");
+      rowSlug = createSlug(`${shortDate}-${cleanTopic}`);
     } else {
-      // নিউজের ক্ষেত্রে: "amedabade-rupo-ebong-chennai-o-joypure-sonar-dam"
       rowSlug = createSlug(row.headline);
     }
 

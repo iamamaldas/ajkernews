@@ -1,6 +1,4 @@
 // worker/src/utils.js
-// ✅ FIXED: cleanText, escapeHtml, base64url যোগ করা হয়েছে
-// ❌ REMOVED: jsonResponse, errorResponse, getCronSlot (unused)
 
 export function makeId() {
   return crypto.randomUUID();
@@ -18,7 +16,6 @@ export function normalizeText(text = "") {
     .trim();
 }
 
-// ✅ SHARED: cleanText — gemini.js, news-selector.js, index.js থেকে duplicate সরানো
 export function cleanText(value) {
   return String(value || "")
     .replace(/<[^>]*>/g, "")
@@ -26,7 +23,6 @@ export function cleanText(value) {
     .trim();
 }
 
-// ✅ SHARED: escapeHtml — index.js থেকে duplicate সরানো
 export function escapeHtml(text) {
   if (text === null || text === undefined) return "";
   return String(text)
@@ -37,7 +33,6 @@ export function escapeHtml(text) {
     .replace(/'/g, "&#039;");
 }
 
-// ✅ FIXED: UTF-8 safe base64url (btoa Unicode bug fix)
 export function base64url(input) {
   const str = typeof input === "string" ? input : JSON.stringify(input);
   const bytes = new TextEncoder().encode(str);
@@ -47,4 +42,43 @@ export function base64url(input) {
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
+}
+
+// ✅ নতুন ফাংশন: হেডলাইন থেকে SEO ফ্রেন্ডলি URL স্লাগ তৈরি করা
+export function createSlug(text) {
+  if (!text) return "";
+  return text
+    .toLowerCase()
+    .replace(/[^\u0980-\u09FFa-z0-9\s-]/g, "") // বাংলা/ইংরেজি অক্ষর, সংখ্যা ও স্পেস ছাড়া বাকি সব বাদ
+    .trim()
+    .replace(/\s+/g, "-") // স্পেসকে হাইফেনে রূপান্তর
+    .substring(0, 65) // সর্বোচ্চ ৬৫ অক্ষর
+    .replace(/-+$/, ""); // শেষের অতিরিক্ত হাইফেন বাদ
+}
+
+// ✅ নতুন ফাংশন: URL-এর স্লাগ দিয়ে ডাটাবেস থেকে আসল ৩২-অক্ষরের ID বের করা
+export async function getNewsIdBySlug(db, slug, isQuiz = false) {
+  const typeCondition = isQuiz ? "AND type = 'quiz'" : "AND type = 'news'";
+  const rows = await db.prepare(`SELECT id, headline, created_at FROM news WHERE status = 'published' ${typeCondition} ORDER BY created_at DESC LIMIT 500`).all();
+  
+  for (const row of (rows.results || [])) {
+    let rowSlug = "";
+    
+    if (isQuiz) {
+      // কুইজের ক্ষেত্রে: "28-oct-2026-2024-t20-world-cup"
+      const d = new Date(row.created_at);
+      const options = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' };
+      const shortDate = d.toLocaleDateString('en-GB', options).replace(/\s+/g, '-').toLowerCase();
+      const topic = row.headline.split("|")[0].trim(); // হেডলাইনের প্রথম অংশ
+      rowSlug = createSlug(`${shortDate}-${topic}`);
+    } else {
+      // নিউজের ক্ষেত্রে: "amdedabade-rupo-chennai-sona"
+      rowSlug = createSlug(row.headline);
+    }
+
+    if (rowSlug === slug) {
+      return row.id; 
+    }
+  }
+  return null;
 }

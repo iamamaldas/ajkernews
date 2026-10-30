@@ -747,6 +747,26 @@ export default {
         return new Response("SSE disabled for performance", { status: 200, headers: { "Content-Type": "text/plain" } });
       }
 
+      // ✅ /quiz বা /quiz/ এ গেলে আজকের কুইজে redirect
+      if ((url.pathname === "/quiz" || url.pathname === "/quiz/") && request.method === "GET") {
+        try {
+          const todayStr = getTodayIST();
+          let quiz = await getQuizByDate(env.DB, todayStr);
+          if (!quiz) {
+            quiz = await env.DB.prepare(
+              `SELECT * FROM news WHERE status = 'published' AND type = 'quiz' ORDER BY created_at DESC LIMIT 1`
+            ).first();
+          }
+          if (quiz) {
+            const slug = getQuizSlug(quiz.headline, quiz.created_at);
+            return Response.redirect(`https://ajkernews.in/${slug}`, 302);
+          }
+        } catch (e) {
+          console.error("[QUIZ-REDIRECT] Failed:", e?.message);
+        }
+        return Response.redirect("https://ajkernews.in/", 302);
+      }
+
       // ✅ কুইজ রাউটিং (পুরনো এবং নতুন উভয় লিংক সাপোর্ট করবে)
       if (url.pathname.startsWith("/quiz/") && request.method === "GET") {
         const slug = decodeURIComponent(url.pathname.split("/")[2]);

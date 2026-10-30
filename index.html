@@ -745,14 +745,22 @@ function buildNewsHtml(news) {
   const fill = loved ? '#e74c3c' : 'none';
   const loveCount = Number(news.love_count || 0);
   
-  let articleUrl = `/news/${encodeURIComponent(news.id)}`;
+  let articleUrl = `/news/${encodeURIComponent(news.id)}`; 
   let categoryLabel = category;
   let isQuiz = false;
+
+  const baseSlug = headline.toLowerCase().replace(/[^\u0980-\u09FFa-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").substring(0, 65).replace(/-+$/, "");
+
   if (news.type === 'quiz') {
       isQuiz = true;
-      const dateStr = (news.created_at || news.published_at || '').slice(0, 10);
-      articleUrl = `/quiz/${dateStr}`;
+      const d = new Date(displayDate);
+      const options = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' };
+      const shortDate = d.toLocaleDateString('en-GB', options).replace(/\s+/g, '-').toLowerCase();
+      const topic = headline.split("|")[0].trim().toLowerCase().replace(/[^\u0980-\u09FFa-z0-9\s-]/g, "").replace(/\s+/g, "-").substring(0, 50);
+      articleUrl = `/${shortDate}-${topic}`; 
       categoryLabel = 'কুইজ';
+  } else {
+      articleUrl = `/${baseSlug}`; 
   }
 
   const quizClickAttr = isQuiz
@@ -949,13 +957,14 @@ async function shareNews(id) {
 
   const cardEl = document.querySelector(`.news-card[data-news-id="${CSS.escape(String(id))}"]`);
   const isQuiz = cardEl && cardEl.classList.contains('quiz-card');
-  let shareUrl;
+  
+  let shareUrl = '';
   if (isQuiz) {
-    const dateStr = (currentNews.find(n => String(n.id) === String(id))?.created_at || '').slice(0, 10)
-      || new Date().toISOString().slice(0, 10);
-    shareUrl = `${SITE_URL}/quiz/${dateStr}`;
+    const slugHref = cardEl.querySelector('.news-source-link').getAttribute('href');
+    shareUrl = `${SITE_URL}${slugHref}`;
   } else {
-    shareUrl = `${SITE_URL}/news/${encodeURIComponent(id)}`;
+    const slugHref = cardEl.querySelector('.news-source-link').getAttribute('href');
+    shareUrl = `${SITE_URL}${slugHref}`;
   }
 
   const safeSummary = String(summary || '').trim();

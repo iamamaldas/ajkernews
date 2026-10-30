@@ -236,7 +236,10 @@ function gonePage(relatedNews = []) {
         }).join('')}
       </ul>
     </div>` : '';
-  const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>খবরটি আর নেই - Ajker News</title><meta name="robots" content="noindex, follow"><link rel="icon" type="image/x-icon" href="/public/favicon.ico"><style>* { margin:0; padding:0; box-sizing:border-box; font-family: Inter,-apple-system,BlinkMacSystemFont,sans-serif; } body { max-width: 600px; margin: 40px auto; padding: 20px; color: #111; } h1 { font-size: 28px; margin-bottom: 16px; text-align: center; } p { font-size: 16px; color: #666; line-height: 1.6; margin-bottom: 24px; text-align: center; } .btn { display: block; width: 100%; text-align: center; background: #007bff; color: #fff; padding: 14px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px; margin-bottom: 12px; } .btn-secondary { background: #f2f2f2; color: #333; }</style></head><body><h1>📰 খবরটি আর নেই</h1><p>এই খবরটি আমাদের আর্কাইভ থেকে সরিয়ে নেওয়া হয়েছে। নিচে সাম্প্রতিক খবর দেখুন।</p><a href="https://ajkernews.in/" class="btn">🏠 সর্বশেষ খবর দেখুন</a><a href="javascript:history.back()" class="btn btn-secondary">← পূর্ববর্তী পেজে ফিরে যান</a>${relatedHtml}</body></html>`;
+
+  // ✅ ৪১০ পেজে Canonical ট্যাগ যোগ করা হলো
+  const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>খবরটি আর নেই - Ajker News</title><meta name="robots" content="noindex, follow"><link rel="canonical" href="https://ajkernews.in/"><link rel="icon" type="image/x-icon" href="/public/favicon.ico"><style>* { margin:0; padding:0; box-sizing:border-box; font-family: Inter,-apple-system,BlinkMacSystemFont,sans-serif; } body { max-width: 600px; margin: 40px auto; padding: 20px; color: #111; } h1 { font-size: 28px; margin-bottom: 16px; text-align: center; } p { font-size: 16px; color: #666; line-height: 1.6; margin-bottom: 24px; text-align: center; } .btn { display: block; width: 100%; text-align: center; background: #007bff; color: #fff; padding: 14px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px; margin-bottom: 12px; } .btn-secondary { background: #f2f2f2; color: #333; }</style></head><body><h1>📰 খবরটি আর নেই</h1><p>এই খবরটি আমাদের আর্কাইভ থেকে সরিয়ে নেওয়া হয়েছে। নিচে সাম্প্রতিক খবর দেখুন।</p><a href="https://ajkernews.in/" class="btn">🏠 সর্বশেষ খবর দেখুন</a><a href="javascript:history.back()" class="btn btn-secondary">← পূর্ববর্তী পেজে ফিরে যান</a>${relatedHtml}</body></html>`;
+
   return new Response(html, { status: 410, headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": "public, max-age=86400", "X-Robots-Tag": "noindex, follow" } });
 }
 
@@ -793,18 +796,26 @@ export default {
       if (url.pathname.startsWith("/news/") && request.method === "GET") {
         const slug = decodeURIComponent(url.pathname.slice(6).split("/")[0] || "").trim();
         if (!slug) return Response.redirect("https://ajkernews.in/", 302);
-        
+
         const articleId = await getNewsIdBySlug(env.DB, slug, false);
         if (articleId) {
           return await serveArticlePage(articleId, env, request);
         }
-        return new Response("News not found", { status: 404 });
+
+        // ✅ পোস্ট না পাওয়া গেলে ৪১০ পেজ দেখাবে
+        let relatedNews = [];
+        try {
+          const related = await env.DB.prepare(`SELECT id, headline FROM news WHERE status = 'published' AND type = 'news' ORDER BY created_at DESC LIMIT 5`).all();
+          relatedNews = related?.results || [];
+        } catch (e) {}
+        return gonePage(relatedNews);
       }
 
       // ✅ ডাইনামিক রুট URL (Slug-based) থেকে নিউজ বা কুইজ ওপেন করা
       if (request.method === "GET" && url.pathname !== "/" && !url.pathname.startsWith("/api/") && !url.pathname.startsWith("/admin") && !url.pathname.includes(".")) {
         const slug = decodeURIComponent(url.pathname.slice(1));
-        
+
+        // ১. কুইজ চেক
         const quizId = await getNewsIdBySlug(env.DB, slug, true);
         if (quizId) {
           const quiz = await env.DB.prepare(`SELECT * FROM news WHERE id = ?`).bind(quizId).first();
@@ -818,10 +829,19 @@ export default {
           }
         }
 
+        // ২. নিউজ চেক
         const realId = await getNewsIdBySlug(env.DB, slug, false);
         if (realId) {
           return await serveArticlePage(realId, env, request);
         }
+
+        // ৩. কোনো পোস্ট না পাওয়া গেলে ৪১০ পেজ (Canonical সহ)
+        let relatedNews = [];
+        try {
+          const related = await env.DB.prepare(`SELECT id, headline FROM news WHERE status = 'published' AND type = 'news' ORDER BY created_at DESC LIMIT 5`).all();
+          relatedNews = related?.results || [];
+        } catch (e) {}
+        return gonePage(relatedNews);
       }
 
       if (env.INDEXNOW_KEY && url.pathname === `/${env.INDEXNOW_KEY}.txt`) {

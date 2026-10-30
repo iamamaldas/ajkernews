@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v83: 100% SEO-Friendly Slug URLs (Mixed for Quiz, Keyword for News)
+// ✅ FINAL v85: 100% SEO-Friendly Slug URLs with Full System Stability
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -240,13 +240,13 @@ function gonePage(relatedNews = []) {
   return new Response(html, { status: 410, headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": "public, max-age=86400", "X-Robots-Tag": "noindex, follow" } });
 }
 
-async function getQuizPageHtml(quiz, dateStr, env) {
+async function getQuizPageHtml(quiz, slug, env) {
   const quizJson = JSON.stringify(quiz.questions);
   const headline = escapeHtml(quiz.headline || "কারেন্ট অ্যাফেয়ার্স কুইজ");
   const pageTitle = `${headline} - Ajker News`;
-  const canonical = `https://ajkernews.in/${dateStr}`; 
+  const canonical = `https://ajkernews.in/${slug}`;
   const image = "https://images.unsplash.com/photo-1606326608606-aa0b62935f2b?auto=format&fit=crop&w=800&q=80";
-  const publishedAt = new Date(dateStr + 'T00:00:00+05:30').toISOString();
+  const publishedAt = new Date().toISOString(); 
   const metaTitle = quiz.headline || "কারেন্ট অ্যাফেয়ার্স কুইজ";
   const metaDescription = quiz.summary || "কারেন্ট অ্যাফেয়ার্স ও সাধারণ জ্ঞান কুইজে অংশ নিন। ১২টি প্রশ্ন, ৩০ সেকেন্ড টাইমার।";
 
@@ -258,8 +258,8 @@ async function getQuizPageHtml(quiz, dateStr, env) {
         <h3 style="font-size:16px; margin-bottom:10px; color:#111;">📰 দিনের সেরা খবর:</h3>
         <ul style="list-style:none; padding:0;">
           ${recent.results.map(n => {
-            const slug = createSlug(n.headline || '');
-            return `<li style="margin-bottom:8px;"><a href="/${slug}" style="color:#1976d2; text-decoration:none; font-size:14px;">${escapeHtml(n.headline)}</a></li>`;
+            const newsSlug = createSlug(n.headline || '');
+            return `<li style="margin-bottom:8px;"><a href="/${newsSlug}" style="color:#1976d2; text-decoration:none; font-size:14px;">${escapeHtml(n.headline)}</a></li>`;
           }).join("")}
         </ul>
       </div>`;
@@ -747,7 +747,7 @@ export default {
         return new Response("SSE disabled for performance", { status: 200, headers: { "Content-Type": "text/plain" } });
       }
 
-      // ✅ কুইজ রাউটিং
+      // ✅ কুইজ রাউটিং (পুরনো এবং নতুন উভয় লিংক সাপোর্ট করবে)
       if (url.pathname.startsWith("/quiz/") && request.method === "GET") {
         const slug = decodeURIComponent(url.pathname.split("/")[2]);
         if (!slug) return Response.redirect("https://ajkernews.in/", 302);
@@ -781,7 +781,7 @@ export default {
         return new Response("News not found", { status: 404 });
       }
 
-      // ✅ ডাইনামিক রুট URL (homes) থেকে নিউজ বা কুইজ ওপেন করা
+      // ✅ ডাইনামিক রুট URL (Slug-based) থেকে নিউজ বা কুইজ ওপেন করা
       if (request.method === "GET" && url.pathname !== "/" && !url.pathname.startsWith("/api/") && !url.pathname.startsWith("/admin") && !url.pathname.includes(".")) {
         const slug = decodeURIComponent(url.pathname.slice(1));
         
@@ -1030,8 +1030,15 @@ export default {
               const d = new Date(r.created_at);
               const options = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' };
               const shortDate = d.toLocaleDateString('en-GB', options).replace(/\s+/g, '-').toLowerCase();
-              const topic = r.headline.split("|")[0].trim().toLowerCase().replace(/[^\u0980-\u09FFa-z0-9\s-]/g, "").replace(/\s+/g, "-").substring(0, 50);
-              return `${shortDate}-${topic}`;
+              const topic = r.headline.split("|")[0].trim();
+              
+              let transTopic = "";
+              for (const char of String(topic)) {
+                transTopic += BN_TO_EN_MAP[char] || char;
+              }
+              const topicSlug = transTopic.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").substring(0, 50).replace(/-+$/, "");
+              
+              return `${shortDate}-${topicSlug}`;
             }
             return createSlug(r.headline);
           });
@@ -1511,8 +1518,15 @@ async function generateSitemap(env) {
           const d = new Date(displayDate);
           const options = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' };
           const shortDate = d.toLocaleDateString('en-GB', options).replace(/\s+/g, '-').toLowerCase();
-          const topic = item.headline.split("|")[0].trim().toLowerCase().replace(/[^\u0980-\u09FFa-z0-9\s-]/g, "").replace(/\s+/g, "-").substring(0, 50);
-          path = `/${shortDate}-${topic}`;
+          const topic = item.headline.split("|")[0].trim();
+          
+          let transTopic = "";
+          for (const char of String(topic)) {
+            transTopic += BN_TO_EN_MAP[char] || char;
+          }
+          const topicSlug = transTopic.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").substring(0, 50).replace(/-+$/, "");
+          
+          path = `/${shortDate}-${topicSlug}`;
       } else {
           path = `/${createSlug(item.headline)}`;
       }
@@ -1538,8 +1552,15 @@ async function generateNewsSitemap(env) {
           const d = new Date(displayDate);
           const options = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' };
           const shortDate = d.toLocaleDateString('en-GB', options).replace(/\s+/g, '-').toLowerCase();
-          const topic = n.headline.split("|")[0].trim().toLowerCase().replace(/[^\u0980-\u09FFa-z0-9\s-]/g, "").replace(/\s+/g, "-").substring(0, 50);
-          path = `/${shortDate}-${topic}`;
+          const topic = n.headline.split("|")[0].trim();
+          
+          let transTopic = "";
+          for (const char of String(topic)) {
+            transTopic += BN_TO_EN_MAP[char] || char;
+          }
+          const topicSlug = transTopic.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").substring(0, 50).replace(/-+$/, "");
+          
+          path = `/${shortDate}-${topicSlug}`;
       } else {
           path = `/${createSlug(n.headline)}`;
       }
@@ -1571,8 +1592,15 @@ async function generateRSS(env) {
         const d = new Date(displayDate);
         const options = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' };
         const shortDate = d.toLocaleDateString('en-GB', options).replace(/\s+/g, '-').toLowerCase();
-        const topic = n.headline.split("|")[0].trim().toLowerCase().replace(/[^\u0980-\u09FFa-z0-9\s-]/g, "").replace(/\s+/g, "-").substring(0, 50);
-        path = `/${shortDate}-${topic}`;
+        const topic = n.headline.split("|")[0].trim();
+        
+        let transTopic = "";
+        for (const char of String(topic)) {
+          transTopic += BN_TO_EN_MAP[char] || char;
+        }
+        const topicSlug = transTopic.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").substring(0, 50).replace(/-+$/, "");
+        
+        path = `/${shortDate}-${topicSlug}`;
     } else {
         path = `/${createSlug(n.headline)}`;
     }

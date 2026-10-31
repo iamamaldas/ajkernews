@@ -1,27 +1,59 @@
 // worker/src/quiz-generator.js
-// ✅ FINAL: Auto Model Discovery + Dynamic Trending Keyword Extraction
+// ✅ FINAL: Auto Model Discovery + Real-Time Google Trends + Govt Exam Current Affairs
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const GEMINI_TIMEOUT_MS = 25000;
 
-// ✅ UPDATED PROMPT: Asks AI to find today's top searched keyword
-const QUIZ_PROMPT = `You are an expert SEO Quiz Master for a Bengali news website. 
+// ✅ ১. Google Trends RSS ফিড থেকে আজকের ট্রেন্ডিং কীওয়ার্ড আনার ফাংশন
+async function fetchTrendingKeywords() {
+  try {
+    const res = await fetch("https://trends.google.com/trending/rss?geo=IN", {
+      headers: { "User-Agent": "Mozilla/5.0" }
+    });
+    if (!res.ok) return [];
+    const xml = await res.text();
+    
+    // XML থেকে <title> ট্যাগের ভেতরের লেখা বের করা
+    const titles = [...xml.matchAll(/<title>(.*?)<\/title>/g)].map(m => m[1]);
+    
+    // প্রথম title সাধারণত "Daily Search Trends" থাকে, সেটি বাদ দিয়ে টপ ৫টি নেওয়া
+    const cleanTitles = titles.slice(1).filter(t => t && !t.includes("Daily Search Trends"));
+    return cleanTitles.slice(0, 5);
+  } catch (e) {
+    console.warn("[QUIZ] Google Trends fetch failed:", e.message);
+    return [];
+  }
+}
+
+// ✅ ২. মূল প্রম্পট (এখানে ট্রেন্ডিং কীওয়ার্ড ডাইনামিকভাবে বসবে)
+function buildPrompt(trendingKeywords) {
+  const trendsText = trendingKeywords.length > 0 
+    ? `Here are the ACTUAL trending search keywords in India RIGHT NOW: ${trendingKeywords.join(", ")}. You MUST base the quiz on one of these real-time topics.`
+    : `Use your knowledge of today's top news in India and West Bengal.`;
+
+  return `You are an expert exam setter for Indian Government Competitive Exams (like WBCS, SSC, Railway, Bank, Police) and an SEO Quiz Master for a Bengali news website. 
 
 TASK:
-1. Identify the #1 most searched/trending news keyword today in India and West Bengal (e.g., "India vs Pakistan Match", "West Bengal Election Update", "Virat Kohli Century", "New Movie Release").
-2. Create exactly 12 multiple-choice questions based on this trending topic.
+${trendsText}
+1. From the trending topics provided, select the single most important topic that is highly relevant for Government Exam aspirants.
+2. Create exactly 12 multiple-choice questions (MCQs) based on this selected topic, strictly following the standard of Indian Government Exams.
+
+CRITICAL INSTRUCTIONS:
+- The questions MUST be factual, educational, and based on current events (যেমন: নতুন সরকারি যোজনা, রাষ্ট্রপতির সফর, সাম্প্রতিক পুরস্কার, বা বাজেট).
+- Do NOT use vague options. Use strong distractors (confusing wrong options) just like real WBCS/SSC exams.
+- IMPORTANT: Rotate the topics on a daily basis. Do not pick Cricket or Sports every day, but if a major national sports event (like World Cup, Olympics) is trending, you MUST include it. Other days, focus on Politics, West Bengal Local News, Economy, Science, and Government Schemes.
+- Language: Bengali (বাংলা) with English terms in brackets where necessary (e.g., "ভারতের রাষ্ট্রপতি (President)").
 
 REQUIREMENTS:
 - You MUST create exactly 12 questions.
 - Each question must have 4 options.
 - Only 1 option is correct.
-- Provide a short explanation for the correct answer.
-- Language: Bengali (বাংলা).
+- Provide a short and precise explanation for the correct answer.
 - Return JSON array with this exact structure:
 [
   {
     "id": 1,
-    "mainTopic": "দিনের সেরা সার্চ কিওয়ার্ড (যেমন: Virat Kohli Century)",
+    "mainTopic": "দিনের সেরা কারেন্ট অ্যাফেয়ার্স (যেমন: G20 Summit 2026)",
     "question": "প্রশ্ন...",
     "options": ["অপশন A", "অপশন B", "অপশন C", "অপশন D"],
     "correct": 0,
@@ -31,6 +63,7 @@ REQUIREMENTS:
 - 'correct' is the index (0-3) of the correct option.
 - Do NOT include any markdown or extra text. Return ONLY valid JSON.
 `;
+}
 
 let cachedModels = null;
 let cacheTime = 0;
@@ -119,11 +152,18 @@ async function discoverModels(apiKey) {
 export async function generateDailyQuiz(apiKey) {
   if (!apiKey) return null;
 
+  // ✅ ৩. প্রথমে গুগল ট্রেন্ডিং কীওয়ার্ড আনা হচ্ছে
+  const trendingKeywords = await fetchTrendingKeywords();
+  console.log("[QUIZ] Live Trending Topics:", trendingKeywords);
+
+  // ✅ ৪. ট্রেন্ডিং কীওয়ার্ড দিয়ে প্রম্পট তৈরি করা হচ্ছে
+  const dynamicPrompt = buildPrompt(trendingKeywords);
+
   const models = await discoverModels(apiKey);
   
   for (const model of models) {
     try {
-      const result = await callGemini(model, apiKey);
+      const result = await callGemini(model, apiKey, dynamicPrompt);
       if (result && Array.isArray(result) && result.length >= 12) {
         return result.slice(0, 12); 
       }
@@ -134,7 +174,7 @@ export async function generateDailyQuiz(apiKey) {
   return null;
 }
 
-async function callGemini(model, apiKey) {
+async function callGemini(model, apiKey, promptText) {
   const endpoint = `${GEMINI_API_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
@@ -144,7 +184,7 @@ async function callGemini(model, apiKey) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: QUIZ_PROMPT }] }],
+        contents: [{ role: "user", parts: [{ text: promptText }] }],
         generationConfig: {
           temperature: 0.7,
           maxOutputTokens: 4096,

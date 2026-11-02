@@ -1,5 +1,5 @@
 // worker/src/utils.js
-// ✅ FINAL v88: Deterministic Quiz Slug (date-stripped, Worker+Browser consistent)
+// ✅ FINAL v89: Safe Slug Length (80 chars) to prevent URL breaking
 
 export function makeId() {
   return crypto.randomUUID();
@@ -72,26 +72,19 @@ export function createSlug(text) {
     .replace(/[^a-z0-9\s-]/g, "")
     .trim()
     .replace(/\s+/g, "-")
-    .substring(0, 65)
+    .substring(0, 80) // ✅ ৬৫ থেকে বাড়িয়ে ৮০ করা হলো
     .replace(/-+$/, "");
 }
 
 // ✅ হেডলাইন থেকে অপ্রয়োজনীয় তারিখ/প্রিফিক্স বাদ দেওয়ার ফাংশন
-// নতুন ফরম্যাট সাপোর্ট করে: "২২ অক্টোবর ২০২৬ কারেন্ট অ্যাফেয়ার্স: <keyword> | সাধারণ জ্ঞান ২০২৬"
 export function removeDatesFromTitle(title) {
   if (!title) return "";
   let clean = String(title).trim();
-  // পুরনো ফরম্যাট "আজকের কুইজ:" বাদ
   clean = clean.replace(/আজকের কুইজ:?/gi, "").trim();
-  // শুরুর ইংরেজি তারিখ বাদ (30 October 2026 / 30-Oct-2026)
   clean = clean.replace(/^[\d০-৯]{1,2}[\s-]+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[\s-,]*[\d০-৯]{4}\s*/i, "");
-  // শুরুর বাংলা তারিখ বাদ (৩০ অক্টোবর ২০২৬)
   clean = clean.replace(/^[\d০-৯]{1,2}[\s-]+(জানুয়ারি|ফেব্রুয়ারি|মার্চ|এপ্রিল|মে|জুন|জুলাই|আগস্ট|সেপ্টেম্বর|অক্টোবর|নভেম্বর|ডিসেম্বর)[\s-]*[\d০-৯]{4}\s*/i, "");
-  // শুধু সংখ্যা তারিখ (30-10-2026)
   clean = clean.replace(/^[\d০-৯]{2}-[\d০-৯]{2}-[\d০-৯]{4}\s*/i, "");
-  // "কারেন্ট অ্যাফেয়ার্স:" প্রিফিক্স বাদ
   clean = clean.replace(/^কারেন্ট\s*অ্যাফেয়ার্স:?\s*/i, "").trim();
-  // "|" এর পরে সব বাদ (যেমন "| সাধারণ জ্ঞান ২০২৬")
   clean = clean.split("|")[0].trim();
   return clean.replace(/\s+/g, " ").trim();
 }

@@ -753,7 +753,7 @@ function getQuizSlug(headline, createdAt) {
   const cleanTopic = removeDatesFromTitle(headline || "");
   let transliterated = "";
   for (const char of String(cleanTopic)) transliterated += BN_TO_EN_MAP[char] || char;
-  let slug = transliterated.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").substring(0, 65).replace(/-+$/, "");
+  let slug = transliterated.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").substring(0, 80).replace(/-+$/, "");
   return slug ? `${shortDate}-${slug}` : shortDate;
 }
 
@@ -777,7 +777,7 @@ function buildNewsHtml(news) {
   for (const char of String(headline)) {
     transliterated += BN_TO_EN_MAP[char] || char;
   }
-  const baseSlug = transliterated.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").substring(0, 65).replace(/-+$/, "");
+  const baseSlug = transliterated.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").substring(0, 80).replace(/-+$/, "");
 
   if (news.type === 'quiz') {
       isQuiz = true;

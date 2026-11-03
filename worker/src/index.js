@@ -636,9 +636,23 @@ export default {
               } catch(e) {}
           }
 
+          // ✅ নতুন আপডেট: স্পেসিয়াল ক্যারেক্টার ফিল্টার এবং বড় প্যারাগ্রাফ ইগনোর করা
           if (search) {
-              search = [...search.trim()].slice(0, 100).join('');
-              if (!search) search = null;
+              search = search.trim();
+              const isUrl = search.startsWith('http://') || search.startsWith('https://') || search.includes('ajkernews.in/');
+              
+              // যদি URL না হয় এবং সার্চে স্পেস থাকে (মানে এটি বড় কোনো বাক্য বা প্যারাগ্রাফ), তবে সার্চ বাতিল হবে
+              if (!isUrl && search.includes(' ')) {
+                  search = null; 
+              } else {
+                  // টাইটেল কীওয়ার্ড বা URL হলে ১০০ অক্ষরে ট্রাঙ্কেট করবে
+                  search = [...search].slice(0, 100).join('');
+                  
+                  // যদি ইউজার শুধু ড্যাশ বা স্পেসিয়াল ক্যারেক্টার দেয়, তবে সেটাও ইগনোর হবে
+                  if (!search || search.replace(/[^a-zA-Z0-9\p{L}]/gu, '').length === 0) {
+                      search = null;
+                  }
+              }
           }
 
           if (search && search.includes('-') && !newsId) {

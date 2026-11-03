@@ -1,5 +1,5 @@
 // worker/src/fast-index.js
-// ✅ FINAL v5: Google Indexing API + IndexNow + Bing + WebSub + Perfect URL Handling
+// ✅ FINAL v8: Google Indexing API ONLY for Quiz + Perfect URL Handling + IndexNow + Bing + WebSub
 
 import { submitToIndexNow } from "./indexnow.js";
 import { notifyWebSub } from "./websub.js";
@@ -9,8 +9,8 @@ const SITE = "https://ajkernews.in";
 const MAX_URLS_PER_BATCH = 100;
 const BING_MAX_URLS = 500;
 
-// ⚠️ Google Indexing API সাধারণ নিউজ/কুইজের জন্য বন্ধ রাখাই নিরাপদ
-const ENABLE_GOOGLE_INDEXING_API = false;
+// ✅ Google Indexing API চালু (তবে শুধুমাত্র কুইজের জন্য কাজ করবে)
+const ENABLE_GOOGLE_INDEXING_API = true;
 
 export async function fastIndexNews(env, ids) {
   const list = [...new Set((ids || []).map(id => String(id || "").trim()).filter(Boolean))];
@@ -21,31 +21,41 @@ export async function fastIndexNews(env, ids) {
 
   // ✅ পারফেক্ট URL বিল্ডার
   const urls = list.map(id => {
-    // ১. যদি আইডি 'quiz/' দিয়ে শুরু হয় (যেমন: quiz/2026-11-03)
     if (id.startsWith("quiz/")) {
       return `${SITE}/${id}`; 
     }
-    // ২. যদি শুধু ডেট ফরম্যাট হয় (যেমন: 2026-11-03)
     if (/^\d{4}-\d{2}-\d{2}$/.test(id)) {
         return `${SITE}/quiz/${id}`;
     }
-    // ৩. যদি আগে থেকেই news/ থাকে (ভুলবশত পাঠানো হলে সেটি বাদ যাবে)
     if (id.startsWith("news/")) {
         return `${SITE}/${id.replace(/^news\//, '')}`; 
     }
-    // ৪. সাধারণ স্লাগ (নিউজ বা কুইজ)
     return `${SITE}/${id}`;
   });
 
-  const jobs = [
-    ...(ENABLE_GOOGLE_INDEXING_API 
-      ? [["google_indexing_api", () => submitToGoogleIndexingAPI(env, urls)]] 
-      : []),
-    ["indexnow", () => submitIndexNowInChunks(env, urls)],
-    ["bing", () => submitToBing(env, urls)],
-    ["websub", () => notifyWebSub(env, `${SITE}/rss.xml`)],
-    ["pingomatic", () => pingPingOMatic()]
-  ];
+  // ✅ শুধুমাত্র কুইজ URL গুলো আলাদা করা হচ্ছে Google Indexing API-এর জন্য
+  const quizUrls = urls.filter(url => {
+    return url.includes('/quiz/') || 
+           /\/\d{4}-\d{2}-\d{2}/.test(url) || 
+           url.includes('current-affairs') || 
+           url.includes('karent-affairs') || 
+           url.includes('quiz');
+  });
+
+  const jobs = [];
+
+  // ✅ Google Indexing API শুধুমাত্র কুইজ URL-এর জন্য
+  if (ENABLE_GOOGLE_INDEXING_API && quizUrls.length > 0) {
+    jobs.push(["google_indexing_api", () => submitToGoogleIndexingAPI(env, quizUrls)]);
+  } else {
+    jobs.push(["google_indexing_api", () => Promise.resolve({ ok: true, skipped: true, reason: quizUrls.length === 0 ? "no_quiz_urls" : "api_disabled" })]);
+  }
+
+  // ✅ বাকি সব URL (নিউজ + কুইজ) IndexNow এবং Bing-এ যাবে
+  jobs.push(["indexnow", () => submitIndexNowInChunks(env, urls)]);
+  jobs.push(["bing", () => submitToBing(env, urls)]);
+  jobs.push(["websub", () => notifyWebSub(env, `${SITE}/rss.xml`)]);
+  jobs.push(["pingomatic", () => pingPingOMatic()]);
 
   const settled = await Promise.allSettled(
     jobs.map(([, job]) => Promise.resolve().then(job))
@@ -68,7 +78,8 @@ export async function fastIndexNews(env, ids) {
   const ok = successfulChannels > 0;
 
   console.log("[FAST-INDEX] Summary:", JSON.stringify({
-    urls: urls.length,
+    totalUrls: urls.length,
+    quizUrlsForGoogle: quizUrls.length,
     successfulChannels,
     channels
   }));

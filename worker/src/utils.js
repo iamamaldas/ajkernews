@@ -1,5 +1,5 @@
 // worker/src/utils.js
-// ✅ FINAL v89: Safe Slug Length (80 chars) to prevent URL breaking
+// ✅ FINAL: Improved Slug Length & Safe Cutoff
 
 export function makeId() {
   return crypto.randomUUID();
@@ -72,7 +72,6 @@ export function createSlug(text) {
     .replace(/[^a-z0-9\s-]/g, "")
     .trim()
     .replace(/\s+/g, "-")
-    .substring(0, 80) // ✅ ৬৫ থেকে বাড়িয়ে ৮০ করা হলো
     .replace(/-+$/, "");
 }
 
@@ -89,19 +88,40 @@ export function removeDatesFromTitle(title) {
   return clean.replace(/\s+/g, " ").trim();
 }
 
-// ✅ কুইজ স্লাগের জন্য ডিটারমিনিস্টিক short date (Worker ও Browser একই ফল দেবে)
+// ✅ কুইজ স্লাগের জন্য ডিটারমিনিস্টিক short date
 export function getShortDate(createdAt) {
   const d = new Date(createdAt || Date.now());
-  if (isNaN(d.getTime())) return "";
+  if (isNaN(d.getTime())) {
+    const fallbackDate = new Date(); 
+    const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+    return `${fallbackDate.getUTCDate()}-${months[fallbackDate.getUTCMonth()]}-${fallbackDate.getUTCFullYear()}`;
+  }
   const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
   return `${d.getUTCDate()}-${months[d.getUTCMonth()]}-${d.getUTCFullYear()}`;
 }
 
-// ✅ কুইজের সম্পূর্ণ স্লাগ (তারিখ-বাদ দেওয়া টপিক সহ)
+// ✅ কুইজের সম্পূর্ণ স্লাগ (নিরাপদ শব্দ কর্তন সহ)
 export function getQuizSlug(headline, createdAt) {
   const shortDate = getShortDate(createdAt);
   const cleanTopic = removeDatesFromTitle(headline || "");
-  return createSlug(`${shortDate}-${cleanTopic}`);
+  let transliterated = "";
+  for (const char of String(cleanTopic)) transliterated += BN_TO_EN_MAP[char] || char;
+  
+  let cleanSlug = transliterated
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+$/, "");
+
+  // ✅ যদি টাইটেল খুব বড় হয়, তবে ৭০ অক্ষরে থামিয়ে দেবো, যাতে শব্দের মাঝখানে কেটে না যায়
+  if (cleanSlug.length > 70) {
+      cleanSlug = cleanSlug.substring(0, 70);
+      // শেষের দিকের আধা-কাটা শব্দটি মুছে ফেলা হবে (যেমন: curre -> "")
+      cleanSlug = cleanSlug.substring(0, cleanSlug.lastIndexOf('-'));
+  }
+  
+  return cleanSlug ? `${shortDate}-${cleanSlug}` : shortDate;
 }
 
 export async function getNewsIdBySlug(db, slug, isQuiz = false) {

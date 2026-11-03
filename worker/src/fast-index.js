@@ -1,5 +1,5 @@
 // worker/src/fast-index.js
-// ✅ FINAL v8: Google Indexing API ONLY for Quiz + Perfect URL Handling + IndexNow + Bing + WebSub
+// ✅ FINAL v8: Google Indexing API ONLY for Quiz + Perfect URL Handling
 
 import { submitToIndexNow } from "./indexnow.js";
 import { notifyWebSub } from "./websub.js";
@@ -21,15 +21,19 @@ export async function fastIndexNews(env, ids) {
 
   // ✅ পারফেক্ট URL বিল্ডার
   const urls = list.map(id => {
+    // ১. যদি আইডি 'quiz/' দিয়ে শুরু হয়
     if (id.startsWith("quiz/")) {
       return `${SITE}/${id}`; 
     }
+    // ২. যদি শুধু ডেট ফরম্যাট হয় (যেমন: 2026-11-03)
     if (/^\d{4}-\d{2}-\d{2}$/.test(id)) {
-        return `${SITE}/quiz/${id}`;
+      return `${SITE}/quiz/${id}`;
     }
+    // ৩. যদি আগে থেকেই news/ থাকে
     if (id.startsWith("news/")) {
-        return `${SITE}/${id.replace(/^news\//, '')}`; 
+      return `${SITE}/${id.replace(/^news\//, '')}`; 
     }
+    // ৪. সাধারণ স্লাগ (নিউজ বা কুইজ)
     return `${SITE}/${id}`;
   });
 

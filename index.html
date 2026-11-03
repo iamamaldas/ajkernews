@@ -1000,16 +1000,9 @@ async function shareNews(id) {
   if (!headline) headline = 'সংবাদ';
 
   const cardEl = document.querySelector(`.news-card[data-news-id="${CSS.escape(String(id))}"]`);
-  const isQuiz = cardEl && cardEl.classList.contains('quiz-card');
   
-  let shareUrl = '';
-  if (isQuiz) {
-    const slugHref = cardEl.querySelector('.news-source-link').getAttribute('href');
-    shareUrl = `${SITE_URL}${slugHref}`;
-  } else {
-    const slugHref = cardEl.querySelector('.news-source-link').getAttribute('href');
-    shareUrl = `${SITE_URL}${slugHref}`;
-  }
+  const slugHref = cardEl.querySelector('.news-source-link').getAttribute('href');
+  const shareUrl = `${SITE_URL}${slugHref}`;
 
   const safeSummary = String(summary || '').trim();
   const shortSummary = safeSummary.slice(0, 100).trim();

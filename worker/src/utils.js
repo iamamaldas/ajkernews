@@ -1,5 +1,5 @@
 // worker/src/utils.js
-// ✅ FINAL: Improved Slug Length & Safe Cutoff
+// ✅ FINAL v90: Optimized Slug Length for SEO & Perfect Matching
 
 export function makeId() {
   return crypto.randomUUID();
@@ -61,18 +61,27 @@ export function toTransliterated(text) {
   return result.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 }
 
+// ✅ সাধারণ নিউজের স্লাগ (৮০ অক্ষর)
 export function createSlug(text) {
   if (!text) return "";
   let transliterated = "";
   for (const char of String(text)) {
     transliterated += BN_TO_EN_MAP[char] || char;
   }
-  return transliterated
+  
+  let cleanSlug = transliterated
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, "")
     .trim()
     .replace(/\s+/g, "-")
     .replace(/-+$/, "");
+
+  if (cleanSlug.length > 80) {
+      cleanSlug = cleanSlug.substring(0, 80);
+      cleanSlug = cleanSlug.substring(0, cleanSlug.lastIndexOf('-'));
+  }
+
+  return cleanSlug;
 }
 
 // ✅ হেডলাইন থেকে অপ্রয়োজনীয় তারিখ/প্রিফিক্স বাদ দেওয়ার ফাংশন
@@ -100,7 +109,7 @@ export function getShortDate(createdAt) {
   return `${d.getUTCDate()}-${months[d.getUTCMonth()]}-${d.getUTCFullYear()}`;
 }
 
-// ✅ কুইজের সম্পূর্ণ স্লাগ (নিরাপদ শব্দ কর্তন সহ)
+// ✅ কুইজের সম্পূর্ণ স্লাগ (৭০ অক্ষর, শব্দ ভাঙবে না)
 export function getQuizSlug(headline, createdAt) {
   const shortDate = getShortDate(createdAt);
   const cleanTopic = removeDatesFromTitle(headline || "");
@@ -114,10 +123,8 @@ export function getQuizSlug(headline, createdAt) {
     .replace(/\s+/g, "-")
     .replace(/-+$/, "");
 
-  // ✅ যদি টাইটেল খুব বড় হয়, তবে ৭০ অক্ষরে থামিয়ে দেবো, যাতে শব্দের মাঝখানে কেটে না যায়
   if (cleanSlug.length > 70) {
       cleanSlug = cleanSlug.substring(0, 70);
-      // শেষের দিকের আধা-কাটা শব্দটি মুছে ফেলা হবে (যেমন: curre -> "")
       cleanSlug = cleanSlug.substring(0, cleanSlug.lastIndexOf('-'));
   }
   

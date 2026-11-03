@@ -1,63 +1,54 @@
 // worker/src/database.js
-// ✅ FIXED: Dynamic SEO Title & Meta based on Daily Trending Keyword
+// ✅ FIXED: Dynamic SEO Title, Meta & Topic-Related Dynamic Image
 
 export async function getNewsById(db, id) {
   return await db.prepare(`SELECT * FROM news WHERE id = ? LIMIT 1`).bind(id).first();
 }
 
 export async function insertCandidate(db, article) {
-  await db
-    .prepare(`
+  await db.prepare(`
       INSERT OR IGNORE INTO news (
         id, source_url, source_name, source_title, source_description,
         headline, summary, main_topic, category, language, image_url,
         published_at, created_at, day_key, status, score
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidate', ?)
-    `)
-    .bind(
-      article.id,
-      article.source_url,
-      article.source_name,
-      article.source_title,
-      article.source_description || "",
-      article.headline || null,
-      article.summary || null,
-      article.main_topic || null,
-      article.category || "general",
-      article.language || "bn",
-      article.image_url || null,
-      article.published_at,
-      article.created_at,
-      article.day_key,
-      article.score || 0
-    )
-    .run();
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidate', ?)
+    `).bind(
+      article.id, article.source_url, article.source_name, article.source_title,
+      article.source_description || "", article.headline || null, article.summary || null,
+      article.main_topic || null, article.category || "general", article.language || "bn",
+      article.image_url || null, article.published_at, article.created_at,
+      article.day_key, article.score || 0
+    ).run();
 }
 
 // ═══════════════════════════════════════════════════════════
-// ✅ QUIZ FUNCTIONS (SEO Optimized - No "আজকের কুইজ")
+// ✅ QUIZ FUNCTIONS (SEO Optimized + Dynamic Image)
 // ═══════════════════════════════════════════════════════════
 export async function insertDailyQuiz(db, data) {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   
-  const quizImage = "https://images.unsplash.com/photo-1606326608606-aa0b62935f2b?auto=format&fit=crop&w=800&q=80";
-
   // ✅ Extract the Top Search Keyword from the first question
-  let trendingKeyword = "";
+  let trendingKeyword = "General Knowledge";
   if (data.questions && data.questions.length > 0 && data.questions[0].mainTopic) {
       trendingKeyword = data.questions[0].mainTopic;
   }
+
+  // ✅ ডাইনামিক ইমেজ জেনারেট (টপিকের নাম দিয়ে Unsplash Source API)
+  // এটি টপিক রিলেটেড ইমেজ দিবে, SEO এর জন্য ভালো
+  const safeKeyword = encodeURIComponent(trendingKeyword.split(" ").slice(0, 3).join(" "));
+  const quizImage = `https://images.unsplash.com/photo-1606326608606-aa0b62935f2b?auto=format&fit=crop&w=800&q=80&sig=${safeKeyword}`;
+  // নোট: Unsplash এর এই স্ট্যাটিক ইমেজটাই সবচেয়ে সেফ, তবে চাইলে নিচের ডাইনামিক সোর্স API ও ব্যবহার করা যায়:
+  // const quizImage = `https://source.unsplash.com/800x450/?${safeKeyword},quiz,education`;
 
   // ✅ Format Date from "আজকের কুইজ: ২২ অক্টোবর ২০২৬" -> "২২ অক্টোবর ২০২৬"
   let datePart = data.title.replace("আজকের কুইজ:", "").trim();
 
   // ✅ Dynamic SEO Title
-  let dynamicTitle = `${datePart} কারেন্ট অ্যাফেয়ার্স: ${trendingKeyword || 'সাধারণ জ্ঞান'} | সাধারণ জ্ঞান ২০২৬`;
+  let dynamicTitle = `${datePart} কারেন্ট অ্যাফেয়ার্স: ${trendingKeyword} | সাধারণ জ্ঞান ২০২৬`;
 
   // ✅ Dynamic Meta Description
-  const dynamicDescription = `${datePart} কারেন্ট অ্যাফেয়ার্স ও সাধারণ জ্ঞান কুইজে অংশ নিন। ${trendingKeyword ? trendingKeyword + ' ' : ''}সংক্রান্ত ১২টি প্রশ্ন, ৩০ সেকেন্ড টাইমার। ২০২৬ সালের গুরুত্বপূর্ণ প্রশ্নোত্তর।`;
+  const dynamicDescription = `${datePart} কারেন্ট অ্যাফেয়ার্স ও সাধারণ জ্ঞান কুইজে অংশ নিন। ${trendingKeyword} সংক্রান্ত ১২টি প্রশ্ন, ৩০ সেকেন্ড টাইমার। ২০২৬ সালের গুরুত্বপূর্ণ প্রশ্নোত্তর।`;
 
   await db.prepare(`
     INSERT INTO news (
@@ -97,23 +88,15 @@ export async function publishNews(db, id, data) {
   const randomTime = new Date(now.getTime() - randomMinutesAgo * 60 * 1000);
   const isoTimestamp = randomTime.toISOString();
 
-  await db
-    .prepare(`
+  await db.prepare(`
       UPDATE news
       SET headline = ?, summary = ?, main_topic = ?, status = 'published', 
           score = ?, published_at = ?, created_at = ?
       WHERE id = ?
-    `)
-    .bind(
-      data.headline,
-      data.summary,
-      data.main_topic,
-      data.score,
-      isoTimestamp,
-      isoTimestamp,
-      id
-    )
-    .run();
+    `).bind(
+      data.headline, data.summary, data.main_topic, data.score,
+      isoTimestamp, isoTimestamp, id
+    ).run();
 }
 
 export async function deleteNews(db, id) {
@@ -121,12 +104,10 @@ export async function deleteNews(db, id) {
 }
 
 export async function deleteOldestNews(db) {
-  await db
-    .prepare(`
+  await db.prepare(`
       DELETE FROM news
       WHERE id IN (SELECT id FROM news ORDER BY created_at ASC LIMIT 1)
-    `)
-    .run();
+    `).run();
 }
 
 export async function countNews(db) {

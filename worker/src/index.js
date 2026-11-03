@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v88: 100% Stable, SEO Optimized & Bug Free (Fixed D1 LIKE Crash)
+// ✅ FINAL v89: 100% Stable, SEO Optimized, Perfect URL Indexing & Dynamic Quiz Image
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -247,7 +247,10 @@ async function getQuizPageHtml(quiz, slug, env, publishedAtOverride) {
   const headline = escapeHtml(quiz.headline || "কারেন্ট অ্যাফেয়ার্স কুইজ");
   const pageTitle = `${headline} - Ajker News`;
   const canonical = `https://ajkernews.in/${slug}`;
-  const image = "https://images.unsplash.com/photo-1606326608606-aa0b62935f2b?auto=format&fit=crop&w=800&q=80";
+  
+  // ✅ FIX: Use the dynamic image from DB, fallback to default
+  const image = quiz.image_url || "https://images.unsplash.com/photo-1606326608606-aa0b62935f2b?auto=format&fit=crop&w=800&q=80";
+  
   const publishedAt = publishedAtOverride || quiz.created_at || new Date().toISOString(); 
   const metaTitle = quiz.headline || "কারেন্ট অ্যাফেয়ার্স কুইজ";
   const metaDescription = quiz.summary || "কারেন্ট অ্যাফেয়ার্স ও সাধারণ জ্ঞান কুইজে অংশ নিন। ১২টি প্রশ্ন, ৩০ সেকেন্ড টাইমার।";
@@ -669,7 +672,6 @@ export default {
               countBinds.push(newsId); 
           } else if (search) { 
               const safeSearch = search.replace(/-/g, ' ').trim();
-              // ✅ FIX: Using INSTR instead of LIKE to prevent D1 Error
               query += ` AND (instr(lower(headline), lower(?)) > 0 OR instr(lower(search_text), lower(?)) > 0 OR instr(lower(summary), lower(?)) > 0)`; 
               countQuery += ` AND (instr(lower(headline), lower(?)) > 0 OR instr(lower(search_text), lower(?)) > 0 OR instr(lower(summary), lower(?)) > 0)`; 
               binds.push(search, safeSearch, safeSearch); 
@@ -772,9 +774,14 @@ export default {
                   questions: finalQuestions
               });
 
+              // ✅ FIX: Use correct slug for indexing instead of 'quiz/date'
               try {
                   console.log(`[QUIZ-INDEX] Instantly indexing quiz for ${todayStr}...`);
-                  await fastIndexNews(env, [`quiz/${todayStr}`]);
+                  const insertedQuiz = await getQuizByDate(env.DB, todayStr);
+                  if (insertedQuiz) {
+                      const quizSlug = getQuizSlug(insertedQuiz.headline, insertedQuiz.created_at);
+                      await fastIndexNews(env, [quizSlug]);
+                  }
               } catch (e) {
                   console.error(`[QUIZ-INDEX] Failed:`, e.message);
               }
@@ -831,7 +838,7 @@ export default {
         if (!quiz) return new Response("Quiz not found", { status: 404 });
         let questions = [];
         try { questions = JSON.parse(quiz.quiz_data); } catch (e) {}
-        return new Response(await getQuizPageHtml({ headline: quiz.headline, summary: quiz.summary, questions }, slug, env, quiz.created_at), {
+        return new Response(await getQuizPageHtml({ headline: quiz.headline, summary: quiz.summary, questions, image_url: quiz.image_url }, slug, env, quiz.created_at), {
           status: 200,
           headers: { "Content-Type": "text/html; charset=UTF-8", "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" }
         });
@@ -863,7 +870,7 @@ export default {
           if (quiz) {
             let questions = [];
             try { questions = JSON.parse(quiz.quiz_data); } catch (e) {}
-            return new Response(await getQuizPageHtml({ headline: quiz.headline, summary: quiz.summary, questions }, slug, env, quiz.created_at), {
+            return new Response(await getQuizPageHtml({ headline: quiz.headline, summary: quiz.summary, questions, image_url: quiz.image_url }, slug, env, quiz.created_at), {
               status: 200,
               headers: { "Content-Type": "text/html; charset=UTF-8" }
             });
@@ -1055,9 +1062,14 @@ export default {
                 questions
               });
 
+              // ✅ FIX: Use correct slug for indexing instead of 'quiz/date'
               try {
                   console.log(`[QUIZ-INDEX] Instantly indexing quiz for ${todayStr}...`);
-                  await fastIndexNews(env, [`quiz/${todayStr}`]);
+                  const generatedQuiz = await getQuizByDate(env.DB, todayStr);
+                  if (generatedQuiz) {
+                      const quizSlug = getQuizSlug(generatedQuiz.headline, generatedQuiz.created_at);
+                      await fastIndexNews(env, [quizSlug]);
+                  }
               } catch (e) {
                   console.error(`[QUIZ-INDEX] Failed:`, e.message);
               }
@@ -1356,7 +1368,6 @@ async function serveListingPage(env, category, searchQuery, request) {
     }
 
     let sql, binds;
-    // ✅ FIX: Using INSTR instead of LIKE for public listing search
     if (safeSearchQuery) { 
         sql = `SELECT id, headline, summary, published_at, created_at, category, image_url, source_name, main_topic FROM news WHERE status = 'published' AND type = 'news' AND (instr(lower(headline), lower(?)) > 0 OR instr(lower(summary), lower(?)) > 0 OR instr(lower(main_topic), lower(?)) > 0) ORDER BY created_at DESC LIMIT 100`; 
         binds = [safeSearchQuery, safeSearchQuery, safeSearchQuery]; 
@@ -1503,7 +1514,6 @@ async function handleGetNewsInternal(url, env) {
 
   if (query) { 
     const transliterated = toTransliterated(query); 
-    // ✅ FIX: Using INSTR instead of LIKE for API search
     const result = await env.DB.prepare(`SELECT ${selectFields} FROM news LEFT JOIN news_loves nl ON nl.news_id = news.id WHERE news.status = 'published' AND (news.type = 'news' OR news.type = 'quiz') AND (instr(lower(news.search_text), lower(?)) > 0 OR instr(lower(news.headline), lower(?)) > 0 OR instr(lower(news.summary), lower(?)) > 0 OR instr(lower(news.main_topic), lower(?)) > 0) GROUP BY news.id ORDER BY news.created_at DESC, news.published_at DESC LIMIT ? OFFSET ?`).bind(transliterated, query, query, query, limit + 1, offset).all(); 
     const rawNews = result?.results || []; 
     const hasMore = rawNews.length > limit; 

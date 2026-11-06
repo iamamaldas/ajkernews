@@ -1,5 +1,5 @@
 // worker/src/database.js
-// ✅ FIXED: Dynamic SEO Title, Meta & Topic-Related Dynamic Image
+// ✅ FINAL FIXED: Dynamic SEO Title, Meta & Topic-Related Dynamic Image
 
 export async function getNewsById(db, id) {
   return await db.prepare(`SELECT * FROM news WHERE id = ? LIMIT 1`).bind(id).first();
@@ -28,18 +28,26 @@ export async function insertDailyQuiz(db, data) {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   
-  // ✅ Extract the Top Search Keyword from the first question
+  // ✅ FIX 1: Smartly find the trending keyword from data, title or first question
   let trendingKeyword = "General Knowledge";
-  if (data.questions && data.questions.length > 0 && data.questions[0].mainTopic) {
-      trendingKeyword = data.questions[0].mainTopic;
+  
+  if (data.mainTopic) {
+      trendingKeyword = data.mainTopic;
+  } else if (data.questions && data.questions.length > 0) {
+      if (data.questions[0].mainTopic) {
+          trendingKeyword = data.questions[0].mainTopic;
+      } else if (data.questions[0].question) {
+          // Fallback: Take first 3 words from the first question as keyword
+          trendingKeyword = data.questions[0].question.replace(/[^a-zA-Z0-9\u0980-\u09FF ]/g, "").split(" ").slice(0, 3).join(" ");
+      }
   }
 
-  // ✅ ডাইনামিক ইমেজ জেনারেট (টপিকের নাম দিয়ে Unsplash Source API)
-  // এটি টপিক রিলেটেড ইমেজ দিবে, SEO এর জন্য ভালো
-  const safeKeyword = encodeURIComponent(trendingKeyword.split(" ").slice(0, 3).join(" "));
-  const quizImage = `https://images.unsplash.com/photo-1606326608606-aa0b62935f2b?auto=format&fit=crop&w=800&q=80&sig=${safeKeyword}`;
-  // নোট: Unsplash এর এই স্ট্যাটিক ইমেজটাই সবচেয়ে সেফ, তবে চাইলে নিচের ডাইনামিক সোর্স API ও ব্যবহার করা যায়:
-  // const quizImage = `https://source.unsplash.com/800x450/?${safeKeyword},quiz,education`;
+  // Clean the keyword for URL (Remove Bengali chars for Unsplash search, keep English)
+  const englishKeyword = trendingKeyword.replace(/[^\x00-\x7F]/g, "").trim();
+  const safeKeyword = encodeURIComponent(englishKeyword || "India,Exam,News");
+
+  // ✅ FIX 2: Dynamic Topic-Related Image (Unsplash Source)
+  const quizImage = `https://source.unsplash.com/800x450/?${safeKeyword},exam,quiz`;
 
   // ✅ Format Date from "আজকের কুইজ: ২২ অক্টোবর ২০২৬" -> "২২ অক্টোবর ২০২৬"
   let datePart = data.title.replace("আজকের কুইজ:", "").trim();

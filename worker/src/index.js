@@ -1,5 +1,5 @@
 // worker/src/index.js
-// ✅ FINAL v89: 100% Stable, SEO Optimized, Perfect URL Indexing & Dynamic Quiz Image
+// ✅ FINAL v90: 100% Stable, SEO Optimized, Perfect URL Indexing & Bot Filter Added
 
 import { FCM, FcmOptions } from "fcm-cloudflare-workers";
 import ANALYTICS_CONFIG from "./config-analytics.js";
@@ -248,7 +248,6 @@ async function getQuizPageHtml(quiz, slug, env, publishedAtOverride) {
   const pageTitle = `${headline} - Ajker News`;
   const canonical = `https://ajkernews.in/${slug}`;
   
-  // ✅ FIX: Use the dynamic image from DB, fallback to default
   const image = quiz.image_url || "https://images.unsplash.com/photo-1606326608606-aa0b62935f2b?auto=format&fit=crop&w=800&q=80";
   
   const publishedAt = publishedAtOverride || quiz.created_at || new Date().toISOString(); 
@@ -526,6 +525,23 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     
+    // ==========================================
+    // ১. বট ফিল্টার (নতুন যোগ করা হলো)
+    // ==========================================
+    // যদি কেউ wp-admin, wp-login, xmlrpc বা .env পাথে হিট করে, তবে সরাসরি 404 রিটার্ন করবে
+    if (
+      url.pathname.startsWith('/wp-admin') || 
+      url.pathname.startsWith('/wp-login.php') || 
+      url.pathname === '/xmlrpc.php' ||
+      url.pathname === '/.env'
+    ) {
+      return new Response('Not Found', { 
+        status: 404,
+        headers: { 'Content-Type': 'text/plain' }
+      });
+    }
+    // ==========================================
+
     if (url.pathname === "/manifest.json") {
       if (env.ASSETS) {
         const assetUrl = new URL('/public/manifest.json', url.origin);
@@ -774,7 +790,6 @@ export default {
                   questions: finalQuestions
               });
 
-              // ✅ FIX: Use correct slug for indexing instead of 'quiz/date'
               try {
                   console.log(`[QUIZ-INDEX] Instantly indexing quiz for ${todayStr}...`);
                   const insertedQuiz = await getQuizByDate(env.DB, todayStr);
@@ -1062,7 +1077,6 @@ export default {
                 questions
               });
 
-              // ✅ FIX: Use correct slug for indexing instead of 'quiz/date'
               try {
                   console.log(`[QUIZ-INDEX] Instantly indexing quiz for ${todayStr}...`);
                   const generatedQuiz = await getQuizByDate(env.DB, todayStr);

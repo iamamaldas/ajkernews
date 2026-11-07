@@ -1,5 +1,5 @@
 // worker/src/database.js
-// ✅ FINAL FIXED: Dynamic SEO Title, Meta & Topic-Related Dynamic Image
+// ✅ FINAL FIXED: Dynamic SEO Title, Meta & Topic-Related Dynamic Image (Pollinations AI)
 
 export async function getNewsById(db, id) {
   return await db.prepare(`SELECT * FROM news WHERE id = ? LIMIT 1`).bind(id).first();
@@ -42,12 +42,12 @@ export async function insertDailyQuiz(db, data) {
       }
   }
 
-  // Clean the keyword for URL (Remove Bengali chars for Unsplash search, keep English)
+  // Clean the keyword for URL
   const englishKeyword = trendingKeyword.replace(/[^\x00-\x7F]/g, "").trim();
-  const safeKeyword = encodeURIComponent(englishKeyword || "India,Exam,News");
+  const safeKeyword = englishKeyword ? englishKeyword : "General Knowledge";
 
-  // ✅ FIX 2: Dynamic Topic-Related Image (Unsplash Source)
-  const quizImage = `https://source.unsplash.com/800x450/?${safeKeyword},exam,quiz`;
+  // ✅ FIX 2: Dynamic Topic-Related Image (Using Pollinations AI since Unsplash Source is dead)
+  const quizImage = `https://image.pollinations.ai/prompt/${encodeURIComponent(safeKeyword + ' current affairs exam quiz')}?width=800&height=450&nologo=true&seed=${Math.floor(Math.random() * 1000)}`;
 
   // ✅ Format Date from "আজকের কুইজ: ২২ অক্টোবর ২০২৬" -> "২২ অক্টোবর ২০২৬"
   let datePart = data.title.replace("আজকের কুইজ:", "").trim();

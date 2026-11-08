@@ -1,15 +1,14 @@
 // worker/src/gemini.js
-// ✅ FIXED: cleanText utils থেকে import + facts.js prompt injection
-// ✅ Unchanged logic
+// ✅ FINAL: SEO Optimized Prompt + No Fluff + Timeout Safe
 
 import { cleanText } from "./utils.js";
 import { buildFactsPromptBlock, hasForbiddenContent } from "./facts.js";
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
-const MIN_SUMMARY_WORDS = 80;
-const TARGET_SUMMARY_WORDS = 150;
-const RETRY_MIN_WORDS = 60;
+const MIN_SUMMARY_WORDS = 70; // একটু কমানো হলো যাতে ছোট সোর্সে ফালতু কথা না বাড়ায়
+const TARGET_SUMMARY_WORDS = 140;
+const RETRY_MIN_WORDS = 50;
 
 const GEMINI_TIMEOUT_MS = 15000;
 const MAX_OUTPUT_TOKENS = 8192;
@@ -223,7 +222,6 @@ function buildPrompt(article, simplified = false) {
       : []
   };
 
-  // ✅ NEW: facts block inject (prompt এর উপরে যাবে)
   const factsBlock = buildFactsPromptBlock();
 
   if (simplified) {
@@ -234,7 +232,7 @@ Convert this news into Bengali. Return JSON array with exactly one object.
 REQUIRED:
 - id: "${sourceData.id}"
 - headline: Bengali headline (natural, under 180 chars)
-- summary: Bengali summary (AT LEAST 100 Bengali words, 5-6 sentences)
+- summary: Bengali summary (AT LEAST 70 Bengali words, 4-5 sentences)
 - main_topic: short Bengali topic label
 
 RULES:
@@ -258,29 +256,24 @@ PRIMARY AUDIENCE: Bengali readers in India, especially West Bengal.
 
 TASK: Rewrite this source into detailed, factual Bengali news.
 
+RULES FOR GOOGLE SEO & NO FLUFF:
+1. **MAIN TOPIC FOCUS:** You MUST extract and include all key factual details (Names, Locations, Dates, Numbers, Core Event) from the source. 
+2. **NO FLUFF:** Do NOT write philosophical introductions (e.g., "ভক্তি, বিশ্বাস এবং প্রকৃতির অপূর্ব মেলবন্ধনে..."). Do NOT add extra filler words. Get straight to the point.
+3. **EXPAND WITH CONTEXT:** To make the article substantial for Google SEO, if the source is short, expand by adding relevant background context, historical significance, or general public impact of this event (based on general knowledge, but DO NOT alter the core facts).
+4. **LENGTH & SPEED:** Write 6-8 informative sentences. Aim for 120-140 Bengali words. This is the sweet spot for SEO and prevents AI timeout.
+5. Use ONLY facts from the supplied source data for the core event. Do NOT invent names, numbers, quotes, or dates.
+6. Write natural, clear Bengali suitable for mobile reading.
+7. Preserve important names, organisations, places, numbers, dates.
+8. Do not mention AI.
+9. main_topic = short Bengali topic label.
+10. Headline = under 180 characters.
+
 COVERAGE PRIORITY:
 1. West Bengal: Kolkata, Bengal government, politics, crime, education, jobs, weather
 2. India: government, Delhi, Parliament, PM, Supreme Court, national politics
 3. Other Indian states
 4. Major world news affecting India
 5. Business, Technology, Sports, Entertainment
-
-MANDATORY LENGTH:
-- Each summary MUST be AT LEAST ${MIN_SUMMARY_WORDS} Bengali words.
-- AIM for ${TARGET_SUMMARY_WORDS}-200 Bengali words.
-- Write 6-7 FULL sentences minimum.
-
-RULES:
-1. Use ONLY facts from the supplied source data.
-2. Do NOT invent names, numbers, quotes, locations, dates.
-3. Do NOT add opinions or speculation.
-4. Write natural, clear Bengali suitable for mobile.
-5. Preserve important names, organisations, places, numbers, dates.
-6. Do not mention AI.
-7. Return one result for EVERY supplied article.
-8. Keep original article ID unchanged.
-9. main_topic = short Bengali topic label.
-10. Headline = under 180 characters.
 
 SOURCE ARTICLE:
 ${JSON.stringify(sourceData)}
@@ -383,12 +376,12 @@ function validateGeminiResult(result, article, isRetry = false) {
   if (!headline) return null;
   if (!summary) return null;
 
-  // ✅ NEW: forbidden outdated-fact check (headline + summary)
   if (hasForbiddenContent(headline) || hasForbiddenContent(summary)) {
     console.warn(`[GEMINI] Rejected ${article.id}: outdated/wrong fact detected → will retry`);
     return null;
   }
 
+  // এখানে MIN_WORDS কমিয়ে ৭০ করা হয়েছে যাতে ছোট নিউজ বাদ না পড়ে
   const minWords = isRetry ? RETRY_MIN_WORDS : MIN_SUMMARY_WORDS;
   const wordCount = summary.split(/\s+/).filter(Boolean).length;
 

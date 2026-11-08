@@ -10,7 +10,7 @@ const GNEWS_SEARCH_URL = "https://gnews.io/api/v4/search";
 const MAX_PER_LANGUAGE = 8;
 const GNEWS_TIMEOUT_MS = 15000;
 const GNEWS_RETRY_DELAY_MS = 2000;
-const GNEWS_SERIAL_GAP_MS = 3000;
+const GNEWS_SERIAL_GAP_MS = 9000; // ✅ ৯ সেকেন্ড করা হলো রেট লিমিট এড়াতে
 
 const MIN_TITLE_LENGTH = 25;
 const MIN_DESCRIPTION_LENGTH = 60;
